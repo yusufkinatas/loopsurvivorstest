@@ -10,11 +10,13 @@ import { CHEMISTRY, FUSION } from './loadout.js';
 function candidates(g) {
   const L = g.loadout;
   const filled = L.filled();
+  const room = filled < g.channelCap();
   const out = [];
   for (const role of ROLES) {
     const cur = L.channels[role];
     const inRole = INSTRUMENTS.filter((d) => d.role === role);
     if (!cur) {
+      if (!room) continue;
       const w = filled < 3 ? 1.1 : 0.8;
       for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w });
     } else {
@@ -47,7 +49,7 @@ export function buildOffers(g, count = 3) {
   };
   // Keep the band growing early, and always leave a way to strengthen what you have.
   const news = pool.filter((c) => c.kind === 'new');
-  if (news.length && g.loadout.filled() < ROLES.length && rng() < 0.85) take(weightedPick(news, (c) => c.w));
+  if (news.length && rng() < 0.85) take(weightedPick(news, (c) => c.w));
   const ups = pool.filter((c) => c.kind === 'up' && ok(c));
   if (ups.length && rng() < 0.75) take(weightedPick(ups, (c) => c.w));
   let guard = 0;

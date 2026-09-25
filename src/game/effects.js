@@ -147,13 +147,15 @@ export class Effects {
     return m;
   }
 
-  // Blow up every mine of `owner` (optionally scaling damage). Returns how many detonated.
-  detonateMines(owner, scale = 1) {
+  // Blow up the mines of `owner` (optionally scaling damage). With armed: true, only mines that
+  // have an enemy inside their blast go off; the rest keep waiting. Returns how many detonated.
+  detonateMines(owner, scale = 1, { armed = false } = {}) {
     let n = 0;
     const prev = this.g.src;
     for (let i = this.mines.length - 1; i >= 0; i--) {
       const m = this.mines[i];
       if (m.owner !== owner || m.age < 0.05) continue;
+      if (armed && !this.g.inRadius(m.x, m.y, m.r * 0.75).length) continue;
       this.g.src = m.src;
       this.pulse({ x: m.x, y: m.y, r: m.r, damage: m.damage * scale, kb: m.kb, stun: m.stun, slow: m.slow, color: m.color, fill: 0.3 });
       this.particles(m.x, m.y, m.color, 10, 220, 0.4, 3);

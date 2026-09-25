@@ -1,5 +1,5 @@
 // BASS channel: the low notes. Roots and fifths that lock onto the kick, syncopated at higher levels.
-// Heavy and close: pulses around the player, slugs that bowl through the front row, mines at your feet.
+// Heavy and close: pulses around the player, slugs that bowl through the front row, mines tossed into the crowd.
 
 import { STEP_SEC } from '../../config.js';
 
@@ -117,25 +117,25 @@ const triBass = {
   name: 'Triangle Bass',
   role: 'bass',
   style: 'chip',
-  blurb: 'The bouncy low line of old game consoles. Every note drops a mine where you stand and blows up the one before.',
+  blurb: 'The bouncy low line of old game consoles. Every note tosses a mine into the crowd, and mines blow up on the beat.',
   steps: 16,
   low: 28,
   levels: [
-    { text: 'Low and high notes bounce back and forth. Each note blows up your last mine and drops a new one.',
+    { text: 'Low and high notes bounce back and forth. Each note tosses a mine into the nearest crowd, and mines with enemies on them blow up.',
       pattern: [R(0, 2), O(2, 2, 0.8), R(8, 2, 0.95), O(10, 2, 0.8)],
-      stats: { damage: 23, radius: 72, kb: 90, count: 1 } },
+      stats: { damage: 23, radius: 72, kb: 90, count: 1, toss: 420 } },
     { text: 'The bounce carries through beat 2. Two more blasts every bar.',
       pattern: [R(0, 2), O(2, 2, 0.8), R(4, 2, 0.9), O(6, 2, 0.8), R(8, 2, 0.95), O(10, 2, 0.8)],
-      stats: { damage: 24, radius: 76, kb: 95, count: 1 } },
+      stats: { damage: 24, radius: 76, kb: 95, count: 1, toss: 440 } },
     { text: 'Bounces on every half beat. Bigger blasts.',
       pattern: [R(0, 2), O(2, 2, 0.8), R(4, 2, 0.9), O(6, 2, 0.8), R(8, 2, 0.95), O(10, 2, 0.8), F(12, 2, 0.9), O(14, 2, 0.8)],
-      stats: { damage: 27, radius: 86, kb: 100, count: 1 } },
+      stats: { damage: 27, radius: 86, kb: 100, count: 1, toss: 460 } },
     { text: 'Quick extra hops between the bounces. Blasts throw enemies back harder.',
       pattern: [R(0, 2), O(2, 1, 0.8), O(3, 1, 0.55), R(4, 2, 0.9), O(6, 2, 0.8), R(8, 2, 0.95), O(10, 1, 0.8), O(11, 1, 0.55), F(12, 2, 0.9), O(14, 2, 0.8)],
-      stats: { damage: 31, radius: 94, kb: 120, count: 1 } },
-    { text: 'Full bouncing line. Every note also drops a second mine behind you.',
+      stats: { damage: 31, radius: 94, kb: 120, count: 1, toss: 480 } },
+    { text: 'Full bouncing line. Every note tosses a second mine at another enemy.',
       pattern: [R(0, 2), O(2, 1, 0.8), O(3, 1, 0.55), R(4, 2, 0.9), O(6, 1, 0.8), R(7, 1, 0.55), R(8, 2, 0.95), O(10, 1, 0.8), O(11, 1, 0.55), F(12, 2, 0.9), O(14, 1, 0.8), R(15, 1, 0.6)],
-      stats: { damage: 38, radius: 106, kb: 130, count: 2 } },
+      stats: { damage: 38, radius: 106, kb: 130, count: 2, toss: 520 } },
   ],
 
   sound(A, t, note, out) {
@@ -150,16 +150,18 @@ const triBass = {
     const p = g.player;
     const color = g.color('bass');
     const id = inst.def.id;
-    // Blow up the mines left behind, then drop fresh ones where you stand.
-    g.fx.detonateMines(id);
-    // Extra mines fan out behind you, where the chasers are.
+    // Mines already lying in a crowd go off on the beat; the rest keep waiting.
+    g.fx.detonateMines(id, 1, { armed: true });
+    // Then toss fresh ones: the first into the thickest crowd nearby, extras onto other enemies.
+    // With nobody around they land at your feet.
     const n = Math.max(1, g.amount(st.count));
-    const back = g.aim() + Math.PI;
+    const spot = g.densest(st.toss);
     for (let i = 0; i < n; i++) {
-      const a = back + (i % 2 ? 1 : -1) * 0.5 * Math.ceil(i / 2);
-      const off = i === 0 ? 0 : 72;
-      g.fx.mine({ owner: id, x: p.x + Math.cos(a) * off, y: p.y + Math.sin(a) * off, r: g.area(st.radius), damage: g.dmg(st.damage) * note.v,
-        kb: st.kb, color, life: 4, max: n + 2, size: 6 + note.v * 2 });
+      const e = i === 0 ? spot : g.randomEnemy(p.x, p.y, st.toss);
+      const x = e ? e.x : p.x, y = e ? e.y : p.y;
+      g.fx.mine({ owner: id, x, y, r: g.area(st.radius), damage: g.dmg(st.damage) * note.v,
+        kb: st.kb, color, life: 5, max: n + 6, size: 6 + note.v * 2 });
+      g.fx.particles(x, y, color, 3, 60, 0.25, 2);
     }
   },
 };

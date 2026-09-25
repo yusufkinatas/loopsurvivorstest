@@ -112,6 +112,9 @@ button { font: inherit; }
 .dropmeter.building { border-color: #fff; color: #fff; }
 @keyframes dropready { from { box-shadow: 0 0 0 0 rgba(255, 209, 102, 0.2); } to { box-shadow: 0 0 26px 0 rgba(255, 209, 102, 0.55); } }
 
+.mixwrap { display: grid; gap: 4px; min-width: 0; }
+.mixcap { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); text-shadow: 0 1px 3px #000; }
+.mixcap b { color: var(--text); }
 .mixer { display: grid; grid-template-columns: repeat(6, minmax(0, 124px)); gap: 6px; min-width: 0; }
 .strip {
   display: grid; grid-template-columns: 5px 22px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 7px; row-gap: 4px;
@@ -301,7 +304,9 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
   .genre { padding: 5px 8px; }
   .genre-v { font-size: 12px; }
   .hud-bottom { flex-wrap: wrap; gap: 6px; justify-content: space-between; }
-  .mixer { order: 3; flex: 1 0 100%; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+  .mixwrap { order: 3; flex: 1 0 100%; }
+  .mixcap span { display: none; }
+  .mixer { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
   .strip { grid-template-columns: 4px minmax(0, 1fr); padding: 5px; row-gap: 3px; }
   .strip-body { display: none; }
   .strip-icon { grid-row: 1; grid-column: 2; justify-self: center; width: 20px; height: 20px; }

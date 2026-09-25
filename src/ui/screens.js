@@ -92,7 +92,7 @@ export class Screens {
         <ol class="howto">
           <li><b>Move.</b> WASD or arrow keys. On a touch screen, drag anywhere. Moving is all you control.</li>
           <li><b>Your instruments fight for you.</b> They play on the beat by themselves, and every note they play is an attack.</li>
-          <li><b>One instrument per channel.</b> Your mixer has six channels. Each one holds a single sound, so the song never turns to mush. A new sound for a full channel swaps out the old one.</li>
+          <li><b>One instrument per channel.</b> Your mixer has six channels. Each one holds a single sound, so the song never turns to mush. A new sound for a full channel swaps out the old one. Channels open up as the song goes on, so your band grows with it.</li>
           <li><b>It always sounds right.</b> Every note is tuned to the song's key and locked to the beat. Pick what you like.</li>
           <li><b>Styles belong together.</b> Instruments are Synth, Live or 8-Bit. Two or more of a style unlock a bonus. Two of every style unlocks Fusion.</li>
           <li><b>Pedals</b> change your sound and your stats at the same time. You have four slots.</li>

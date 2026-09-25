@@ -1,7 +1,7 @@
 // The run. Owns the world, turns sequencer note events into attacks, and exposes the small API
 // that instrument fire() functions use (see docs/INSTRUMENTS.md).
 
-import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, MAX_INSTRUMENT_LEVEL } from '../config.js';
+import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
@@ -399,10 +399,16 @@ export class Game {
     this.director.onBeat(ev);
   }
 
+  // How many mixer channels the song has opened so far.
+  channelCap(index = this.sectionIndex) { return CHANNEL_UNLOCKS[Math.min(index, CHANNEL_UNLOCKS.length - 1)]; }
+
   onSection(ev) {
+    const before = this.channelCap();
     this.sectionIndex = ev.index;
     this.section = ev.section;
-    this.banner(ev.section.name, ev.section.boss ? 'Something loud is coming' : '');
+    const opened = this.channelCap() > before;
+    this.banner(ev.section.name, ev.section.boss ? 'Something loud is coming' : opened ? 'A new channel opens on the mixer' : '');
+    if (opened) this.hooks.onLoadout?.();
     this.director.onSection(ev);
     this.hooks.onSection?.(ev.section);
   }

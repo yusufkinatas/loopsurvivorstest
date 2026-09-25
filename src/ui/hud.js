@@ -5,6 +5,7 @@ import { ROLES, ROLE_INFO, STYLES, PEDAL_SLOTS, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_
 import { fmtTime, rgba } from '../util.js';
 import { icon } from './icons.js';
 import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
+import { SECTIONS } from '../music/song.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 
@@ -43,6 +44,7 @@ export class Hud {
       this.strips[role] = { el: s, meter: s.querySelector('.strip-meter i'), name: s.querySelector('.strip-name'), sub: s.querySelector('.strip-sub'), pips: s.querySelector('.strip-pips') };
       this.mixer.append(s);
     }
+    this.mixCap = el('div', 'mixcap');
     this.pedals = el('div', 'pedalboard');
     this.pedalSlots = [];
     for (let i = 0; i < PEDAL_SLOTS; i++) { const p = el('div', 'pedal empty'); this.pedalSlots.push(p); this.pedals.append(p); }
@@ -56,7 +58,9 @@ export class Hud {
     this.pauseBtn.setAttribute('aria-label', 'Pause');
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); onPause(); });
 
-    this.bottom.append(this.drop, this.mixer, this.pedals);
+    const mixWrap = el('div', 'mixwrap');
+    mixWrap.append(this.mixCap, this.mixer);
+    this.bottom.append(this.drop, mixWrap, this.pedals);
     root.append(this.top, this.boss, this.banner, this.tipEl, this.side, this.bottom, this.pauseBtn);
 
     this._bannerTimer = null;
@@ -89,6 +93,9 @@ export class Hud {
 
   // Rebuild the parts that only change when the loadout changes.
   refreshLoadout(g) {
+    const cap = g.channelCap();
+    const next = SECTIONS.findIndex((s, i) => i > g.sectionIndex && g.channelCap(i) > cap);
+    this.mixCap.innerHTML = `<b>${g.loadout.filled()}/${cap}</b> channels open${next > 0 ? ` <span>· one more opens at ${SECTIONS[next].name}</span>` : ''}`;
     for (const role of ROLES) {
       const s = this.strips[role];
       const inst = g.loadout.channels[role];
@@ -100,7 +107,7 @@ export class Hud {
         s.pips.innerHTML = Array.from({ length: MAX_INSTRUMENT_LEVEL }, (_, i) => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('');
       } else {
         s.name.textContent = ROLE_INFO[role].name;
-        s.sub.textContent = 'empty';
+        s.sub.textContent = g.loadout.filled() < cap ? 'open' : 'empty';
         s.sub.style.color = '';
         s.pips.innerHTML = '';
       }

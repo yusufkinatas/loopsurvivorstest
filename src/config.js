@@ -30,6 +30,10 @@ export const STYLES = {
   chip:    { name: '8-Bit', color: '#c2f25e', blurb: 'Retro console' },
 };
 
+// The mixer opens up with the song: channels available from each section on (Intro, Verse, Chorus, Verse II, Chorus II...).
+// This is what keeps a run starting as a single sound and growing into a full band.
+export const CHANNEL_UNLOCKS = [2, 3, 4, 5, 6];
+
 export const MAX_INSTRUMENT_LEVEL = 5;
 export const MAX_PEDAL_LEVEL = 3;
 export const PEDAL_SLOTS = 4;
