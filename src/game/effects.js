@@ -355,7 +355,11 @@ export class Effects {
       for (const it of grp.items) it.glow = Math.max(0, it.glow - dt * 4);
     }
 
-    // Cosmetics
+    this.updateCosmetics(dt);
+  }
+
+  // Visual-only effects: safe to run while nothing else in the world moves (the death beat).
+  updateCosmetics(dt) {
     const fade = (arr) => { for (let i = arr.length - 1; i >= 0; i--) { const f = arr[i]; f.age += dt; if (f.age >= f.life) swapRemove(arr, i); } };
     fade(this.flashes); fade(this.beams); fade(this.zaps);
     for (let i = this.parts.length - 1; i >= 0; i--) {

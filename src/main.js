@@ -191,6 +191,9 @@ function endRun(sum) {
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
+  // Space and E are the Drop keys: on menus they must never press a focused button by accident.
+  if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
+  if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
     if (k === 'pad-a') {

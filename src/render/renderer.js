@@ -169,7 +169,7 @@ export class Renderer {
     this._telegraphs(c, g);
     this._shots(c, g, inView);
     this._texts(c, g, inView);
-    this._bossArrow(c, g, inView);
+    this._bossArrow(c, g);
 
     // Screen-space overlays
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -471,16 +471,22 @@ export class Renderer {
       if (!e.boss || e.dead) continue;
       const bt = e.ai.blinkTo;
       if (bt) {
+        // Landing marker in the danger palette (red and white), so it never looks like a player attack.
         const k = clamp((g.time - (e.ai.blinkSetAt ?? g.time)) / (BEAT_SEC * 2), 0, 1);
-        c.fillStyle = rgba(e.color, 0.1 + 0.12 * k);
+        const blink = 0.6 + 0.4 * Math.sin(this.time * 18);
+        c.fillStyle = `rgba(255,45,85,${0.1 + 0.14 * k})`;
         circle(c, bt.x, bt.y, e.r); c.fill();
-        c.strokeStyle = rgba('#ffffff', 0.5 + 0.4 * k);
-        c.lineWidth = 2.5;
+        c.strokeStyle = `rgba(255,255,255,${(0.55 + 0.4 * k) * blink})`;
+        c.lineWidth = 3.5;
         circle(c, bt.x, bt.y, e.r * (2 - k)); c.stroke();
+        c.strokeStyle = 'rgba(255,45,85,0.9)';
+        c.lineWidth = 2;
+        circle(c, bt.x, bt.y, e.r); c.stroke();
         c.setLineDash([8, 8]);
-        c.strokeStyle = rgba(e.color, 0.5);
+        c.strokeStyle = 'rgba(255,45,85,0.55)';
         c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(bt.x, bt.y); c.stroke();
         c.setLineDash([]);
+        c.strokeStyle = 'rgba(255,255,255,0.8)';
         for (let i = 0; i < 20; i++) {
           const a = (i / 20) * TAU;
           c.beginPath();
@@ -496,7 +502,7 @@ export class Renderer {
         const k = 1 - cw.t / BEAT_SEC;
         c.save();
         c.translate(e.x, e.y); c.rotate(cw.a);
-        c.fillStyle = rgba(e.color, 0.08 + 0.14 * k);
+        c.fillStyle = `rgba(255,45,85,${0.08 + 0.14 * k})`;
         c.fillRect(0, -e.r, L, e.r * 2);
         c.strokeStyle = rgba('#ffffff', 0.3 + 0.4 * k);
         c.lineWidth = 2;
@@ -506,21 +512,27 @@ export class Renderer {
     }
   }
 
-  // An arrow at the screen edge pointing at an off-screen boss.
-  _bossArrow(c, g, inView) {
+  // An arrow pointing at a boss that is off-screen or hidden under the HUD, drawn inside the clear play area.
+  _bossArrow(c, g) {
     const e = g.boss;
-    if (!e || e.dead || inView(e.x, e.y, -60)) return;
+    if (!e || e.dead) return;
     const s = this.scale;
-    const dx = e.x - this.cam.x, dy = e.y - this.cam.y;
+    const top = 72, bottom = this.w < 760 ? 150 : 104, side = 24;
+    const sxp = (e.x - this.cam.x) * s + this.w / 2, syp = (e.y - this.cam.y) * s + this.h / 2;
+    if (sxp > side && sxp < this.w - side && syp > top && syp < this.h - bottom) return;
+    // Center of the clear area, and the point where the ray toward the boss leaves it.
+    const cx = this.w / 2, cy = (top + this.h - bottom) / 2;
+    const dx = sxp - cx, dy = syp - cy;
     const a = Math.atan2(dy, dx);
-    const hw = this.w / s / 2 - 28 / s, hh = this.h / s / 2 - 28 / s;
+    const hw = this.w / 2 - side - 8, hh = (this.h - bottom - top) / 2 - 8;
     const k = Math.min(hw / Math.abs(Math.cos(a) || 1e-6), hh / Math.abs(Math.sin(a) || 1e-6));
-    const x = this.cam.x + Math.cos(a) * k, y = this.cam.y + Math.sin(a) * k;
-    const sz = 14 / s;
+    const x = cx + Math.cos(a) * k, y = cy + Math.sin(a) * k;
     c.save();
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.translate(x, y); c.rotate(a);
+    const sz = 15;
     c.fillStyle = e.color;
-    c.strokeStyle = 'rgba(8,4,12,0.9)'; c.lineWidth = 3 / s;
+    c.strokeStyle = 'rgba(8,4,12,0.9)'; c.lineWidth = 3;
     c.beginPath(); c.moveTo(sz, 0); c.lineTo(-sz * 0.7, sz * 0.75); c.lineTo(-sz * 0.35, 0); c.lineTo(-sz * 0.7, -sz * 0.75); c.closePath();
     c.stroke(); c.fill();
     c.restore();

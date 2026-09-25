@@ -12,7 +12,8 @@ export class Input {
     window.addEventListener('keydown', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' && e.target.type === 'range')) return;
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(k) && !(e.target && e.target.tagName === 'BUTTON' && k === ' ')) e.preventDefault();
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k)) e.preventDefault();
+      if (k === ' ' && e.repeat) e.preventDefault();   // a held Space never presses a focused button
       if (!e.repeat) { if (this.onKey(k, e) === true) e.preventDefault(); }
       this.keys.add(k);
     });

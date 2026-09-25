@@ -115,10 +115,10 @@ function statDiff(a, b) {
   const out = [];
   for (const k in b) {
     if (!STAT_NAMES[k] || typeof b[k] !== 'number') continue;
-    const from = a[k] ?? 0, to = b[k];
+    const from = a[k] ?? (k === 'count' ? 1 : 0), to = b[k];
     if (from === to) continue;
     const rel = from ? Math.abs(to - from) / Math.abs(from) : 1;
-    const fmt = (v) => (Math.abs(v) < 1 && v !== 0 ? `${Math.round(v * 100)}%` : String(Math.round(v * 10) / 10));
+    const fmt = (v) => (k === 'slow' ? `${Math.round(v * 100)}%` : k === 'stun' ? `${Math.round(v * 100) / 100}s` : String(Math.round(v * 10) / 10));
     out.push({ rel, text: from ? `${STAT_NAMES[k]} ${fmt(from)} → ${fmt(to)}` : `new: ${STAT_NAMES[k]} ${fmt(to)}` });
   }
   out.sort((x, y) => y.rel - x.rel);

@@ -246,7 +246,7 @@ export class Game {
 
   // Deal damage. o: kb (knockback strength), fx/fy (where the push comes from), stun (s), slow (0..1), src.
   hit(e, dmg, o = {}) {
-    if (!e || e.dead || !(dmg > 0)) return;
+    if (!e || e.dead || !(dmg > 0) || this.state !== 'playing') return;
     let crit = false;
     if (rng() < this.stats.crit) { dmg *= this.stats.critMult; crit = true; }
     const src = o.src || this.src;
@@ -465,7 +465,9 @@ export class Game {
     this.state = 'dying';
     this.dyingT = 0.9;
     this.seq.hold = true;
-    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat');
+    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat' && ev.type !== 'build' && ev.type !== 'drop');
+    this.seq.dropState = null;
+    this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     for (const inst of this.loadout.instruments()) this.fx.particles(p.x, p.y, this.color(inst), 16, 340, 1.1, 3.5);
     this.fx.particles(p.x, p.y, '#f4efff', 20, 260, 0.9, 3);
@@ -475,7 +477,7 @@ export class Game {
   step(dt, move) {
     if (this.state === 'dying') {
       this.dyingT -= dt;
-      this.fx.update(dt * 0.5);
+      this.fx.updateCosmetics(dt * 0.5);
       this.shake *= Math.exp(-dt * 6);
       this.hurtFlash *= Math.exp(-dt * 3);
       if (this.dyingT <= 0) this.gameOver();
@@ -655,15 +657,21 @@ export class Game {
   }
 
   score() {
-    return Math.round(this.kills * 10 + this.time * 5 + this.level * 100 + this.bossesBeaten * 2000 + this.bonusScore + (this.won ? 10000 : 0));
+    return Math.round(this.kills * 10 + this.time * 5 + this.level * 100 + this.bossesBeaten * 2000 + this.bonusScore + (this.state === 'victory' || (this.won && this.state === 'playing') ? 10000 : 0));
   }
 
   summary(won) {
     const insts = [...this.loadout.instruments()];
-    const rows = [...insts, ...(this.retired || [])].map((i) => ({
-      id: i.def.id, name: i.def.name, role: i.def.role, style: i.def.style, level: i.level,
-      dmg: Math.round(i.dmg), kills: i.kills, active: this.loadout.has(i),
-    }));
+    const byId = new Map();
+    for (const i of [...insts, ...(this.retired || [])]) {
+      const r = byId.get(i.def.id) || { id: i.def.id, name: i.def.name, role: i.def.role, style: i.def.style, level: 0, dmg: 0, kills: 0, active: false };
+      r.level = Math.max(r.level, i.level);
+      r.dmg += Math.round(i.dmg);
+      r.kills += i.kills;
+      r.active = r.active || this.loadout.has(i);
+      byId.set(i.def.id, r);
+    }
+    const rows = [...byId.values()];
     return {
       won, time: this.time, kills: this.kills, level: this.level, score: this.score(),
       genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,

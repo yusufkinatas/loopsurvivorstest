@@ -168,6 +168,7 @@ button { font: inherit; }
   -webkit-user-select: none; user-select: none;
 }
 #screens:has(.screen-levelup, .screen-pause, .screen-end, .screen-howto, .screen-settings) { background: rgba(11, 8, 20, 0.84); }
+body[data-screen] #hud .hud-top, body[data-screen] #hud .hud-side, body[data-screen] #hud .banner, body[data-screen] #hud .tip, body[data-screen] #hud .pausebtn { visibility: hidden; }
 .screen { min-height: 100%; display: grid; place-items: center; }
 .screen-levelup, .screen-pause, .screen-end, .screen-howto, .screen-settings { animation: screenIn 0.18s ease-out; }
 @keyframes screenIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -271,7 +272,7 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .chem-list li.bad { color: var(--bad); }
 .chem-list li.bad::before { content: "- "; }
 .card-listen { display: none; font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
-@media (hover: none) { .card-listen { display: block; } .card-key { display: none; } }
+@media (hover: none) { .card-listen { display: block; } .card-key, .dropmeter kbd { display: none; } }
 
 /* End screen */
 .end .kicker { margin-bottom: 6px; }
@@ -286,7 +287,7 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .end-rows li.retired { opacity: 0.55; }
 .er-icon { width: 22px; height: 22px; color: var(--c); }
 .er-name { display: grid; line-height: 1.25; min-width: 0; }
-.er-name small { font-family: var(--f-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.06em; }
+.er-name small { font-family: var(--f-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .er-bar { height: 8px; background: rgba(255, 255, 255, 0.06); border-radius: 2px; overflow: hidden; }
 .er-bar i { display: block; height: 100%; background: var(--c); transform-origin: left center; }
 .er-num { text-align: right; font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -322,7 +323,12 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
   .pedalboard { grid-template-columns: repeat(4, 40px); grid-auto-rows: 26px; }
   .tip { bottom: calc(var(--safe-b) + 128px); font-size: 13px; }
   .cards { grid-template-columns: minmax(0, 1fr); max-width: 440px; margin-left: auto; margin-right: auto; gap: 10px; margin-top: 14px; }
-  .card { padding: 12px 14px; gap: 5px; }
+  .card { padding: 11px 13px; gap: 4px; }
+  .card-detail, .card-listen { display: none !important; }
+  .cards-wrap h2 { font-size: 21px; }
+  .cards-wrap .kicker { margin-bottom: 4px; }
+  .cards-wrap { margin-top: 0; }
+  .chem-list { font-size: 11px; }
   .card-icon { flex-basis: 30px; width: 30px; height: 30px; padding: 5px; }
   .card-title { font-size: 16px; }
   .card-body { font-size: 13.5px; line-height: 1.4; }

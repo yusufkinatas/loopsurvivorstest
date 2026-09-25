@@ -44,10 +44,12 @@ export class Screens {
     this.current = null;
     this.focus = 0;
     this.listening = false;
+    this.lastPointer = -1e9;
   }
 
   _mount(name, html) {
     this.current = name;
+    document.body.dataset.screen = name;
     this.root.innerHTML = `<div class="screen screen-${name}" role="dialog" aria-modal="true">${html}</div>`;
     this.root.hidden = false;
     return this.root.firstElementChild;
@@ -55,6 +57,7 @@ export class Screens {
 
   hide() {
     this.current = null;
+    delete document.body.dataset.screen;
     this.root.innerHTML = '';
     this.root.hidden = true;
   }
@@ -177,18 +180,24 @@ export class Screens {
     cards.forEach((card, i) => {
       card.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { this.focus = i; onPreview(i); } });
       card.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') onPreview(null); });
-      card.addEventListener('focus', () => { this.focus = i; onPreview(i); cards.forEach((c, k) => c.classList.toggle('focused', k === i)); });
+      card.addEventListener('focus', () => {
+        this.focus = i;
+        cards.forEach((c, k) => c.classList.toggle('focused', k === i));
+        // Focus that follows a tap or click is not a request to listen (hold and hover handle that).
+        if (performance.now() - this.lastPointer > 700) onPreview(i);
+      });
       card.addEventListener('blur', (e) => {
         if (e.relatedTarget && e.relatedTarget.classList?.contains('card')) return;
         card.classList.remove('focused');
         onPreview(null);
       });
       card.addEventListener('pointerdown', (e) => {
+        this.lastPointer = performance.now();
         if (e.pointerType === 'mouse') return;
         held = false;
         holdTimer = setTimeout(() => { held = true; onPreview(i); card.classList.add('listening'); }, 260);
       });
-      const endHold = () => { clearTimeout(holdTimer); if (held) { onPreview(null); card.classList.remove('listening'); } };
+      const endHold = () => { this.lastPointer = performance.now(); clearTimeout(holdTimer); if (held) { onPreview(null); card.classList.remove('listening'); } };
       card.addEventListener('pointerup', endHold);
       card.addEventListener('pointercancel', endHold);
       card.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -207,9 +216,13 @@ export class Screens {
       const i = Number(key) - 1;
       if (i < this.cards.length) { this.onPick(i); return true; }
     }
-    if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'a' || key === 'd') {
-      const dir = key === 'ArrowLeft' || key === 'a' ? -1 : 1;
-      this.focus = (this.focus + dir + this.cards.length) % this.cards.length;
+    // Arrow keys only: A and D are movement keys and would move focus while strafing.
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+      const focused = this.cards.includes(document.activeElement);
+      if (focused) {
+        const dir = key === 'ArrowLeft' ? -1 : 1;
+        this.focus = (this.focus + dir + this.cards.length) % this.cards.length;
+      } else this.focus = 0;   // first press lands on the first card
       this.cards[this.focus].focus();
       return true;
     }
@@ -223,7 +236,7 @@ export class Screens {
       <div class="panel">
         <p class="kicker">Paused · ${esc(g.section.name)} · ${fmtTime(g.time)}</p>
         <h2>Taking five</h2>
-        <p class="sub">${esc(g.genre)} in ${esc(g.key.name)}. ${g.loadout.filled()} of 6 channels filled.</p>
+        <p class="sub">${esc(g.genre)} in ${esc(g.key.name)}. ${g.loadout.filled()} of ${g.channelCap()} channels in use.</p>
         <div class="panel-actions col">
           <button class="btn btn-primary" type="button" data-act="resume">Resume</button>
           <button class="btn" type="button" data-act="howto">How to play</button>
@@ -246,7 +259,7 @@ export class Screens {
     const rows = sum.instruments.map((i) => `
       <li style="--c:${ROLE_INFO[i.role].color}" class="${i.active ? '' : 'retired'}">
         <span class="er-icon">${icon(i.role)}</span>
-        <span class="er-name">${esc(i.name)}<small>${STYLES[i.style].name} · Lv ${i.level}${i.active ? '' : ' · swapped out'}</small></span>
+        <span class="er-name">${esc(i.name)}<small>${STYLES[i.style].name} · Lv ${i.level}${i.active ? '' : ' · swapped'}</small></span>
         <span class="er-bar"><i style="transform:scaleX(${i.dmg / maxDmg})"></i></span>
         <span class="er-num">${i.dmg.toLocaleString('en-US')}</span>
       </li>`).join('');
