@@ -79,6 +79,7 @@ export class Game {
     this.dropFlash = 0;
     this.boss = null;
     this.bossesBeaten = 0;
+    this.bossesSpawned = [];
     this.chanPulse = Object.fromEntries(ROLES.map((r) => [r, 0]));
     this.sectionIndex = 0;
     this.section = SECTIONS[0];
@@ -423,6 +424,7 @@ export class Game {
 
   onBossSpawn(e) {
     this.boss = e;
+    (this.bossesSpawned ||= []).push(e.type);
     this.hooks.onBoss?.(e);
   }
 

@@ -40,6 +40,8 @@ function parseOpts() {
     density: get('density') !== null ? Number(get('density')) : 1,
     debug: get('debug') === '1',
     solo: get('solo') === '1',
+    realpick: get('realpick') === '1',   // sim: level-ups go through the real pause path
+    chaos: get('chaos') === '1',         // sim: pause and resume at random moments
   };
 }
 
@@ -74,7 +76,7 @@ const hooks = {
   autopick: (offers) => autopick(offers, game, opts.autopick),
 };
 
-const game = new Game({ audio, clock, seq, opts: { ...opts, autopick: opts.sim ? opts.autopick : null }, settings, hooks });
+const game = new Game({ audio, clock, seq, opts: { ...opts, autopick: opts.sim && !opts.realpick ? opts.autopick : null }, settings, hooks });
 
 const hud = new Hud(hudRoot, {
   onDrop: () => game.requestDrop(),
@@ -292,6 +294,7 @@ const origErr = console.error.bind(console);
 console.error = (...a) => { errors++; origErr(...a); };
 window.addEventListener('error', () => { errors++; });
 
+let pausedFor = 0;
 function simFrame() {
   if (mode !== 'run') return;
   if (window.__LS.done) return;
@@ -306,6 +309,8 @@ function simFrame() {
       nextSample += 10;
       samples.push(snapshot());
     }
+    if (opts.chaos && game.state === 'playing' && Math.random() < 0.004) { game.pause(); pausedFor = 1 + Math.floor(Math.random() * 30); }
+    if (game.state === 'paused') { if (--pausedFor <= 0) game.unpause(); continue; }
     if (game.state !== 'playing' && game.state !== 'dying') {
       if (game.state === 'levelup') game.choose(autopick(game.offers, game, opts.autopick || 'smart'));
       else { window.__LS.done = true; break; }
@@ -329,6 +334,7 @@ window.__LS = {
     return {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
       damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
+      bossesSpawned: game.bossesSpawned, sectionIndex: game.sectionIndex, cap: game.channelCap(), dropState: game.dropState,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
       genre: game.genre, key: game.key?.name,
       loadout: game.loadout ? game.loadout.instruments().map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg), kills: i.kills, notes: i.notes })) : [],
