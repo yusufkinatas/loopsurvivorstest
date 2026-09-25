@@ -29,7 +29,7 @@ export const PEDALS = [
   {
     id: 'chorus', name: 'Chorus', short: 'CHOR', color: '#7ff0d0',
     sound: 'Chords and lead shimmer and widen.',
-    levels: [{ amount: 0.25 }, { amount: 0.4, projSpeed: 0.12 }, { amount: 0.6, projSpeed: 0.15 }],
+    levels: [{ amount: 0.2 }, { amount: 0.32, projSpeed: 0.12 }, { amount: 0.45, projSpeed: 0.15 }],
     text: (s) => `${Math.round(s.amount * 100)}% more projectiles, orbiters and hits${s.projSpeed ? `. Projectiles ${Math.round(s.projSpeed * 100)}% faster` : ''}.`,
   },
   {
@@ -41,7 +41,7 @@ export const PEDALS = [
   {
     id: 'bitcrusher', name: 'Bitcrusher', short: 'CRUSH', color: '#c2f25e',
     sound: 'Drums and hats turn crunchy and lo-fi.',
-    levels: [{ crit: 0.06, critMult: 0.25 }, { crit: 0.12, critMult: 0.5 }, { crit: 0.18, critMult: 0.75 }],
+    levels: [{ crit: 0.06, critMult: 0.2 }, { crit: 0.12, critMult: 0.4 }, { crit: 0.18, critMult: 0.6 }],
     text: (s) => `Critical hit chance +${Math.round(s.crit * 100)}%. Critical damage +${Math.round(s.critMult * 100)}%.`,
   },
 ];

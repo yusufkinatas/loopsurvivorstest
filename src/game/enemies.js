@@ -14,10 +14,10 @@ export const ENEMY_TYPES = {
 };
 
 export const BOSS_TYPES = {
-  drone:      { name: 'The Drone',       hp: 1300,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
-  clipper:    { name: 'The Clipper',     hp: 3000,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
-  glitchking: { name: 'The Glitch King', hp: 5600,  speed: 58, r: 44, dmg: 22, xp: 220, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
-  whitenoise: { name: 'White Noise',     hp: 15000, speed: 46, r: 64, dmg: 26, xp: 0,   shape: 'noise',  color: '#ffffff', mass: 60, boss: true, final: true },
+  drone:      { name: 'The Drone',       hp: 1600,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
+  clipper:    { name: 'The Clipper',     hp: 4600,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
+  glitchking: { name: 'The Glitch King', hp: 12100, speed: 58, r: 44, dmg: 22, xp: 800, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
+  whitenoise: { name: 'White Noise',     hp: 22800, speed: 46, r: 64, dmg: 26, xp: 0,   shape: 'noise',  color: '#ffffff', mass: 60, boss: true, final: true },
 };
 
 let nextId = 1;
@@ -27,14 +27,15 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
   if (!def) return null;
   const minutes = g.time / 60;
   const elite = !!opts.elite;
-  const hpMul = def.boss ? 1 + minutes * 0.2 : (1 + minutes * 0.3) * (elite ? 9 : 1) * (opts.hpMul ?? 1);
+  const hpMul = def.boss ? 1 + minutes * 0.2 : (1 + minutes * 0.25 + minutes * minutes * 0.09) * (elite ? 9 : 1) * (opts.hpMul ?? 1);
   const e = {
     id: nextId++, type, def, x, y, vx: 0, vy: 0,
     r: def.r * (elite ? 1.55 : 1) * (opts.scale ?? 1),
     hp: def.hp * hpMul, maxHp: def.hp * hpMul,
-    speed: def.speed * (1 + minutes * 0.025) * (elite ? 0.9 : 1) * rand(0.92, 1.08),
-    dmg: def.dmg * (1 + minutes * 0.07) * (elite ? 1.5 : 1),
-    xp: def.xp * (elite ? 10 : 1),
+    speed: def.speed * (1 + minutes * 0.05) * (elite ? 0.9 : 1) * rand(0.92, 1.08),
+    dmg: def.dmg * (1 + minutes * 0.1) * (elite ? 1.5 : 1),
+    // Notes are worth less as the song fills up, so levels and the Drop keep a steady pace while the crowd grows.
+    xp: def.boss ? def.xp : def.xp * (elite ? 10 : 1) / (1 + (minutes / 2.5) ** 2),
     mass: def.mass * (elite ? 5 : 1),
     elite, boss: !!def.boss, color: def.color, shape: def.shape,
     kbx: 0, kby: 0, stun: 0, slow: 0, slowT: 0, flash: 0, dead: false,
@@ -80,7 +81,7 @@ export function enemiesOnBeat(g, ev) {
     if (e.def.ranged && ev.beat === 2 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0) {
       const d2 = dist2(e.x, e.y, p.x, p.y);
       if (d2 < 480 * 480) {
-        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 165, 8 * (1 + g.time / 60 * 0.06), { color: '#ff7a95' });
+        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, 14 * (1 + g.time / 60 * 0.06), { color: '#ff7a95' });
         e.ai.shootT = 0.2;
       }
     }
@@ -95,12 +96,12 @@ function bossOnBeat(g, e, ev) {
     case 'drone':
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, 'buzz', 5, e.r + 30);
       if (ev.beat === 0 && ev.bar % 4 === 1) { e.ai.charge = 0.75; e.ai.chargeA = aim; }
-      if (ev.beat === 2 && frac < 0.5) radial(g, e, 8, 130, 10, ev.bar * 0.4, '#ff9fe2');
+      if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff9fe2');
       break;
     case 'clipper':
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, 12, 150, 11, (ev.beat === 2 ? Math.PI / 12 : 0) + ev.bar * 0.13, '#ffb06a');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, 14, 160, 16, (ev.beat === 2 ? Math.PI / 14 : 0) + ev.bar * 0.13, '#ffb06a');
       if (ev.beat === 0 && ev.bar % 4 === 3) summonRing(g, e, 'static', 6, e.r + 36);
-      if (frac < 0.5 && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 190, 11, { color: '#ffd08a' });
+      if (frac < 0.7 && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 16, { color: '#ffd08a' });
       break;
     case 'glitchking': {
       if (ev.beat === 0 && ev.bar % 2 === 0) {
@@ -110,10 +111,10 @@ function bossOnBeat(g, e, ev) {
       if (ev.beat === 2 && e.ai.blinkTo) {
         g.fx.particles(e.x, e.y, e.color, 18, 260, 0.5, 3);
         e.x = e.ai.blinkTo.x; e.y = e.ai.blinkTo.y; e.ai.blinkTo = null;
-        radial(g, e, 16, 140, 12, rand(0, TAU), '#8ff3ff');
+        radial(g, e, 20, 150, 25, rand(0, TAU), '#8ff3ff');
         summonRing(g, e, 'glitch', 4, e.r + 40);
       }
-      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 200, 12, { color: '#b9f7ff' });
+      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, 22, { color: '#b9f7ff' });
       break;
     }
     case 'whitenoise': {
@@ -123,7 +124,7 @@ function bossOnBeat(g, e, ev) {
         e.ai.spiralAcc = 0;
         g.banner(phase === 2 ? 'White Noise is getting louder' : phase === 3 ? 'White Noise is clipping' : '', '');
       }
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 18 : 14, 135 + phase * 10, 12, ev.bar * 0.21 + ev.beat, '#ffffff');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
       break;
@@ -149,7 +150,7 @@ function bossUpdate(g, e, dt) {
       e.ai.spiralAcc -= every;
       e.ai.spiralA += 0.42;
       const arms = e.ai.phase === 3 ? 4 : 3;
-      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 125, 11, { color: '#e6e6ff', r: 5 });
+      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5 });
     }
   }
   void p;

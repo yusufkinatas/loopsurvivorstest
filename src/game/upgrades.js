@@ -20,7 +20,7 @@ function candidates(g) {
       const w = filled < 3 ? 1.1 : 0.8;
       for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w });
     } else {
-      if (cur.level < MAX_INSTRUMENT_LEVEL) out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: 2.4 });
+      if (cur.level < MAX_INSTRUMENT_LEVEL) out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: 1.1 - 0.25 * cur.level });
       for (const d of inRole) {
         if (d === cur.def) continue;
         out.push({ kind: 'swap', def: d, role, from: cur, level: Math.max(1, cur.level - 1), w: 0.32 });
@@ -29,8 +29,8 @@ function candidates(g) {
   }
   for (const pd of PEDALS) {
     const own = L.pedal(pd.id);
-    if (own) { if (own.level < MAX_PEDAL_LEVEL) out.push({ kind: 'pedal-up', pedal: pd, level: own.level + 1, own, w: 1.0 }); }
-    else if (L.pedalSlotsFree() > 0) out.push({ kind: 'pedal-new', pedal: pd, level: 1, w: g.time > 25 ? 0.55 : 0.2 });
+    if (own) { if (own.level < MAX_PEDAL_LEVEL) out.push({ kind: 'pedal-up', pedal: pd, level: own.level + 1, own, w: 1.4 }); }
+    else if (L.pedalSlotsFree() > 0) out.push({ kind: 'pedal-new', pedal: pd, level: 1, w: g.time > 25 ? 1.0 : 0.2 });
   }
   return out;
 }
@@ -47,11 +47,13 @@ export function buildOffers(g, count = 3) {
     if (c.role && picked.filter((p) => p.role === c.role).length >= 2) return false;
     return true;
   };
-  // Keep the band growing early, and always leave a way to strengthen what you have.
+  // Keep the band growing early. Upgrades are no longer forced onto the offer (chance 0): they come
+  // up by weight, rarer the higher the level, so early picks also go to pedals and levels 5 land late.
+  // Once the pedals are full, upgrades are most of what is left, so they still come.
   const news = pool.filter((c) => c.kind === 'new');
   if (news.length && rng() < 0.85) take(weightedPick(news, (c) => c.w));
   const ups = pool.filter((c) => c.kind === 'up' && ok(c));
-  if (ups.length && rng() < 0.75) take(weightedPick(ups, (c) => c.w));
+  if (ups.length && rng() < 0) take(weightedPick(ups, (c) => c.w));
   let guard = 0;
   while (picked.length < count && guard++ < 50) {
     const avail = pool.filter(ok);

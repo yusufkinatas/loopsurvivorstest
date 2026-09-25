@@ -31,7 +31,7 @@ export class Director {
   target() {
     const t = this.g.time;
     const m = t / 60;
-    let n = 12 + t * 0.5 + m * m * 3.6;
+    let n = 12 + t * 0.5 + m * m * 3.4;
     if (this.g.section.id === 'build') n *= 1.25;
     if (this.g.boss) n *= this.g.boss.def.final ? 0.55 : 0.7;
     return Math.min(WORLD.maxEnemies, Math.floor(n * (this.g.opts.density ?? 1)));

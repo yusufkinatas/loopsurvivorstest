@@ -44,7 +44,7 @@ export const PLAYER_BASE = {
   speed: 165,
   pickup: 72,
   radius: 14,
-  iframes: 0.55,
+  iframes: 0.4,
 };
 
 export const WORLD = {
@@ -56,7 +56,7 @@ export const WORLD = {
 
 // Drop ability: fills from collected notes, fires on the next downbeat after a one-bar build.
 export const DROP = {
-  charge: 260,           // xp-equivalent needed to fill the meter
+  charge: 640,           // xp-equivalent needed to fill the meter
   damage: 90,
   radius: 900,
 };
