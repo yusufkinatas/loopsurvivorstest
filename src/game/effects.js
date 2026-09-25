@@ -5,7 +5,7 @@
 import { TAU, rand, rng, dist2, segDist2, clamp, swapRemove } from '../util.js';
 
 const MAX_PARTICLES = 900;
-const MAX_TEXTS = 70;
+const MAX_TEXTS = 30;
 const MAX_BULLETS = 700;
 
 export class Effects {
@@ -46,6 +46,7 @@ export class Effects {
       range: o.range ?? 420, onHit: o.onHit ?? null, dead: false,
       boomerang: !!o.boomerang, returning: false,
     };
+    b.maxAge = b.boomerang ? b.life * 2.5 : b.life;
     this.bullets.push(b);
     return b;
   }
@@ -250,7 +251,7 @@ export class Effects {
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
       b.age += dt;
-      if (b.dead || b.age >= (b.boomerang ? b.life * 2.5 : b.life)) { swapRemove(this.bullets, i); continue; }
+      if (b.dead || b.age >= b.maxAge) { swapRemove(this.bullets, i); continue; }
       if (b.boomerang) {
         // Fly out, then come back to the player, hitting everything again on the way home.
         if (!b.returning && b.age >= b.life * 0.5) { b.returning = true; b.hit.clear(); }

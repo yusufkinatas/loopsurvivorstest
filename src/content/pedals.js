@@ -12,7 +12,7 @@ export const PEDALS = [
     id: 'delay', name: 'Tape Delay', short: 'ECHO', color: '#ffcf70',
     sound: 'Notes repeat a dotted eighth later.',
     levels: [{ echo: 0.25 }, { echo: 0.4 }, { echo: 0.55 }],
-    text: (s) => `${Math.round(s.echo * 100)}% of attacks echo on the delay for 55% damage.`,
+    text: (s) => `${Math.round(s.echo * 100)}% of Groove, Chords, Lead and Sparkle attacks echo on the delay for 55% damage.`,
   },
   {
     id: 'overdrive', name: 'Overdrive', short: 'DRIVE', color: '#ff7b5c',

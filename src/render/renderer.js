@@ -1,7 +1,8 @@
 // Canvas renderer. The arena is a dark stage floor whose grid pulses with the beat and whose
 // color follows the song section. Music is color: every attack wears its channel's color.
 
-import { TAU, clamp, lerp, rand, rgba } from '../util.js';
+import { TAU, clamp, lerp, rand, rgba, hexToRgb } from '../util.js';
+import { BEAT_SEC } from '../config.js';
 import { ROLE_INFO, ROLES } from '../config.js';
 import { ITEM_INFO } from '../game/pickups.js';
 
@@ -52,9 +53,22 @@ export class Renderer {
   drawGlow(x, y, r, color, a = 1) {
     const s = this.glowSprite(color);
     const c = this.ctx;
-    c.globalAlpha = a;
+    const prev = c.globalAlpha;
+    c.globalAlpha = prev * a;
     c.drawImage(s, x - r, y - r, r * 2, r * 2);
-    c.globalAlpha = 1;
+    c.globalAlpha = prev;
+  }
+
+  // Light tint of a channel color, for projectile cores (pure white cores sum into confetti).
+  tint(color) {
+    let t = this._tints?.get(color);
+    if (t) return t;
+    (this._tints ||= new Map());
+    const [r, g, b] = hexToRgb(color);
+    const m = (v) => Math.round(v + (255 - v) * 0.35);
+    t = `rgb(${m(r)},${m(g)},${m(b)})`;
+    this._tints.set(color, t);
+    return t;
   }
 
   // ------------------------------------------------------------------------------------------
@@ -73,8 +87,9 @@ export class Renderer {
     this._background(c, 258, pulse, pulse * 0.6);
   }
 
-  _background(c, hue, beat, bar) {
+  _background(c, hue, beat, bar, sx = 0, sy = 0) {
     const w = this.w, h = this.h, s = this.scale;
+    const camX = this.cam.x + sx, camY = this.cam.y + sy;
     c.fillStyle = `hsl(${hue}, 38%, 6.5%)`;
     c.fillRect(0, 0, w, h);
     const vg = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
@@ -84,19 +99,19 @@ export class Renderer {
     c.fillRect(0, 0, w, h);
     // Grid in world space
     const step = 64 * s;
-    const ox = (-this.cam.x * s + w / 2) % step;
-    const oy = (-this.cam.y * s + h / 2) % step;
+    const ox = (-camX * s + w / 2) % step;
+    const oy = (-camY * s + h / 2) % step;
     c.lineWidth = 1;
-    c.strokeStyle = `hsla(${hue}, 70%, 70%, ${0.05 + beat * 0.07})`;
+    c.strokeStyle = `hsla(${hue}, 70%, 70%, ${0.04 + beat * 0.14})`;
     c.beginPath();
     for (let x = ox; x < w; x += step) { c.moveTo(Math.round(x) + 0.5, 0); c.lineTo(Math.round(x) + 0.5, h); }
     for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(w, Math.round(y) + 0.5); }
     c.stroke();
     // Major lines every 4 cells flash on the downbeat
     const big = step * 4;
-    const bx = (-this.cam.x * s + w / 2) % big;
-    const by = (-this.cam.y * s + h / 2) % big;
-    c.strokeStyle = `hsla(${hue}, 80%, 72%, ${0.08 + bar * 0.14})`;
+    const bx = (-camX * s + w / 2) % big;
+    const by = (-camY * s + h / 2) % big;
+    c.strokeStyle = `hsla(${hue}, 80%, 72%, ${0.08 + bar * 0.24})`;
     c.lineWidth = 1.5;
     c.beginPath();
     for (let x = bx; x < w; x += big) { c.moveTo(Math.round(x), 0); c.lineTo(Math.round(x), h); }
@@ -119,7 +134,7 @@ export class Renderer {
     const shakeAmt = g.settings.shake ? g.shake : g.shake * 0.2;
     const sx = rand(-1, 1) * shakeAmt, sy = rand(-1, 1) * shakeAmt;
 
-    this._background(c, this.hue, g.beatPulse, g.barPulse);
+    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy);
 
     const s = this.scale;
     c.setTransform(this.dpr * s, 0, 0, this.dpr * s, this.dpr * (this.w / 2 - (this.cam.x + sx) * s), this.dpr * (this.h / 2 - (this.cam.y + sy) * s));
@@ -127,17 +142,21 @@ export class Renderer {
     const cx = this.cam.x, cy = this.cam.y;
     const inView = (x, y, r = 0) => Math.abs(x - cx) < vw + r && Math.abs(y - cy) < vh + r;
 
-    // Soft stage light under the player
+    // Soft stage light under the player that thumps with the kick, and a floor ripple on every beat.
     c.globalCompositeOperation = 'lighter';
-    this.drawGlow(p.x, p.y, 150 + g.beatPulse * 30, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.18 + g.beatPulse * 0.12);
+    const thump = Math.max(g.beatPulse, g.chanPulse.beat || 0);
+    this.drawGlow(p.x, p.y, 150 + thump * 36, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.16 + thump * 0.16);
     c.globalCompositeOperation = 'source-over';
+    if (g.beatPulse > 0.05) {
+      c.strokeStyle = `hsla(${Math.round(this.hue)}, 80%, 70%, ${g.beatPulse * 0.12})`;
+      c.lineWidth = 2;
+      circle(c, p.x, p.y, 40 + (1 - g.beatPulse) * 300); c.stroke();
+    }
 
     this._pickups(c, g, inView);
     this._mines(c, g, inView);
     this._strikes(c, g, inView);
     this._enemies(c, g, inView);
-    this._shots(c, g, inView);
-    this._player(c, g);
     c.globalCompositeOperation = 'lighter';
     this._orbits(c, g);
     this._bullets(c, g, inView);
@@ -145,7 +164,12 @@ export class Renderer {
     this._beams(c, g);
     this._particles(c, g, inView);
     c.globalCompositeOperation = 'source-over';
+    // The player and everything that can hurt them go on top of the band's effects, so they stay readable.
+    this._player(c, g);
+    this._telegraphs(c, g);
+    this._shots(c, g, inView);
     this._texts(c, g, inView);
+    this._bossArrow(c, g, inView);
 
     // Screen-space overlays
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -158,14 +182,33 @@ export class Renderer {
       c.fillStyle = vg;
       c.fillRect(0, 0, this.w, this.h);
     }
-    if (g.dropFlash > 0.02 && g.settings.flashes) {
-      c.fillStyle = `rgba(255,255,255,${g.dropFlash * 0.55})`;
-      c.fillRect(0, 0, this.w, this.h);
-    }
+    // Player position on screen, for screen-space effects centered on them.
+    const px = (p.x - this.cam.x) * s + this.w / 2, py = (p.y - this.cam.y) * s + this.h / 2;
     if (g.dropState === 'building') {
-      const k = 0.5 + 0.5 * Math.sin(this.time * 24);
-      c.fillStyle = `rgba(255,255,255,${0.03 + 0.04 * k})`;
+      // One bar of build: the screen darkens, a ring closes in on you, and four beat ticks light up.
+      const cur = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
+      const prog = cur ? cur.sib / 16 : 0;
+      c.fillStyle = `rgba(4,2,10,${0.18 + 0.4 * prog})`;
       c.fillRect(0, 0, this.w, this.h);
+      const R0 = Math.max(this.w, this.h) * 0.62;
+      c.strokeStyle = `rgba(255,255,255,${0.35 + 0.5 * prog})`;
+      c.lineWidth = 2 + 4 * prog;
+      circle(c, px, py, lerp(R0, 26 * s, prog)); c.stroke();
+      for (let i = 0; i < 4; i++) {
+        const lit = cur && cur.sib >= i * 4;
+        const a = -Math.PI / 2 + (i / 4) * TAU;
+        c.fillStyle = lit ? '#ffffff' : 'rgba(255,255,255,0.2)';
+        circle(c, px + Math.cos(a) * 46 * s, py + Math.sin(a) * 46 * s, lit ? 5 : 3.5); c.fill();
+      }
+    }
+    if (g.dropFlash > 0.02 && g.settings.flashes) {
+      c.globalCompositeOperation = 'lighter';
+      const fl = c.createRadialGradient(px, py, 0, px, py, Math.max(this.w, this.h) * 0.8);
+      fl.addColorStop(0, `rgba(255,255,255,${g.dropFlash * 0.5})`);
+      fl.addColorStop(1, `rgba(255,240,255,${g.dropFlash * 0.15})`);
+      c.fillStyle = fl;
+      c.fillRect(0, 0, this.w, this.h);
+      c.globalCompositeOperation = 'source-over';
     }
   }
 
@@ -176,7 +219,7 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
     for (const gm of g.gems) {
       if (!inView(gm.x, gm.y, 20)) continue;
-      this.drawGlow(gm.x, gm.y, gm.r * 3.2, gm.color, 0.5);
+      this.drawGlow(gm.x, gm.y, gm.r * 2.2, gm.color, gm.kind === 'xp' ? 0.25 : 0.5);
     }
     c.globalCompositeOperation = 'source-over';
     for (const gm of g.gems) {
@@ -263,7 +306,8 @@ export class Renderer {
   _enemyShape(c, e, r, t) {
     const j = () => (Math.random() - 0.5) * r * 0.16;
     const flash = e.flash > 0;
-    const fill = flash ? '#ffffff' : 'rgba(18,14,28,0.92)';
+    // Elites keep their dark body and flash only their outline, so they stay recognizable under fire.
+    const fill = flash && !e.elite ? 'rgba(255,255,255,0.8)' : 'rgba(18,14,28,0.92)';
     const stroke = flash ? '#ffffff' : e.elite ? '#ffd166' : e.color;
     c.lineWidth = e.elite ? 3 : 2;
     c.fillStyle = fill;
@@ -315,9 +359,11 @@ export class Renderer {
       c.strokeStyle = rgba(e.color, 0.6); c.lineWidth = 1.5;
       circle(c, e.x, e.y, r * 0.5); c.stroke();
     }
-    if (e.def.ranged && e.ai.shootT) {
+    if (e.def.ranged && (e.ai.windup > 0 || e.ai.shootT)) {
+      // Wind-up tell: the glow swells for a beat before the shot.
+      const k = e.ai.windup > 0 ? 1 - e.ai.windup / BEAT_SEC : 1;
       c.globalCompositeOperation = 'lighter';
-      this.drawGlow(e.x, e.y, r * 2.2, '#ff4d6d', 0.8);
+      this.drawGlow(e.x, e.y, r * (1.2 + 1.6 * k), '#ff4d6d', 0.35 + 0.55 * k);
       c.globalCompositeOperation = 'source-over';
     }
   }
@@ -329,9 +375,10 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
     this.drawGlow(e.x, e.y, r * 2.6, e.color, 0.35 + g.beatPulse * 0.25);
     c.globalCompositeOperation = 'source-over';
-    c.fillStyle = flash ? '#ffffff' : 'rgba(14,10,22,0.95)';
+    // Bosses are hit constantly: keep the silhouette dark and flash only the outline.
+    c.fillStyle = 'rgba(14,10,22,0.95)';
     c.strokeStyle = col;
-    c.lineWidth = 3;
+    c.lineWidth = flash ? 4 : 3;
     switch (e.shape) {
       case 'drone': {
         circle(c, e.x, e.y, r); c.fill(); c.stroke();
@@ -374,12 +421,6 @@ export class Renderer {
         c.stroke();
         c.fillStyle = 'rgba(255,60,200,0.5)'; c.fillRect(e.x - r + 6, e.y - 4, r * 2 - 12, 4);
         c.fillStyle = rgba(e.color, 0.7); c.fillRect(e.x - r + 3, e.y + 6, r * 2 - 12, 3);
-        if (e.ai.blinkTo) {
-          c.strokeStyle = rgba(e.color, 0.4 + 0.4 * Math.sin(t * 20));
-          c.setLineDash([6, 6]);
-          circle(c, e.ai.blinkTo.x, e.ai.blinkTo.y, r); c.stroke();
-          c.setLineDash([]);
-        }
         break;
       }
       case 'noise': default: {
@@ -406,26 +447,91 @@ export class Renderer {
     }
   }
 
+  // Enemy shots use a look no player attack has: a dark halo, a white outline and a colored rim,
+  // with a minimum on-screen size so they stay visible on small screens.
   _shots(c, g, inView) {
-    c.globalCompositeOperation = 'lighter';
+    const minR = 5 / this.scale;
     for (const s of g.shots) {
       if (!inView(s.x, s.y, 10)) continue;
-      this.drawGlow(s.x, s.y, s.r * 3, s.color, 0.8);
+      const r = Math.max(s.r, minR);
+      c.fillStyle = 'rgba(8,4,12,0.85)';
+      circle(c, s.x, s.y, r * 1.45); c.fill();
+      c.strokeStyle = '#ffffff'; c.lineWidth = 1.2;
+      circle(c, s.x, s.y, r * 1.45); c.stroke();
+      c.strokeStyle = s.color; c.lineWidth = 2.6;
+      circle(c, s.x, s.y, r * 0.95); c.stroke();
+      c.fillStyle = '#ff2d55';
+      circle(c, s.x, s.y, r * 0.38); c.fill();
     }
-    c.globalCompositeOperation = 'source-over';
-    for (const s of g.shots) {
-      if (!inView(s.x, s.y, 10)) continue;
-      c.fillStyle = '#fff';
-      circle(c, s.x, s.y, s.r * 0.55); c.fill();
-      c.strokeStyle = s.color; c.lineWidth = 2;
-      circle(c, s.x, s.y, s.r); c.stroke();
+  }
+
+  // Boss tells, drawn wherever the tell is (the boss itself may be off-screen).
+  _telegraphs(c, g) {
+    for (const e of g.enemies) {
+      if (!e.boss || e.dead) continue;
+      const bt = e.ai.blinkTo;
+      if (bt) {
+        const k = clamp((g.time - (e.ai.blinkSetAt ?? g.time)) / (BEAT_SEC * 2), 0, 1);
+        c.fillStyle = rgba(e.color, 0.1 + 0.12 * k);
+        circle(c, bt.x, bt.y, e.r); c.fill();
+        c.strokeStyle = rgba('#ffffff', 0.5 + 0.4 * k);
+        c.lineWidth = 2.5;
+        circle(c, bt.x, bt.y, e.r * (2 - k)); c.stroke();
+        c.setLineDash([8, 8]);
+        c.strokeStyle = rgba(e.color, 0.5);
+        c.beginPath(); c.moveTo(e.x, e.y); c.lineTo(bt.x, bt.y); c.stroke();
+        c.setLineDash([]);
+        for (let i = 0; i < 20; i++) {
+          const a = (i / 20) * TAU;
+          c.beginPath();
+          c.moveTo(bt.x + Math.cos(a) * e.r * 1.1, bt.y + Math.sin(a) * e.r * 1.1);
+          c.lineTo(bt.x + Math.cos(a) * e.r * 1.35, bt.y + Math.sin(a) * e.r * 1.35);
+          c.stroke();
+        }
+      }
+      const cw = e.ai.chargeWarn;
+      if (cw && cw.t > 0) {
+        // The Drone's charge lane lights up a beat before it dashes.
+        const L = e.speed * 3.4 * 0.75 + e.r;
+        const k = 1 - cw.t / BEAT_SEC;
+        c.save();
+        c.translate(e.x, e.y); c.rotate(cw.a);
+        c.fillStyle = rgba(e.color, 0.08 + 0.14 * k);
+        c.fillRect(0, -e.r, L, e.r * 2);
+        c.strokeStyle = rgba('#ffffff', 0.3 + 0.4 * k);
+        c.lineWidth = 2;
+        c.strokeRect(0, -e.r, L * k, e.r * 2);
+        c.restore();
+      }
     }
+  }
+
+  // An arrow at the screen edge pointing at an off-screen boss.
+  _bossArrow(c, g, inView) {
+    const e = g.boss;
+    if (!e || e.dead || inView(e.x, e.y, -60)) return;
+    const s = this.scale;
+    const dx = e.x - this.cam.x, dy = e.y - this.cam.y;
+    const a = Math.atan2(dy, dx);
+    const hw = this.w / s / 2 - 28 / s, hh = this.h / s / 2 - 28 / s;
+    const k = Math.min(hw / Math.abs(Math.cos(a) || 1e-6), hh / Math.abs(Math.sin(a) || 1e-6));
+    const x = this.cam.x + Math.cos(a) * k, y = this.cam.y + Math.sin(a) * k;
+    const sz = 14 / s;
+    c.save();
+    c.translate(x, y); c.rotate(a);
+    c.fillStyle = e.color;
+    c.strokeStyle = 'rgba(8,4,12,0.9)'; c.lineWidth = 3 / s;
+    c.beginPath(); c.moveTo(sz, 0); c.lineTo(-sz * 0.7, sz * 0.75); c.lineTo(-sz * 0.35, 0); c.lineTo(-sz * 0.7, -sz * 0.75); c.closePath();
+    c.stroke(); c.fill();
+    c.restore();
   }
 
   _player(c, g) {
     const p = g.player;
     if (p.iframes > 0 && Math.floor(this.time * 24) % 2 === 0) c.globalAlpha = 0.45;
     const r = p.r * (1 + g.beatPulse * 0.06);
+    c.fillStyle = 'rgba(8,6,14,0.6)';
+    circle(c, p.x, p.y, r + 9); c.fill();
     // Channel rings: each instrument that just played lights its ring.
     let i = 0;
     for (const role of ROLES) {
@@ -470,12 +576,24 @@ export class Renderer {
   }
 
   _bullets(c, g, inView) {
+    // Glows (additive) first, then cores in their channel tint (normal blend, so crowds don't sum to white).
+    const fades = this._fades || (this._fades = []);
+    fades.length = 0;
     for (const b of g.fx.bullets) {
+      const end = b.maxAge ?? b.life;
+      let fade = b.age > end - 0.15 ? Math.max(0, (end - b.age) / 0.15) : 1;
+      fade *= clamp(b.age / 0.08, 0.15, 1);   // grow in, so shots leaving the player don't bury it
+      fades.push(fade);
       if (!inView(b.x, b.y, 20)) continue;
-      const fade = b.age > b.life - 0.15 ? Math.max(0, (b.life - b.age) / 0.15) : 1;
-      this.drawGlow(b.x, b.y, b.r * 3.4, b.color, 0.75 * fade);
+      this.drawGlow(b.x, b.y, b.r * 3, b.color, 0.5 * fade);
+    }
+    c.globalCompositeOperation = 'source-over';
+    let k = 0;
+    for (const b of g.fx.bullets) {
+      const fade = fades[k++];
+      if (!inView(b.x, b.y, 20) || fade <= 0) continue;
       c.globalAlpha = fade;
-      c.fillStyle = '#ffffff';
+      c.fillStyle = this.tint(b.color);
       if (b.shape === 'shard') {
         const a = Math.atan2(b.vy, b.vx);
         c.save(); c.translate(b.x, b.y); c.rotate(a);
@@ -483,9 +601,11 @@ export class Renderer {
         c.restore();
       } else {
         shape(c, b.shape, b.x, b.y, b.r * 0.8, b.rot);
+        if (b.r >= 6) { c.fillStyle = '#ffffff'; circle(c, b.x, b.y, b.r * 0.22); c.fill(); }
       }
-      c.globalAlpha = 1;
     }
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = 'lighter';
   }
 
   _rings(c, g) {
@@ -495,7 +615,7 @@ export class Renderer {
       c.strokeStyle = rgba(r.color, a);
       c.lineWidth = r.width * (1 - k * 0.6);
       circle(c, r.x, r.y, r.r); c.stroke();
-      c.strokeStyle = rgba('#ffffff', a * 0.5);
+      c.strokeStyle = rgba('#ffffff', a * 0.2);
       c.lineWidth = 1.5;
       circle(c, r.x, r.y, r.r); c.stroke();
     }

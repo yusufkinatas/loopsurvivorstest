@@ -72,7 +72,11 @@ button { font: inherit; }
 .bossbar { position: absolute; top: calc(var(--safe-t) + 74px); left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 32px)); text-align: center; }
 .bossbar-name { display: block; font-family: var(--f-display); font-weight: 700; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 6px; text-shadow: 0 2px 8px #000; }
 .bossbar-track { height: 10px; background: rgba(13, 10, 23, 0.8); border: 1px solid var(--line-2); border-radius: 2px; overflow: hidden; }
-.bossbar-fill { height: 100%; background: linear-gradient(90deg, #fff, #d9d4ea); transform-origin: left center; transition: transform 0.1s linear; }
+.bossbar-track { position: relative; }
+.bossbar-fill { height: 100%; background: linear-gradient(90deg, #ffffff, var(--c, #d9d4ea)); transform-origin: left center; transition: transform 0.1s linear; }
+.bossbar-notch { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: rgba(8, 4, 12, 0.9); }
+.fightnote { position: absolute; top: calc(var(--safe-t) + 112px); left: 16px; right: 16px; text-align: center; opacity: 0; font-family: var(--f-display); font-size: 15px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 2px 10px #000; }
+.fightnote.show { animation: banner 1.8s ease-out forwards; }
 
 .banner { position: absolute; left: 16px; right: 16px; top: 26%; text-align: center; opacity: 0; }
 .banner.show { animation: banner 2.8s ease-out forwards; }
@@ -115,7 +119,7 @@ button { font: inherit; }
 .mixwrap { display: grid; gap: 4px; min-width: 0; }
 .mixcap { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); text-shadow: 0 1px 3px #000; }
 .mixcap b { color: var(--text); }
-.mixer { display: grid; grid-template-columns: repeat(6, minmax(0, 124px)); gap: 6px; min-width: 0; }
+.mixer { display: grid; grid-template-columns: repeat(6, minmax(0, 140px)); gap: 6px; min-width: 0; }
 .strip {
   display: grid; grid-template-columns: 5px 22px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 7px; row-gap: 4px;
   padding: 7px 8px 7px 6px; background: rgba(18, 14, 30, 0.86); border: 1px solid var(--line); border-radius: 4px; min-width: 0;
@@ -130,7 +134,9 @@ button { font: inherit; }
 .strip-pips { grid-column: 3; display: flex; gap: 3px; }
 .strip-pips i { width: 9px; height: 3px; border-radius: 1px; background: rgba(255, 255, 255, 0.14); }
 .strip-pips i.on { background: var(--c); }
-.strip.empty { opacity: 0.5; }
+.strip.empty { opacity: 0.55; }
+.strip.empty:not(.locked) .strip-sub { color: var(--c); }
+.strip.locked { opacity: 0.32; border-style: dashed; }
 .strip.empty .strip-icon { color: var(--dim); }
 .strip.empty .strip-name { color: var(--muted); }
 
@@ -225,7 +231,7 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .toggle input { width: 18px; height: 18px; accent-color: var(--chords); }
 
 /* Cards: rack modules. */
-.cards-wrap { width: min(980px, 100%); display: grid; justify-items: center; text-align: center; }
+.cards-wrap { width: min(980px, 100%); display: grid; justify-items: center; text-align: center; align-self: start; margin-top: max(0px, calc(50vh - 300px)); }
 .cards { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); justify-content: center; gap: 16px; margin-top: 22px; text-align: left; }
 .row-actions { display: flex; gap: 10px; margin-top: 18px; }
 .card {

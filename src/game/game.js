@@ -8,12 +8,15 @@ import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
 import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
-import { updateEnemies, enemiesOnBeat, spawnEnemy } from './enemies.js';
+import { updateEnemies, enemiesOnBeat, spawnEnemy, BOSS_TYPES } from './enemies.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
 import { buildOffers, applyOffer } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
+
+// Channels with a send into the tape delay: only these echo, so every echo attack is also heard.
+const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
 
 export class Game {
   constructor({ audio, clock, seq, opts = {}, settings = {}, hooks = {} }) {
@@ -259,8 +262,9 @@ export class Game {
     }
     if (o.stun) e.stun = Math.max(e.stun, o.stun * (e.boss ? 0.12 : e.elite ? 0.5 : 1));
     if (o.slow) { e.slow = Math.max(e.slow, Math.min(0.8, o.slow) * (e.boss ? 0.4 : 1)); e.slowT = 1.2; }
-    if (this.settings.damageNumbers && (crit || dmg >= 6 || rng() < 0.35)) {
-      this.fx.text(e.x, e.y - e.r - 4, String(Math.round(dmg)), crit ? '#ffe066' : '#ffffff', crit ? 15 : 11);
+    // Numbers only for hits worth reading: crits, killing blows and big chunks. Otherwise they flood the screen.
+    if (this.settings.damageNumbers && (crit || e.hp <= 0 || dmg >= e.maxHp * 0.2)) {
+      this.fx.text(e.x, e.y - e.r - 4, String(Math.round(dmg)), crit ? '#ffe066' : '#ffffff', crit ? 14 : 10);
     }
     if (e.hp <= 0) this.kill(e, src);
   }
@@ -295,7 +299,7 @@ export class Game {
 
   hurt(dmg, from) {
     const p = this.player;
-    if (this.state !== 'playing' || p.iframes > 0 || this.opts.god) return;
+    if (this.state !== 'playing' || this.won || p.iframes > 0 || this.opts.god) return;
     const taken = Math.max(1, dmg - this.stats.armor);
     p.hp -= taken;
     const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
@@ -309,7 +313,7 @@ export class Game {
       const dx = from.x - p.x, dy = from.y - p.y, d = Math.hypot(dx, dy) || 1;
       from.kbx += (dx / d) * 260; from.kby += (dy / d) * 260;
     }
-    if (p.hp <= 0) { p.hp = 0; this.gameOver(); }
+    if (p.hp <= 0) { p.hp = 0; this._die(); }
   }
 
   collect(gm) {
@@ -337,6 +341,8 @@ export class Game {
   // ------------------------------------------------------------------ the Drop
 
   requestDrop() {
+    // Safety net: if the game still thinks a Drop is building but the sequencer has none pending, clear it.
+    if (this.dropState && !this.seq.dropState && !this.seq.events.some((ev) => ev.type === 'drop')) this.dropState = null;
     if (this.state !== 'playing' || this.dropCharge < this.dropMax || this.dropState) return false;
     if (!this.seq.requestDrop()) return false;
     this.dropCharge = 0;
@@ -357,13 +363,15 @@ export class Game {
     this.src = prev;
     this.shots.length = 0;
     this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
+    magnetAll(this);
     this.hooks.onDrop?.('done');
   }
 
   // ------------------------------------------------------------------ events
 
   _processEvents() {
-    const now = this.clock.now() - (this.opts.sim ? 0 : (this.audio?.latency || 0));
+    // Fire when the note is heard (output latency), one frame early since the attack is drawn next frame.
+    const now = this.clock.now() - (this.opts.sim ? 0 : (this.audio?.latency || 0) - 1 / 60);
     const evs = this.seq.drain(now, this._evbuf);
     for (const ev of evs) {
       switch (ev.type) {
@@ -387,7 +395,7 @@ export class Game {
     this.dmgScale = 1;
     inst.notes++;
     this.chanPulse[inst.def.role] = Math.max(this.chanPulse[inst.def.role], 0.4 + 0.6 * note.v);
-    if (scale === 1 && this.stats.echo > 0 && rng() < this.stats.echo) {
+    if (scale === 1 && this.stats.echo > 0 && ECHO_ROLES.has(inst.def.role) && rng() < this.stats.echo) {
       this.later.push({ at: this.time + ECHO_STEPS * STEP_SEC, fn: () => this.fireNote(inst, note, this.stats.echoDmg) });
     }
   }
@@ -407,7 +415,7 @@ export class Game {
     this.sectionIndex = ev.index;
     this.section = ev.section;
     const opened = this.channelCap() > before;
-    this.banner(ev.section.name, ev.section.boss ? 'Something loud is coming' : opened ? 'A new channel opens on the mixer' : '');
+    this.banner(ev.section.name, ev.section.boss ? `${BOSS_TYPES[ev.section.boss]?.name || 'A boss'} is here` : opened ? 'A new channel opens on the mixer' : '');
     if (opened) this.hooks.onLoadout?.();
     this.director.onSection(ev);
     this.hooks.onSection?.(ev.section);
@@ -420,28 +428,57 @@ export class Game {
 
   onBossDeath(e) {
     this.bossesBeaten++;
-    if (this.boss === e) this.boss = null;
+    if (this.boss === e) {
+      this.boss = null;
+      for (let i = this.enemies.length - 1; i >= 0; i--) {
+        const x = this.enemies[i];
+        if (x.boss && !x.dead && x !== e) { this.boss = x; break; }
+      }
+    }
     this.shake = Math.max(this.shake, 14);
-    this.hooks.onBoss?.(null);
+    this.hooks.onBoss?.(this.boss);
     if (e.def.final) {
       this.won = true;
       this.victoryT = 2.2;
       this.banner('Encore!', 'White Noise is silenced');
     } else {
-      this.banner(`${e.def.name} is silenced`, '');
+      this.banner(`${e.def.name} is silenced`, '', true);
       magnetAll(this);
     }
   }
 
-  banner(title, sub) {
+  // compact: a short line under the boss bar instead of the big center banner (for mid-fight messages).
+  banner(title, sub, compact = false) {
     if (!title) return;
     this.sectionBanner = { title, sub, t: 0 };
-    this.hooks.onBanner?.(title, sub);
+    this.hooks.onBanner?.(title, sub, compact);
   }
 
   // ------------------------------------------------------------------ update
 
+  // A short beat between the lethal hit and the end screen: the speaker shatters in channel colors
+  // while the band drops to a muffled vamp.
+  _die() {
+    const p = this.player;
+    this.state = 'dying';
+    this.dyingT = 0.9;
+    this.seq.hold = true;
+    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat');
+    if (this.audio?.ready) this.audio.setMuffle(true);
+    for (const inst of this.loadout.instruments()) this.fx.particles(p.x, p.y, this.color(inst), 16, 340, 1.1, 3.5);
+    this.fx.particles(p.x, p.y, '#f4efff', 20, 260, 0.9, 3);
+    this.shake = Math.max(this.shake, 12);
+  }
+
   step(dt, move) {
+    if (this.state === 'dying') {
+      this.dyingT -= dt;
+      this.fx.update(dt * 0.5);
+      this.shake *= Math.exp(-dt * 6);
+      this.hurtFlash *= Math.exp(-dt * 3);
+      if (this.dyingT <= 0) this.gameOver();
+      return;
+    }
     if (this.state !== 'playing') return;
     this._processEvents();
     if (this.state !== 'playing') return;
@@ -500,7 +537,7 @@ export class Game {
     for (const r of ROLES) this.chanPulse[r] *= Math.exp(-dt * 9);
     if (this.sectionBanner) this.sectionBanner.t += dt;
 
-    if (this.won) {
+    if (this.won && this.state === 'playing') {
       this.victoryT -= dt;
       if (this.victoryT <= 0) { this.victory(); return; }
     }
@@ -562,14 +599,15 @@ export class Game {
     this.seq.preview = null;
     A.setPreviewRole(null);
     A.applyPedals(this.loadout.pedalLevels());
-    if (!o) { if (this.state === 'levelup' || this.state === 'paused') A.setMuffle(true); return; }
+    // The mix stays dimmed while a card screen is up, except when auditioning a pedal on the whole band.
+    const held = this.state === 'levelup' || this.state === 'paused';
+    A.setMuffle(held && !(o && o.pedal));
+    if (!o) return;
     if (o.def) {
-      const inst = makeInst(o.def, o.level);
-      this.seq.preview = { inst };
+      this.seq.preview = { inst: makeInst(o.def, o.level) };
       A.setPreviewRole(o.def.role);
     } else if (o.pedal) {
       A.applyPedals({ ...this.loadout.pedalLevels(), [o.pedal.id]: o.level });
-      A.setMuffle(false);
     }
   }
 
@@ -579,7 +617,9 @@ export class Game {
   _pause(state) {
     this.state = state;
     this.seq.hold = true;
-    this.seq.clearEvents();
+    // Drop queued notes and beats, but keep song-structure events (section, build, drop): losing one would
+    // skip a boss, keep a channel shut or leave the Drop stuck. They play out on the first frame after resume.
+    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat');
     if (this.audio?.ready) this.audio.setMuffle(true);
   }
 
@@ -595,6 +635,7 @@ export class Game {
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
   // longer attacks, so the frame loop discards their events.
   gameOver() {
+    if (this.state === 'gameover' || this.state === 'victory') return;
     this.state = 'gameover';
     this.seq.hold = false;
     this.seq.clearEvents();
@@ -603,6 +644,7 @@ export class Game {
   }
 
   victory() {
+    if (this.state === 'gameover' || this.state === 'victory') return;
     this.state = 'victory';
     this.seq.hold = false;
     this.seq.clearEvents();

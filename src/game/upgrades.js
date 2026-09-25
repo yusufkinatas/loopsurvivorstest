@@ -52,8 +52,6 @@ export function buildOffers(g, count = 3) {
   // Once the pedals are full, upgrades are most of what is left, so they still come.
   const news = pool.filter((c) => c.kind === 'new');
   if (news.length && rng() < 0.85) take(weightedPick(news, (c) => c.w));
-  const ups = pool.filter((c) => c.kind === 'up' && ok(c));
-  if (ups.length && rng() < 0) take(weightedPick(ups, (c) => c.w));
   let guard = 0;
   while (picked.length < count && guard++ < 50) {
     const avail = pool.filter(ok);
@@ -106,6 +104,27 @@ function chemistryLine(g, style, delta) {
   return lines;
 }
 
+const STAT_NAMES = {
+  damage: 'damage', radius: 'area', pierce: 'pierce', count: 'shots', chain: 'jumps', speed: 'speed', length: 'reach',
+  shards: 'shards', seeds: 'seeds', streams: 'streams', coins: 'coins', heal: 'heal', slow: 'slow', stun: 'stun',
+  bounce: 'bounces', range: 'range', size: 'size', orbit: 'orbit', stars: 'stars', toss: 'reach',
+};
+
+// The two biggest stat changes of an upgrade, e.g. "damage 21 → 26 · area 146 → 160".
+function statDiff(a, b) {
+  const out = [];
+  for (const k in b) {
+    if (!STAT_NAMES[k] || typeof b[k] !== 'number') continue;
+    const from = a[k] ?? 0, to = b[k];
+    if (from === to) continue;
+    const rel = from ? Math.abs(to - from) / Math.abs(from) : 1;
+    const fmt = (v) => (Math.abs(v) < 1 && v !== 0 ? `${Math.round(v * 100)}%` : String(Math.round(v * 10) / 10));
+    out.push({ rel, text: from ? `${STAT_NAMES[k]} ${fmt(from)} → ${fmt(to)}` : `new: ${STAT_NAMES[k]} ${fmt(to)}` });
+  }
+  out.sort((x, y) => y.rel - x.rel);
+  return out.slice(0, 2).map((d) => d.text).join(' · ') || null;
+}
+
 // Everything the level-up card shows.
 export function describeOffer(g, o) {
   if (o.def) {
@@ -126,7 +145,7 @@ export function describeOffer(g, o) {
     if (o.kind === 'new') { tag = 'New sound'; chem = chemistryLine(g, def.style, { add: 1 }); }
     else if (o.kind === 'up') tag = `Level ${o.level - 1} → ${o.level}`;
     else {
-      tag = `Swap · replaces ${o.from.def.name}`;
+      tag = `Swap · replaces ${o.from.def.name} (Lv ${o.from.level} → Lv ${o.level})`;
       chem = o.from.def.style === def.style ? [] : chemistryLine(g, def.style, { add: 1, remove: o.from.def.style });
     }
     return {
@@ -138,7 +157,7 @@ export function describeOffer(g, o) {
       level: o.level,
       maxLevel: MAX_INSTRUMENT_LEVEL,
       body: o.kind === 'up' ? lv.text : def.blurb,
-      detail: o.kind === 'up' ? null : lv.text,
+      detail: o.kind === 'up' ? statDiff(prev.stats, lv.stats) : lv.text,
       cells,
       chem,
       role: def.role,

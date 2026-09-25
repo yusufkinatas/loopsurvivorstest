@@ -63,14 +63,14 @@ let lastStart = null;
 let listening = false;
 
 const hooks = {
-  onLevelUp: (offers) => screens.levelUp(game, offers),
+  onLevelUp: (offers) => { hud.hideBanner(); screens.levelUp(game, offers); },
   onResume: () => { screens.hide(); input.releaseStick(); },
   onGameOver: (sum) => endRun(sum),
   onVictory: (sum) => endRun(sum),
-  onBanner: (t, s) => hud.showBanner(t, s),
+  onBanner: (t, s, compact) => hud.showBanner(t, s, compact),
   onBoss: (e) => hud.setBoss(e),
   onLoadout: () => { if (mode === 'run') hud.refreshLoadout(game); },
-  onDrop: () => {},
+  onDrop: (state) => { if (state === 'queued') hud.tip(''); },
   autopick: (offers) => autopick(offers, game, opts.autopick),
 };
 
@@ -87,7 +87,11 @@ const screens = new Screens(screensRoot, {
   onShowPause: () => screens.pause(game),
   onPickStart: (id) => startRun(id),
   onPreviewStart: (id) => previewStart(id),
-  onChoose: (i) => { audio.uiBlip(660, 0.12); game.choose(i); },
+  onChoose: (i) => {
+    const c = seq.position?.chord;
+    audio.uiBlip(c ? 440 * Math.pow(2, (84 + ((c.rootPc + c.intervals[2]) % 12) - 69) / 12) : 660, 0.12);   // the chord's fifth
+    game.choose(i);
+  },
   onPreview: (i) => game.previewOffer(i === null ? null : game.offers?.[i] ?? null),
   onReroll: () => { const o = game.reroll(); if (o) screens.levelUp(game, o); },
   onResume: () => { game.unpause(); screens.hide(); },
@@ -184,20 +188,31 @@ function endRun(sum) {
 }
 
 function onKey(k) {
+  if (k === 'm') { audio.setMuted(!audio.muted); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
-    if (k === 'pad-a' && screens.cards?.[screens.focus]) { screens.onPick(screens.focus); return true; }
+    if (k === 'pad-a') {
+      const card = document.activeElement?.classList?.contains('card') ? document.activeElement : screens.cards?.[screens.focus];
+      if (card) { screens.onPick(Number(card.dataset.i)); return true; }
+    }
+    if (k === 'pad-left') return screens.cardKey('ArrowLeft');
+    if (k === 'pad-right') return screens.cardKey('ArrowRight');
     return screens.cardKey(k);
+  }
+  // Other menus (title, pause, end): the pad moves between buttons and A presses the focused one.
+  if (screens.current && (k === 'pad-left' || k === 'pad-right' || k === 'pad-a')) {
+    const btns = [...screensRoot.querySelectorAll('button:not([disabled])')];
+    const i = btns.indexOf(document.activeElement);
+    if (k === 'pad-a') { (i >= 0 ? btns[i] : btns[0])?.click(); return true; }
+    const n = btns.length;
+    if (n) btns[(i + (k === 'pad-right' ? 1 : -1) + n) % n].focus();
+    return true;
   }
   if (mode === 'run' && game.state === 'playing') {
     if (k === ' ' || k === 'pad-a' || k === 'e') { game.requestDrop(); return true; }
     if (k === 'Escape' || k === 'p') { pauseRun(); return true; }
   } else if (mode === 'run' && game.state === 'paused' && (k === 'Escape' || k === 'p') && screens.current === 'pause') {
     game.unpause(); screens.hide(); return true;
-  } else if (screens.current === 'title' && (k === 'Enter' || k === 'pad-a')) {
-    enterLobby(); return true;
-  } else if (k === 'm') {
-    audio.setMuted(!audio.muted); return true;
   }
   return false;
 }
@@ -236,8 +251,9 @@ function frame(ts) {
       if (opts.bot) botDrop();
       const mv = opts.bot ? botMove(game) : input.move();
       game.step(dt, mv);
-      // Anything the sequencer emitted while the run is not playing is stale.
-      if (game.state !== 'playing' && game.state !== 'idle') { seq.drain(clock.now(), scratch); scratch.length = 0; }
+      // After a run ends the band keeps playing; its note events are no longer attacks.
+      // (While paused the sequencer is held and emits nothing, and structural events must survive.)
+      if (game.state === 'gameover' || game.state === 'victory') { seq.drain(clock.now(), scratch); scratch.length = 0; }
     } else {
       seq.drain(clock.now() + 1, scratch); scratch.length = 0;
     }
@@ -252,11 +268,13 @@ function frame(ts) {
   }
 }
 
-// Autopilot uses the Drop when the meter is full and a crowd (or a boss) is close.
+// Autopilot uses the Drop when the meter is full and a crowd (or a boss) is close, or once it has sat full a while.
+let dropFullSince = null;
 function botDrop() {
-  if (game.state !== 'playing' || game.dropCharge < game.dropMax || game.dropState) return;
+  if (game.state !== 'playing' || game.dropCharge < game.dropMax || game.dropState) { dropFullSince = null; return; }
+  if (dropFullSince === null || dropFullSince > game.time) dropFullSince = game.time;
   const p = game.player;
-  if (game.boss || game.inRadius(p.x, p.y, 320).length >= 25) game.requestDrop();
+  if (game.boss || game.inRadius(p.x, p.y, 320).length >= 12 || game.time - dropFullSince > 10) game.requestDrop();
 }
 
 function pulseFromSeq() {
@@ -288,7 +306,7 @@ function simFrame() {
       nextSample += 10;
       samples.push(snapshot());
     }
-    if (game.state !== 'playing') {
+    if (game.state !== 'playing' && game.state !== 'dying') {
       if (game.state === 'levelup') game.choose(autopick(game.offers, game, opts.autopick || 'smart'));
       else { window.__LS.done = true; break; }
     }

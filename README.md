@@ -17,7 +17,8 @@ server below. Sound on, headphones help.
   and hold) a card to hear it in your mix before you choose.
 - **The Drop.** Collected notes fill the Drop meter. Press Space when it is full: the music builds for
   one bar, then slams on the downbeat and blasts everything on screen.
-- **Survive the song.** Eight sections, a boss at every chorus, and White Noise in the finale.
+- **Survive the song.** About eight minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
+  Bridge, Build-Up, The Drop, Finale), a boss at every chorus, and White Noise in the finale.
 
 ## The mechanic that keeps the music clean
 
@@ -28,6 +29,8 @@ arrangement, so the game enforces the rules a producer would:
    Sparkle). Each owns a frequency range and a rhythmic job, and holds exactly one instrument. Taking
    a new sound for a full channel swaps out the old one (it keeps most of its level). That makes every
    card a real decision: fill an empty channel, deepen one you have, or change a channel's style.
+   Channels also open with the song: two in the intro, one more each section, all six from the second
+   chorus. The run literally starts as one sound and grows into a full band.
 2. **Every note is in key and on the grid.** Instruments never play raw pitches. Patterns ask for
    "chord tone 2" or "scale step 4", and the sequencer resolves them against the current chord of the
    run's key, on a 16th-note grid. Whatever you pick sounds right, and you never need to know why.
@@ -86,6 +89,9 @@ node tools/sim.mjs "speed=12&bot=1&minutes=8" --summary     # autopiloted run on
 node tools/check.mjs                                          # render every instrument level offline: level, clipping, spectrum
 node tools/check.mjs --mixall                                 # whole bands through the real mixing desk
 node tools/shots.mjs shots/ [--mobile]                        # drive the real UI and save screenshots
+
+The balance targets (pacing, boss fight lengths, instrument parity) and how they were measured are in
+the commit history of the balance pass.
 ```
 
 Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god`, `solo` (no level-ups),

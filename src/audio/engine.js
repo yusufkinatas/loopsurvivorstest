@@ -6,7 +6,7 @@
 import { ROLES, STEP_SEC, ECHO_STEPS } from '../config.js';
 import * as V from './voices.js';
 
-const CHANNEL_LEVEL = { beat: 0.95, perc: 0.42, bass: 0.72, chords: 0.36, lead: 0.44, arp: 0.32 };
+const CHANNEL_LEVEL = { beat: 0.95, perc: 0.42, bass: 0.72, chords: 0.36, lead: 0.6, arp: 0.32 };
 const CHANNEL_PAN = { beat: 0, perc: 0.28, bass: 0, chords: -0.12, lead: 0.06, arp: -0.3 };
 const DUCKED = ['bass', 'chords', 'lead', 'arp'];
 
@@ -109,7 +109,10 @@ export class AudioEngine {
 
     this.muffle = ctx.createBiquadFilter();
     this.muffle.type = 'lowpass'; this.muffle.frequency.value = 20000; this.muffle.Q.value = 0.9;
-    this.muffle.connect(this.comp);
+    // Bed gain: while muffled the band also drops in level, so an auditioned card stands out clearly.
+    this.bed = G(1);
+    this.muffle.connect(this.bed);
+    this.bed.connect(this.comp);
 
     this.hp = ctx.createBiquadFilter();
     this.hp.type = 'highpass'; this.hp.frequency.value = 10; this.hp.Q.value = 0.8;
@@ -237,6 +240,7 @@ export class AudioEngine {
   setActiveCount(n) {
     if (!this.ctx) return;
     const v = 1 / (1 + 0.09 * Math.max(0, n - 1));
+    this.previewBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.3);   // previews play at their real in-mix level
     this.mixGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.3);
   }
 
@@ -252,6 +256,8 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.muffle.frequency.cancelScheduledValues(t);
     this.muffle.frequency.setTargetAtTime(on ? 650 : 20000, t, on ? 0.06 : 0.12);
+    this.bed.gain.cancelScheduledValues(t);
+    this.bed.gain.setTargetAtTime(on ? 0.3 : 1, t, on ? 0.06 : 0.12);
   }
 
   // Route one role's channel around the muffle (level-up card preview). null restores normal routing.
@@ -284,24 +290,26 @@ export class AudioEngine {
       let level = ch.level;
       if (ch.drive) {
         ch.drive.curve = driveCurve([0, 1.8, 3.2, 5][p.overdrive]);
-        level *= 1 - 0.07 * p.overdrive;
+        level *= [1, 0.6, 0.42, 0.3][p.overdrive];
       }
       if (ch.crusher) {
         ch.crusher.curve = crushCurve([0, 6, 5, 4][p.bitcrusher]);
         set(ch.crushWet.gain, [0, 0.3, 0.42, 0.55][p.bitcrusher]);
-        set(ch.crushDry.gain, 1 - [0, 0.2, 0.28, 0.36][p.bitcrusher]);
+        set(ch.crushDry.gain, 1 - [0, 0.3, 0.42, 0.55][p.bitcrusher]);
       }
       if (ch.wah) {
-        set(ch.wah.gain, [0, 6, 9, 12][p.wah]);
+        set(ch.wah.gain, [0, 5, 7, 9][p.wah]);
         set(ch.wahDepth.gain, [0, 1, 1.4, 1.8][p.wah] * (role === 'bass' ? 250 : 650));
       }
       if (ch.chorusWet) set(ch.chorusWet.gain, [0, 0.35, 0.5, 0.65][p.chorus]);
       set(ch.fader.gain, level);
     }
     set(this.dlyFb.gain, 0.22 + 0.08 * p.delay);
-    set(this.comp.threshold, -16 - 4 * p.compressor);
+    set(this.comp.threshold, -16);
     set(this.comp.ratio, 3 + 1.6 * p.compressor);
-    set(this.makeup.gain, 1 + 0.11 * p.compressor);
+    set(this.comp.attack, 0.008 + 0.006 * p.compressor);
+    set(this.comp.release, 0.2 - 0.03 * p.compressor);
+    set(this.makeup.gain, 1);
   }
 
   // ---- System sounds (the song's own transitions; they go through the muffle with the music) ----

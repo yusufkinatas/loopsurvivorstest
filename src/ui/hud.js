@@ -25,6 +25,7 @@ export class Hud {
     this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div>');
     this.boss.hidden = true;
     this.banner = el('div', 'banner', '<div class="banner-title"></div><div class="banner-sub"></div>');
+    this.note = el('div', 'fightnote');
     this.tipEl = el('div', 'tip');
     this.tipEl.hidden = true;
 
@@ -61,13 +62,21 @@ export class Hud {
     const mixWrap = el('div', 'mixwrap');
     mixWrap.append(this.mixCap, this.mixer);
     this.bottom.append(this.drop, mixWrap, this.pedals);
-    root.append(this.top, this.boss, this.banner, this.tipEl, this.side, this.bottom, this.pauseBtn);
+    root.append(this.top, this.boss, this.banner, this.note, this.tipEl, this.side, this.bottom, this.pauseBtn);
 
     this._bannerTimer = null;
     this._last = {};
   }
 
-  showBanner(title, sub) {
+  showBanner(title, sub, compact = false) {
+    if (compact) {
+      // Mid-fight messages: a short line under the boss bar, out of the way of the bullets.
+      this.note.textContent = title;
+      this.note.classList.remove('show');
+      void this.note.offsetWidth;
+      this.note.classList.add('show');
+      return;
+    }
     const t = this.banner.querySelector('.banner-title');
     const s = this.banner.querySelector('.banner-sub');
     t.textContent = title;
@@ -85,29 +94,44 @@ export class Hud {
     if (text) this._tipTimer = setTimeout(() => { this.tipEl.hidden = true; }, sec * 1000);
   }
 
+  hideBanner() { this.banner.classList.remove('show'); }
+
   setBoss(e) {
     this.bossEnemy = e;
     this.boss.hidden = !e;
-    if (e) this.boss.querySelector('.bossbar-name').textContent = e.def.name;
+    if (!e) return;
+    this.boss.querySelector('.bossbar-name').textContent = e.def.name;
+    this.boss.style.setProperty('--c', e.def.color);
+    // Notches where the boss changes its attack pattern.
+    const marks = { drone: [0.8], clipper: [0.7], glitchking: [], whitenoise: [0.66, 0.33] }[e.type] || [];
+    this.boss.querySelector('.bossbar-track').innerHTML = '<div class="bossbar-fill"></div>' + marks.map((m) => `<i class="bossbar-notch" style="left:${m * 100}%"></i>`).join('');
   }
 
   // Rebuild the parts that only change when the loadout changes.
   refreshLoadout(g) {
     const cap = g.channelCap();
     const next = SECTIONS.findIndex((s, i) => i > g.sectionIndex && g.channelCap(i) > cap);
-    this.mixCap.innerHTML = `<b>${g.loadout.filled()}/${cap}</b> channels open${next > 0 ? ` <span>· one more opens at ${SECTIONS[next].name}</span>` : ''}`;
+    const used = g.loadout.filled();
+    const free = cap - used;
+    this.mixCap.innerHTML = `<b>${used} of ${cap}</b> channels in use${free > 0 ? ` · <b>${free} free</b>` : ''}${next > 0 ? ` <span>· another opens at ${SECTIONS[next].name}</span>` : ''}`;
+    this.lockedAt = next > 0 ? SECTIONS[next].name : null;
     for (const role of ROLES) {
       const s = this.strips[role];
       const inst = g.loadout.channels[role];
       s.el.classList.toggle('empty', !inst);
       if (inst) {
+        s.el.classList.remove('locked');
+        s.el.title = '';
         s.name.textContent = inst.def.name;
         s.sub.textContent = STYLES[inst.def.style].name;
         s.sub.style.color = STYLES[inst.def.style].color;
         s.pips.innerHTML = Array.from({ length: MAX_INSTRUMENT_LEVEL }, (_, i) => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('');
       } else {
         s.name.textContent = ROLE_INFO[role].name;
-        s.sub.textContent = g.loadout.filled() < cap ? 'open' : 'empty';
+        const isFree = g.loadout.filled() < cap;
+        s.sub.textContent = isFree ? 'free' : 'locked';
+        s.el.classList.toggle('locked', !isFree);
+        s.el.title = isFree ? 'Pick a sound for this channel at your next level-up' : `Opens at ${this.lockedAt || 'a later section'}`;
         s.sub.style.color = '';
         s.pips.innerHTML = '';
       }
@@ -151,7 +175,7 @@ export class Hud {
     this.drop.querySelector('.dropmeter-fill').style.transform = `scaleX(${g.dropState ? 1 : g.dropCharge / g.dropMax})`;
     this.drop.classList.toggle('ready', ready);
     this.drop.classList.toggle('building', !!g.dropState);
-    set('droplabel', g.dropState ? 'Building...' : ready ? 'Drop ready' : 'Drop', (v) => { this.drop.querySelector('.dropmeter-label').textContent = v; });
+    set('droplabel', g.dropState ? 'Build' : ready ? 'Drop ready' : 'Drop', (v) => { this.drop.querySelector('.dropmeter-label').textContent = v; });
 
     if (this.bossEnemy) {
       const e = this.bossEnemy;

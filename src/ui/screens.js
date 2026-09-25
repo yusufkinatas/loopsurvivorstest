@@ -178,6 +178,11 @@ export class Screens {
       card.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { this.focus = i; onPreview(i); } });
       card.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') onPreview(null); });
       card.addEventListener('focus', () => { this.focus = i; onPreview(i); cards.forEach((c, k) => c.classList.toggle('focused', k === i)); });
+      card.addEventListener('blur', (e) => {
+        if (e.relatedTarget && e.relatedTarget.classList?.contains('card')) return;
+        card.classList.remove('focused');
+        onPreview(null);
+      });
       card.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse') return;
         held = false;

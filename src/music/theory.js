@@ -64,6 +64,12 @@ export function scaleTone(chord, idx, low) {
 // kept around `center`.
 export function voiceChord(chord, prev, center, n = 3, seventh = false) {
   const tones = seventh ? 4 : 3;
+  if (seventh && chord.intervals[3] === 11) {
+    // Major 7th chords voiced close put the 7th a half step under the root. Swap the root for the 9th.
+    const pcs = chord.pcs.slice();
+    pcs[0] = (chord.rootPc + 2) % 12;
+    chord = { ...chord, pcs };
+  }
   let best = null, bestCost = Infinity;
   for (let inv = 0; inv < tones; inv++) {
     for (let base = center - 14; base <= center + 2; base += 1) {

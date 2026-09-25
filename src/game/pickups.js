@@ -9,16 +9,18 @@ export const ITEM_INFO = {
   vinyl:  { color: '#ffd166', r: 11, label: 'Vinyl' },
 };
 
+// Notes are warm white to gold: a color no channel uses, so pickups never read as attacks.
 export function gemColor(v) {
-  return v >= 20 ? '#ffd36e' : v >= 4 ? '#8dffb9' : '#a6e9ff';
+  return v >= 20 ? '#ffd36e' : v >= 4 ? '#ffe7a3' : '#f3e7c4';
 }
 
 export function dropGem(g, x, y, value) {
   if (g.gems.length >= WORLD.maxGems) {
-    // Fold into an existing far-away gem instead of growing the list.
-    const i = Math.floor(rng() * g.gems.length);
-    const gm = g.gems[i];
-    if (gm.kind === 'xp') { gm.value += value; gm.r = gemR(gm.value); gm.color = gemColor(gm.value); return; }
+    // Fold into an existing note instead of growing the list.
+    for (let k = 0; k < 8; k++) {
+      const gm = g.gems[Math.floor(rng() * g.gems.length)];
+      if (gm.kind === 'xp') { gm.value += value; gm.r = gemR(gm.value); gm.color = gemColor(gm.value); return; }
+    }
   }
   g.gems.push({ kind: 'xp', x: x + rand(-4, 4), y: y + rand(-4, 4), value, r: gemR(value), color: gemColor(value), vx: 0, vy: 0, pull: false, age: 0 });
 }
@@ -44,14 +46,14 @@ export function updatePickups(g, dt) {
     const d2 = dist2(gm.x, gm.y, p.x, p.y);
     if (!gm.pull && d2 < r2) gm.pull = true;
     if (gm.pull) {
-      const d = Math.sqrt(d2) || 1;
-      const sp = 380 + gm.age * 20;
-      gm.vx += ((p.x - gm.x) / d) * sp * dt * 6;
-      gm.vy += ((p.y - gm.y) / d) * sp * dt * 6;
-      const v = Math.hypot(gm.vx, gm.vy);
-      const max = Math.max(sp, p.speedNow + 120);
-      if (v > max) { gm.vx *= max / v; gm.vy *= max / v; }
-      gm.x += gm.vx * dt; gm.y += gm.vy * dt;
+      // Fly straight at the player, accelerating. Steering straight in (instead of by force) means a
+      // pulled note can never fall into an orbit around the player.
+      gm.pullT = (gm.pullT || 0) + dt;
+      const d = Math.sqrt(dist2(gm.x, gm.y, p.x, p.y)) || 1;
+      const sp = Math.min(1600, Math.max(320 + gm.pullT * 1100, p.speedNow + 180));
+      const step = Math.min(d, sp * dt);
+      gm.x += ((p.x - gm.x) / d) * step;
+      gm.y += ((p.y - gm.y) / d) * step;
     }
     const pr = p.r + gm.r + 4;
     if (dist2(gm.x, gm.y, p.x, p.y) < pr * pr) {

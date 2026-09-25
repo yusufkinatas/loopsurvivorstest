@@ -167,6 +167,7 @@ export function noise(ctx, out, t, o = {}) {
   nodes.push(...chain(ctx, head, out, { pan }));
   src.connect(g);
   const end = env(g.gain, t, { a, d, s, r, peak: gain, hold: Math.max(0, dur - a) });
+  src.loop = true;
   src.start(t, Math.random() * 1.2);
   src.stop(end + 0.03);
   src.onended = () => { for (const n of nodes) n.disconnect(); };

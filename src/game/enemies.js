@@ -2,7 +2,7 @@
 // Enemies move to the beat too. They surge on every beat, and some act on specific beats.
 
 import { TAU, rand, rng, pick, dist2, clamp } from '../util.js';
-import { STEP_SEC } from '../config.js';
+import { STEP_SEC, BEAT_SEC } from '../config.js';
 
 export const ENEMY_TYPES = {
   static:   { name: 'Static',   hp: 9,  speed: 64,  r: 11, dmg: 7,  xp: 1, shape: 'square',  color: '#d9d4ea', mass: 1 },
@@ -78,6 +78,8 @@ export function enemiesOnBeat(g, ev) {
         e.ai.glitchT = 0.18;
       }
     }
+    // Screech winds up for a beat (a growing red glow), then fires on beat 3.
+    if (e.def.ranged && ev.beat === 1 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0 && dist2(e.x, e.y, p.x, p.y) < 480 * 480) e.ai.windup = BEAT_SEC;
     if (e.def.ranged && ev.beat === 2 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0) {
       const d2 = dist2(e.x, e.y, p.x, p.y);
       if (d2 < 480 * 480) {
@@ -95,7 +97,9 @@ function bossOnBeat(g, e, ev) {
   switch (e.type) {
     case 'drone':
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, 'buzz', 5, e.r + 30);
-      if (ev.beat === 0 && ev.bar % 4 === 1) { e.ai.charge = 0.75; e.ai.chargeA = aim; }
+      // The charge lane is shown for a beat (beat 4), then the Drone dashes along it on the downbeat.
+      if (ev.beat === 3 && ev.bar % 4 === 0) e.ai.chargeWarn = { a: aim, t: BEAT_SEC };
+      if (ev.beat === 0 && ev.bar % 4 === 1) { e.ai.charge = 0.75; e.ai.chargeA = e.ai.chargeWarn ? e.ai.chargeWarn.a : aim; e.ai.chargeWarn = null; }
       if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff9fe2');
       break;
     case 'clipper':
@@ -107,6 +111,7 @@ function bossOnBeat(g, e, ev) {
       if (ev.beat === 0 && ev.bar % 2 === 0) {
         const a = rand(0, TAU);
         e.ai.blinkTo = { x: p.x + Math.cos(a) * 220, y: p.y + Math.sin(a) * 220 };
+        e.ai.blinkSetAt = g.time;
       }
       if (ev.beat === 2 && e.ai.blinkTo) {
         g.fx.particles(e.x, e.y, e.color, 18, 260, 0.5, 3);
@@ -122,7 +127,7 @@ function bossOnBeat(g, e, ev) {
       if (e.ai.phase !== phase) {
         e.ai.phase = phase;
         e.ai.spiralAcc = 0;
-        g.banner(phase === 2 ? 'White Noise is getting louder' : phase === 3 ? 'White Noise is clipping' : '', '');
+        if (phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
       }
       if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
@@ -168,6 +173,8 @@ export function updateEnemies(g, dt) {
     e.flash = Math.max(0, e.flash - dt);
     if (e.ai.glitchT) e.ai.glitchT = Math.max(0, e.ai.glitchT - dt);
     if (e.ai.shootT) e.ai.shootT = Math.max(0, e.ai.shootT - dt);
+    if (e.ai.windup) e.ai.windup = Math.max(0, e.ai.windup - dt);
+    if (e.ai.chargeWarn) e.ai.chargeWarn.t = Math.max(0, e.ai.chargeWarn.t - dt);
     if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slow = 0; }
 
     // Knockback impulse decays fast.
@@ -241,4 +248,3 @@ export function randomType(mix) {
   return pick(Object.keys(mix));
 }
 
-export { clamp };

@@ -64,6 +64,7 @@ export class Sequencer {
   _step(t) {
     const sib = this.globalStep % STEPS_PER_BAR;
     const emit = !this.hold;
+    let impactAt = null;
     const audioOn = this._audioOn();
     const A = audioOn ? this.audio : null;
 
@@ -87,7 +88,7 @@ export class Sequencer {
         if (this.hold) {
           if (A) { A.buildSweep(t, t + BAR_SEC); A.riser(t, BAR_SEC); }
         } else {
-          A && A.impact(t);
+          impactAt = t;
           this.events.push({ type: 'drop', time: t });
           this.dropState = null;
         }
@@ -111,6 +112,7 @@ export class Sequencer {
       this._play(inst, t, sib, chord, emit, A);
     }
     if (this.preview?.inst) this._play(this.preview.inst, t, sib, chord, false, A);
+    if (impactAt !== null && A) A.impact(impactAt);
   }
 
   _play(inst, t, sib, chord, emit, A) {
@@ -143,6 +145,11 @@ export class Sequencer {
       midi = chordTone(chord, n.ct, (def.low ?? 48) + oct, !!def.seventh);
     } else if (n.sc !== undefined) {
       midi = scaleTone(chord, n.sc, (def.low ?? 48) + oct);
+      // A held note a half step above a chord tone rubs against the chord: settle it onto the chord tone.
+      if ((n.d || 1) >= 2) {
+        const pc = ((midi % 12) + 12) % 12;
+        if (chord.pcs.slice(0, 3).some((c) => (pc - c + 12) % 12 === 1)) midi -= 1;
+      }
     }
     const high = def.high ?? ROLE_HIGH[def.role];
     if (high) {

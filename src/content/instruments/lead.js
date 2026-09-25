@@ -125,12 +125,12 @@ const flute = {
     const dur = note.dur * 0.92;
     const vib = long ? { rate: 4.8, depth: 12, delay: 0.24 } : null;
     // Body: a soft sine with its first overtones. Slow attack, like breath filling the pipe.
-    v.tone(ctx, out, t, { freq: f, wave: 'sine', dur, a: 0.035, d: 0.1, s: 0.85, r: 0.12, gain: 0.14 * note.v, vibrato: vib });
-    v.tone(ctx, out, t, { freq: f * 2, wave: 'sine', dur, a: 0.05, d: 0.12, s: 0.7, r: 0.1, gain: 0.07 * note.v, vibrato: vib });
-    v.tone(ctx, out, t, { freq: f * 3, wave: 'sine', dur, a: 0.06, d: 0.1, s: 0.5, r: 0.08, gain: 0.03 * note.v, vibrato: vib });
+    v.tone(ctx, out, t, { freq: f, wave: 'sine', dur, a: 0.035, d: 0.1, s: 0.85, r: 0.12, gain: 0.175 * note.v, vibrato: vib });
+    v.tone(ctx, out, t, { freq: f * 2, wave: 'sine', dur, a: 0.05, d: 0.12, s: 0.7, r: 0.1, gain: 0.0875 * note.v, vibrato: vib });
+    v.tone(ctx, out, t, { freq: f * 3, wave: 'sine', dur, a: 0.06, d: 0.1, s: 0.5, r: 0.08, gain: 0.0375 * note.v, vibrato: vib });
     // Breath: band-passed noise above the pitch, plus a soft chiff at the start of the note.
-    v.noise(ctx, out, t, { dur, a: 0.02, d: 0.1, s: 0.6, r: 0.1, gain: 0.09 * note.v, filter: { type: 'bandpass', freq: Math.min(9000, f * 4), q: 1.2 } });
-    v.noise(ctx, out, t, { dur: 0.01, d: 0.04, gain: 0.08 * note.v, filter: { type: 'bandpass', freq: 3200, q: 1 } });
+    v.noise(ctx, out, t, { dur, a: 0.02, d: 0.1, s: 0.6, r: 0.1, gain: 0.1125 * note.v, filter: { type: 'bandpass', freq: Math.min(9000, f * 4), q: 1.2 } });
+    v.noise(ctx, out, t, { dur: 0.01, d: 0.04, gain: 0.1 * note.v, filter: { type: 'bandpass', freq: 3200, q: 1 } });
   },
 
   fire(g, note, st) {
@@ -145,7 +145,7 @@ const flute = {
       const a = base + (hi - 0.5) * 1.1 + (i - (n - 1) / 2) * 0.5;
       g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed) * (0.8 + 0.5 * hi), r: st.size, life: st.life,
         damage: g.dmg(st.damage) * note.v, pierce: st.pierce, homing: st.homing, range: 480, kb: 30, color,
-        shape: 'note', trail: true });
+        shape: 'dot', trail: true });
     }
   },
 };
@@ -189,7 +189,7 @@ const squareLead = {
     // Thin 25% pulse for quick notes, round 50% square for held ones. Held notes get a fast chip vibrato.
     v.tone(ctx, out, t, {
       freq: note.freq, duty: held ? 0.5 : 0.25, dur: note.dur * 0.85, a: 0.002, d: 0.06, s: 0.7, r: 0.04,
-      gain: 0.16 * note.v, vibrato: held ? { rate: 7.5, depth: 22, delay: 0.09 } : null,
+      gain: 0.2 * note.v, vibrato: held ? { rate: 7.5, depth: 22, delay: 0.09 } : null,
     });
   },
 

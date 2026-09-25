@@ -89,11 +89,16 @@ export class Input {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = [...pads].find(Boolean);
     if (!gp) return;
-    const map = { 0: 'pad-a', 9: 'Escape', 2: 'r' };
+    const map = { 0: 'pad-a', 9: 'Escape', 2: 'r', 14: 'pad-left', 15: 'pad-right' };
     for (const idx in map) {
       const pressed = !!gp.buttons[idx]?.pressed;
       if (pressed && !this.padPrev[idx]) this.onKey(map[idx], null);
       this.padPrev[idx] = pressed;
     }
+    // The stick also steps through menus, with hysteresis so a resting stick does not repeat.
+    const ax = gp.axes[0] || 0;
+    const dir = this.padPrev.stick || 0;
+    if (dir === 0 && Math.abs(ax) > 0.6) { this.padPrev.stick = Math.sign(ax); this.onKey(ax > 0 ? 'pad-right' : 'pad-left', null); }
+    else if (dir !== 0 && Math.abs(ax) < 0.3) this.padPrev.stick = 0;
   }
 }

@@ -157,11 +157,11 @@ const chipDrums = {
   sound(A, t, note, out) {
     const { ctx, v } = A;
     if (note.k === 'kick') {
-      v.tone(ctx, out, t, { freq: 55, wave: 'triangle', dur: 0.03, d: 0.2, s: 0, r: 0.03, gain: 0.85 * note.v, pitchEnv: { from: 4, time: 0.045 } });
+      v.tone(ctx, out, t, { freq: 55, wave: 'triangle', dur: 0.03, d: 0.2, s: 0, r: 0.03, gain: 0.78 * note.v, sub: 0.4, pitchEnv: { from: 4, time: 0.045 } });
       v.noise(ctx, out, t, { dur: 0.004, d: 0.02, gain: 0.25 * note.v, chip: 20, filter: { type: 'lowpass', freq: 3000 } });
       A.duck(t, 0.35 * note.v, 0.18);
     } else {
-      v.noise(ctx, out, t, { dur: 0.01, d: 0.13, gain: 0.4 * note.v, chip: 3, filter: { type: 'highpass', freq: 900 } });
+      v.noise(ctx, out, t, { dur: 0.01, d: 0.13, gain: 0.5 * note.v, chip: 3, filter: { type: 'highpass', freq: 900 } });
       v.tone(ctx, out, t, { freq: 220, duty: 0.25, dur: 0.01, d: 0.05, s: 0, gain: 0.12 * note.v, pitchEnv: { from: 1.8, time: 0.03 } });
     }
   },

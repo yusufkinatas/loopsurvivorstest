@@ -114,11 +114,11 @@ const rhodes = {
       const at = t + i * 0.007;   // a slight roll, bottom note first
       const pan = spread(i, n, 0.5);
       // Body: a round tone whose overtones mellow out as the note rings.
-      v.fm(ctx, out, at, { freq: f, ratio: 3, index: 2 + 1.5 * note.v, indexDecay: 2.2, a: 0.003, d: 1.3, s: 0.3, r: 0.35,
+      v.fm(ctx, out, at, { freq: f, ratio: 3, index: 2 + 1.5 * note.v, indexDecay: 2.2, a: 0.003, d: Math.min(1.3, note.dur + 0.1), s: 0.3, r: 0.25,
         dur: note.dur, gain: 0.1 * note.v, detune: i % 2 ? 4 : -4, pan });
-      // Tine: a short metallic bell on top of the attack.
-      v.fm(ctx, out, at, { freq: f, ratio: 14, index: 10, indexDecay: 0.2, a: 0.001, d: 0.5, s: 0, r: 0.1,
-        dur: 0.01, gain: 0.08 * note.v, pan });
+      // Tine: a short metallic bell on the top note's attack.
+      if (i === n - 1) v.fm(ctx, out, at, { freq: f, ratio: 14, index: 10, indexDecay: 0.2, a: 0.001, d: 0.5, s: 0, r: 0.1,
+        dur: 0.01, gain: 0.1 * note.v, pan });
     });
   },
 
@@ -175,11 +175,10 @@ const chipChords = {
     const n = g.amount(note.midis.length);
     const targets = g.nearestN(p.x, p.y, n, st.range);
     for (let i = 0; i < n; i++) {
-      const e = targets[i];
-      // Not enough enemies around: the spare blocks land just ahead of you.
-      const a = g.aim() + spread(i, n, 1.6);
-      const x = e ? e.x : p.x + Math.cos(a) * 80, y = e ? e.y : p.y + Math.sin(a) * 80;
-      g.fx.strike({ x, y, target: e || null, delay: 0.125, r: g.area(st.radius), damage: g.dmg(st.damage) * note.v,
+      // Not enough enemies close by: spare blocks go to anyone farther out, or are skipped.
+      const e = targets[i] || g.randomEnemy(p.x, p.y, 600);
+      if (!e) continue;
+      g.fx.strike({ x: e.x, y: e.y, target: e, delay: 0.125, r: g.area(st.radius), damage: g.dmg(st.damage) * note.v,
         kb: st.kb, stun: st.stun || 0, color, style: 'drop' });
     }
   },
