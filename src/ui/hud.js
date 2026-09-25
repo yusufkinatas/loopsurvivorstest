@@ -24,6 +24,8 @@ export class Hud {
     this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div>');
     this.boss.hidden = true;
     this.banner = el('div', 'banner', '<div class="banner-title"></div><div class="banner-sub"></div>');
+    this.tipEl = el('div', 'tip');
+    this.tipEl.hidden = true;
 
     this.side = el('div', 'hud-side');
     this.genre = el('div', 'genre');
@@ -55,7 +57,7 @@ export class Hud {
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); onPause(); });
 
     this.bottom.append(this.drop, this.mixer, this.pedals);
-    root.append(this.top, this.boss, this.banner, this.side, this.bottom, this.pauseBtn);
+    root.append(this.top, this.boss, this.banner, this.tipEl, this.side, this.bottom, this.pauseBtn);
 
     this._bannerTimer = null;
     this._last = {};
@@ -69,6 +71,14 @@ export class Hud {
     this.banner.classList.remove('show');
     void this.banner.offsetWidth;
     this.banner.classList.add('show');
+  }
+
+  // A one-line hint above the mixer that fades after `sec` seconds.
+  tip(text, sec = 6) {
+    clearTimeout(this._tipTimer);
+    this.tipEl.textContent = text;
+    this.tipEl.hidden = !text;
+    if (text) this._tipTimer = setTimeout(() => { this.tipEl.hidden = true; }, sec * 1000);
   }
 
   setBoss(e) {

@@ -21,6 +21,7 @@ export class Sequencer {
     this.song = song;
     this.globalStep = 0;
     this.bar = 0;
+    this.loopBar = 0;          // counts every bar, held or not, so 2-bar patterns keep cycling in a vamp
     this.hold = false;
     this.nextTime = 0;
     this.events = [];
@@ -67,6 +68,7 @@ export class Sequencer {
     const A = audioOn ? this.audio : null;
 
     if (sib === 0) {
+      if (this.globalStep > 0) this.loopBar++;
       if (this.globalStep > 0 && !this.hold) {
         this.bar++;
         const pos = this.song.position(this.bar);
@@ -116,7 +118,7 @@ export class Sequencer {
     const lv = def.levels[inst.level - 1];
     if (!lv || !lv._byStep) return;
     const P = def.steps || STEPS_PER_BAR;
-    const idx = (this.bar * STEPS_PER_BAR + sib) % P;
+    const idx = ((this.hold ? this.loopBar : this.bar) * STEPS_PER_BAR + sib) % P;
     const notes = lv._byStep[idx];
     if (!notes) return;
     for (const n of notes) {

@@ -132,7 +132,7 @@ export class Game {
   _disposeInst(inst) {
     try { inst.def.dispose?.(this, inst); } catch (e) { this._report(inst.def.id + '.dispose', e); }
     this.fx.clearOwner(inst.def.id);
-    (this.retired ||= []).push(inst);
+    if (inst.notes > 0 || inst.dmg > 0) (this.retired ||= []).push(inst);
   }
 
   onLoadoutChanged() {
@@ -564,9 +564,11 @@ export class Game {
     this.hooks.onResume?.();
   }
 
+  // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
+  // longer attacks, so the frame loop discards their events.
   gameOver() {
     this.state = 'gameover';
-    this.seq.hold = true;
+    this.seq.hold = false;
     this.seq.clearEvents();
     if (this.audio?.ready) this.audio.setMuffle(true);
     this.hooks.onGameOver?.(this.summary(false));
@@ -574,8 +576,9 @@ export class Game {
 
   victory() {
     this.state = 'victory';
-    this.seq.hold = true;
+    this.seq.hold = false;
     this.seq.clearEvents();
+    if (this.audio?.ready) this.audio.setMuffle(true);
     this.hooks.onVictory?.(this.summary(true));
   }
 

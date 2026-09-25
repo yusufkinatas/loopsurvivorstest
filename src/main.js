@@ -158,6 +158,17 @@ function startRun(id) {
   game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed });
   hud.refreshLoadout(game);
   hud.setBoss(null);
+  dropTipShown = false;
+  hud.tip(isTouch() ? 'Drag anywhere to move. Your sounds attack on their own.' : 'Move with WASD or the arrow keys. Your sounds attack on their own.', 7);
+}
+
+let dropTipShown = false;
+const isTouch = () => input.touchUsed || (typeof matchMedia === 'function' && matchMedia('(hover: none)').matches);
+function tips() {
+  if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState) {
+    dropTipShown = true;
+    hud.tip(isTouch() ? 'The Drop is ready. Tap the Drop meter.' : 'The Drop is ready. Press Space.', 6);
+  }
 }
 
 function pauseRun() {
@@ -232,6 +243,7 @@ function frame(ts) {
   }
 
   if (mode === 'run' && game.player) {
+    if (!opts.sim) tips();
     renderer.draw(game, dt);
     hud.update(game, clock.now() - (opts.sim ? 0 : audio.latency), seq);
   } else {
