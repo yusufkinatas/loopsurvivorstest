@@ -49,6 +49,7 @@ export class Game {
       iframes: 0, faceX: 1, faceY: 0, vx: 0, vy: 0, speedNow: 0, hurtT: 0,
     };
     this.enemies = [];
+    this.damageTaken = { contact: 0, shots: 0, boss: 0 };
     this.shots = [];
     this.gems = [];
     this.later = [];
@@ -125,7 +126,9 @@ export class Game {
   _setupInst(inst) {
     if (!inst.def.setup) return;
     const prev = this.src; this.src = inst;
+    this._stableAmount = true;
     try { inst.def.setup(this, inst.def.levels[inst.level - 1].stats, inst); } catch (e) { this._report(inst.def.id + '.setup', e); }
+    this._stableAmount = false;
     this.src = prev;
   }
 
@@ -158,7 +161,24 @@ export class Game {
   // Scaled damage: base x global damage multiplier x echo scale.
   dmg(base) { return base * this.stats.damage * this.dmgScale; }
   area(r) { return r * this.stats.area; }
-  amount(n) { return Math.max(0, Math.round(n + this.stats.amount)); }
+  // Counts scale by a percentage (Chorus pedal, 8-Bit chemistry), so a one-shot weapon and a
+  // six-shot weapon gain the same share. Fractions round by chance per note, and deterministically
+  // inside setup() so orbiter counts do not flicker.
+  amount(n) {
+    const v = n * (1 + this.stats.amount);
+    if (this._stableAmount) return Math.max(0, Math.round(v));
+    const base = Math.floor(v);
+    return Math.max(0, base + (rng() < v - base ? 1 : 0));
+  }
+
+  // Heal the player (support instruments). Echo copies heal at echo strength.
+  heal(n) {
+    const p = this.player;
+    if (!(n > 0) || p.hp >= p.maxHp) return 0;
+    const amt = Math.min(p.maxHp - p.hp, n * this.dmgScale);
+    p.hp += amt;
+    return amt;
+  }
   speed(v) { return v * this.stats.projSpeed; }
   color(roleOrInst) {
     const role = typeof roleOrInst === 'string' ? roleOrInst : roleOrInst?.def?.role;
@@ -225,10 +245,10 @@ export class Game {
     if (!e || e.dead || !(dmg > 0)) return;
     let crit = false;
     if (rng() < this.stats.crit) { dmg *= this.stats.critMult; crit = true; }
+    const src = o.src || this.src;
+    if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
     e.flash = 0.09;
-    const src = o.src || this.src;
-    if (src) src.dmg += dmg;
     if (o.kb && !e.boss) {
       const fx = o.fx ?? this.player.x, fy = o.fy ?? this.player.y;
       let dx = e.x - fx, dy = e.y - fy;
@@ -278,6 +298,8 @@ export class Game {
     if (this.state !== 'playing' || p.iframes > 0 || this.opts.god) return;
     const taken = Math.max(1, dmg - this.stats.armor);
     p.hp -= taken;
+    const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
+    this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
     p.iframes = PLAYER_BASE.iframes;
     p.hurtT = 0.3;
     this.hurtFlash = 1;

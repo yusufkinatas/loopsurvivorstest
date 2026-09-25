@@ -233,6 +233,7 @@ function frame(ts) {
     seq.tick();
     if (mode === 'run') {
       game.view = renderer.viewSize();
+      if (opts.bot) botDrop();
       const mv = opts.bot ? botMove(game) : input.move();
       game.step(dt, mv);
       // Anything the sequencer emitted while the run is not playing is stale.
@@ -249,6 +250,13 @@ function frame(ts) {
   } else {
     renderer.drawAttract(dt, mode === 'lobby' ? pulseFromSeq() : 0.3 + 0.3 * Math.sin(ts / 500));
   }
+}
+
+// Autopilot uses the Drop when the meter is full and a crowd (or a boss) is close.
+function botDrop() {
+  if (game.state !== 'playing' || game.dropCharge < game.dropMax || game.dropState) return;
+  const p = game.player;
+  if (game.boss || game.inRadius(p.x, p.y, 320).length >= 25) game.requestDrop();
 }
 
 function pulseFromSeq() {
@@ -274,6 +282,7 @@ function simFrame() {
     clock.t += step;
     seq.tick();
     game.view = { w: 1280, h: 720 };
+    if (opts.bot) botDrop();
     game.step(step, opts.bot ? botMove(game) : { x: 0, y: 0 });
     if (game.time >= nextSample) {
       nextSample += 10;
@@ -301,6 +310,7 @@ window.__LS = {
   metrics() {
     return {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
+      damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
       genre: game.genre, key: game.key?.name,
       loadout: game.loadout ? game.loadout.instruments().map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg), kills: i.kills, notes: i.notes })) : [],

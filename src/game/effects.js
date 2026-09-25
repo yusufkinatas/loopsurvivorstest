@@ -42,7 +42,7 @@ export class Effects {
       r: o.r ?? 5, damage: o.damage ?? 5, pierce: o.pierce ?? 0, life: o.life ?? 1.6, age: 0,
       color: o.color ?? '#fff', shape: o.shape ?? 'dot', homing: o.homing ?? 0, bounce: o.bounce ?? 0,
       kb: o.kb ?? 40, stun: o.stun ?? 0, slow: o.slow ?? 0, drag: o.drag ?? 0, trail: o.trail ?? false,
-      spin: o.spin ?? 0, rot: rand(0, TAU), hit: new Set(), target: null, retarget: 0, src: this.g.src,
+      spin: o.spin ?? 0, rot: o.rot ?? rand(0, TAU), hit: new Set(), target: null, retarget: 0, src: this.g.src,
       range: o.range ?? 420, onHit: o.onHit ?? null, dead: false,
       boomerang: !!o.boomerang, returning: false,
     };
@@ -181,6 +181,8 @@ export class Effects {
     this._layoutOrbit(grp);
     return grp;
   }
+
+  orbitOf(inst) { return this.orbits.get(inst.def.id) || null; }
 
   _layoutOrbit(grp) {
     const p = this.g.player;

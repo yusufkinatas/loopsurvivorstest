@@ -115,7 +115,7 @@ const taiko = {
       const spot = g.densest(460);
       if (spot) slam(spot.x, spot.y);
       else slam(p.x + Math.cos(g.aim()) * 90, p.y + Math.sin(g.aim()) * 90);
-      const extra = (st.extra || 0) + Math.max(0, g.amount(0));
+      const extra = g.amount(1 + (st.extra || 0)) - 1;
       for (let i = 0; i < extra; i++) {
         const e = g.randomEnemy(p.x, p.y, 420);
         if (e) slam(e.x, e.y);

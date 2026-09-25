@@ -1,3 +1,5 @@
+import { rng } from './util.js';
+
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It kites away from nearby threats and drifts toward notes when it is safe.
 
@@ -56,7 +58,7 @@ export function botMove(g) {
 
 // Card choice for autopilot runs. 'smart' fills the band, then levels it; 'random' is uniform.
 export function autopick(offers, g, mode = 'smart') {
-  if (mode === 'random') return Math.floor(Math.random() * offers.length);
+  if (mode === 'random') return Math.floor(rng() * offers.length);
   if (mode === 'first') return 0;
   let best = 0, bs = -Infinity;
   offers.forEach((o, i) => {
@@ -73,7 +75,7 @@ export function autopick(offers, g, mode = 'smart') {
       case 'pedal-up': s = 3.2; break;
       default: s = 0.5;
     }
-    s += Math.random() * 0.8;
+    s += rng() * 0.8;
     if (s > bs) { bs = s; best = i; }
   });
   return best;

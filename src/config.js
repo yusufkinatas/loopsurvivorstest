@@ -12,6 +12,9 @@ export const ECHO_STEPS = 3;
 // The six mixer channels. One instrument per channel keeps every frequency range and rhythmic role owned by exactly one sound.
 export const ROLES = ['beat', 'perc', 'bass', 'chords', 'lead', 'arp'];
 
+// Pitch ceiling per pitched channel. Notes resolved above it fold down an octave so every key stays in range.
+export const ROLE_HIGH = { bass: 51, chords: 77, lead: 86, arp: 98 };
+
 export const ROLE_INFO = {
   beat:   { name: 'Beat',    color: '#ff5b6b', desc: 'Kicks and snares. Big hits on the beat.' },
   perc:   { name: 'Groove',  color: '#ffb547', desc: 'Hats and shakers. Fast, light hits.' },

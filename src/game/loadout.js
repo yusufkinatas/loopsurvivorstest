@@ -18,8 +18,8 @@ export const CHEMISTRY = {
   ],
   chip: [
     { n: 2, mods: { projSpeed: 0.15, moveSpeed: 0.08 }, text: '+15% projectile speed, +8% move speed' },
-    { n: 4, mods: { amount: 1 }, text: 'Also +1 projectile / orbiter' },
-    { n: 6, mods: { amount: 1, crit: 0.08 }, text: 'Also +2 projectiles, +8% crit' },
+    { n: 4, mods: { amount: 0.25 }, text: 'Also 25% more projectiles' },
+    { n: 6, mods: { amount: 0.25, crit: 0.08 }, text: 'Also 50% more projectiles, +8% crit' },
   ],
 };
 export const FUSION = { mods: { damage: 0.1, area: 0.1, xpGain: 0.15 }, text: 'Fusion: 2+ of every style. +10% damage, +10% area, +15% XP' };

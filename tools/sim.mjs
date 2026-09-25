@@ -40,7 +40,8 @@ try {
     const wall = ((Date.now() - t0) / 1000).toFixed(1);
     if (!m) { results.push({ error: 'no metrics', logs }); continue; }
     const out = summary
-      ? { state: m.state, time: Math.round(m.time), level: m.level, kills: m.kills, hp: Math.round(m.hp), section: m.section, bosses: m.bosses, errors: m.errors, loadout: m.loadout.map((i) => `${i.id}:${i.level}:${i.dmg}`), pedals: m.pedals.map((p) => `${p.id}:${p.level}`), genre: m.genre, wall, logs: logs.slice(0, 12) }
+      ? { state: m.state, time: Math.round(m.time), level: m.level, kills: m.kills, hp: Math.round(m.hp), section: m.section, bosses: m.bosses, errors: m.errors,
+          damageTaken: m.damageTaken, drops: m.drops, bossAlive: m.bossesAlive, filledAt: (m.samples.find((s) => s.filled >= 6) || {}).t ?? null, loadout: m.loadout.map((i) => `${i.id}:${i.level}:${i.dmg}`), pedals: m.pedals.map((p) => `${p.id}:${p.level}`), genre: m.genre, wall, logs: logs.slice(0, 12) }
       : { ...m, wall, logs: logs.slice(0, 40) };
     results.push(out);
   }

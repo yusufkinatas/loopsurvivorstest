@@ -75,7 +75,7 @@ export function voiceChord(chord, prev, center, n = 3, seventh = false) {
         notes.push(noteAtOrAbove(pc, notes[i - 1] + 1));
       }
       const mid = (notes[0] + notes[n - 1]) / 2;
-      let cost = Math.abs(mid - center) * 0.6;
+      let cost = Math.abs(mid - center) * 0.6 * n;
       if (prev && prev.length) {
         const p = prev.slice().sort((a, b) => a - b);
         for (let i = 0; i < n; i++) cost += Math.abs(notes[i] - (p[i] ?? p[p.length - 1]));

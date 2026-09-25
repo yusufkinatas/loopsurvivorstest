@@ -2,7 +2,7 @@
 // matching game event for each note, so an attack fires at the exact moment its note is heard.
 // While the game is paused ("hold"), the current bar loops as a muffled vamp and no attacks are emitted.
 
-import { STEPS_PER_BAR, STEP_SEC, BAR_SEC } from '../config.js';
+import { STEPS_PER_BAR, STEP_SEC, BAR_SEC, ROLE_HIGH } from '../config.js';
 import { chordTone, scaleTone, voiceChord, mtof } from './theory.js';
 import { SECTIONS } from './song.js';
 
@@ -143,6 +143,12 @@ export class Sequencer {
       midi = chordTone(chord, n.ct, (def.low ?? 48) + oct, !!def.seventh);
     } else if (n.sc !== undefined) {
       midi = scaleTone(chord, n.sc, (def.low ?? 48) + oct);
+    }
+    const high = def.high ?? ROLE_HIGH[def.role];
+    if (high) {
+      if (midi != null && !midis) while (midi > high) midi -= 12;
+      if (midis) for (let i = 0; i < midis.length; i++) while (midis[i] > high) midis[i] -= 12;
+      if (midis) { midis.sort((a, b) => a - b); midi = midis[0]; }
     }
     return {
       time: t,

@@ -29,8 +29,8 @@ export const PEDALS = [
   {
     id: 'chorus', name: 'Chorus', short: 'CHOR', color: '#7ff0d0',
     sound: 'Chords and lead shimmer and widen.',
-    levels: [{ amount: 1 }, { amount: 1, projSpeed: 0.12 }, { amount: 2, projSpeed: 0.12 }],
-    text: (s) => `+${s.amount} projectile${s.amount > 1 ? 's' : ''} or orbiter${s.amount > 1 ? 's' : ''}${s.projSpeed ? `, projectiles ${Math.round(s.projSpeed * 100)}% faster` : ''}.`,
+    levels: [{ amount: 0.25 }, { amount: 0.4, projSpeed: 0.12 }, { amount: 0.6, projSpeed: 0.15 }],
+    text: (s) => `${Math.round(s.amount * 100)}% more projectiles, orbiters and hits${s.projSpeed ? `. Projectiles ${Math.round(s.projSpeed * 100)}% faster` : ''}.`,
   },
   {
     id: 'wah', name: 'Auto-Wah', short: 'WAH', color: '#ff9bd1',
