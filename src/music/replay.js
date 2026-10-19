@@ -15,7 +15,7 @@ import { BY_ID } from '../content/instruments/index.js';
 const EDIT_BARS = { intro: 2, build: 2 };
 const EDIT_FROM = { build: 14, drop: 0 };
 
-const valid = (e) => !!SECTIONS[e?.index];
+const valid = (e) => Number.isInteger(e?.index) && !!SECTIONS[e.index];
 const pairs = (a) => (Array.isArray(a) ? a.filter(Array.isArray) : []);
 
 // The edit's sections: one excerpt per sheet entry, then an outro that plays one last downbeat on i

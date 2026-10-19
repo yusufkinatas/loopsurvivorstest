@@ -272,9 +272,9 @@ function auditRun(r, song, def, lv, bars, stops) {
 }
 
 // Plays a track sheet (Game.summary().sheet) through playSheet on a simulated clock with a stub desk.
-// Checks that every section starts in order with its own band, every note is in key and on the grid,
-// the outro plays one downbeat and the edit then ends by itself, and that stop() (at the end, and when
-// pressed part way through) leaves the sequencer clean.
+// Checks that every section starts in order with its own band (all of it, and no sound from another
+// entry), every note is in key and on the grid, the outro plays one downbeat and the edit then ends by
+// itself, and that stop() (at the end, and when pressed part way through) leaves the sequencer clean.
 export function checkReplay(sheet, keyPc) {
   const errors = [];
   const run = (stopAfter) => {
@@ -284,7 +284,8 @@ export function checkReplay(sheet, keyPc) {
     const desk = { pedalSets: 0, applyPedals() { this.pedalSets++; }, setActiveCount() {} };
     const sections = [];
     let ended = 0, notes = 0, outOfKey = 0, offGrid = 0, wrongBand = 0, outroNotes = 0, outroLeaks = 0;
-    const player = playSheet({ seq, audio: desk, sheet, keyPc, onSection: (name, size) => sections.push(`${name}:${size}`), onEnd: () => ended++ });
+    const player = playSheet({ seq, audio: desk, sheet, keyPc, onEnd: () => ended++,
+      onSection: (name, size) => { if (size !== sheet[sections.length].band.length) wrongBand++; sections.push(`${name}:${size}`); } });
     const song = seq.song, t0 = seq.nextTime;
     let t = 0;
     for (; t < 200 && t < stopAfter && seq.running; t += 0.05) {

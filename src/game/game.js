@@ -429,7 +429,7 @@ export class Game {
   requestDrop() {
     // Safety net: if the game still thinks a Drop is building but the sequencer has none pending, clear it.
     if (this.dropState && !this.seq.dropState && !this.seq.events.some((ev) => ev.type === 'drop')) this.dropState = null;
-    if (this.state !== 'playing' || this.dropCharge < this.dropMax || this.dropState) return false;
+    if (this.state !== 'playing' || this.won || this.dropCharge < this.dropMax || this.dropState) return false;
     if (!this.seq.requestDrop()) return false;
     this.dropCharge = 0;
     this.dropState = 'queued';
@@ -562,6 +562,8 @@ export class Game {
       this.seq.stopNext(16, true);
       this.victoryT = this._stopLeft();
       if (this.audio?.ready) this.audio.bossQuiet(true);
+      // The ending is one hit and a silent bar, so a Drop still waiting for its build bar is called off.
+      if (this.seq.dropState === 'queued') this.seq.dropState = this.dropState = null;
       this.banner('Encore!', 'White Noise is silenced');
       // The silence wave grows from where it fell and silences the arena (see step()).
       this.silence = { x: e.x, y: e.y, r: 0 };
