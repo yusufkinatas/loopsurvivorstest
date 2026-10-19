@@ -138,7 +138,7 @@ function showTitle() {
   hudRoot.hidden = true;
   listening = false;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
-  screens.title(loadBest());
+  screens.title(loadBest(), loadMeta());
 }
 
 async function enterLobby() {

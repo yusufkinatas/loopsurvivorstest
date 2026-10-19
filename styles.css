@@ -226,6 +226,7 @@ body[data-input=pad] #screens :is(.btn, input):focus { outline: 2px solid var(--
 .tagline { margin: 0; font-size: clamp(16px, 2.2vw, 20px); color: var(--text); max-width: 34ch; text-wrap: balance; }
 .title-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
 .best { margin: 0; font-family: var(--f-mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+.title-wrap .career { margin-top: -12px; color: var(--dim); text-wrap: balance; }
 .hint { margin: 0; font-family: var(--f-mono); font-size: 11px; color: var(--dim); letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* Panels */

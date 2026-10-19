@@ -6,6 +6,8 @@ import { icon } from './icons.js';
 import { describeOffer, banKey } from '../game/upgrades.js';
 import { SECTIONS } from '../music/song.js';
 import { songMapHtml, songFraction, SONG_BARS } from './hud.js';
+import { RECORDS, unlockedStarts } from '../game/progress.js';
+import { INSTRUMENTS } from '../content/instruments/index.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -104,8 +106,10 @@ export class Screens {
 
   // ---------------------------------------------------------------------------- title
 
-  title(best) {
-    const bestLine = best ? `<p class="best">Best run: ${fmtTime(best.time)} · ${best.kills.toLocaleString('en-US')} silenced · ${best.won ? 'finished the song' : `reached ${esc(best.section)}`}</p>` : '';
+  title(best, meta) {
+    const bestLine = best ? `<p class="best">Best: ${best.won ? 'finished the song' : `reached ${esc(best.section)}`} · ${best.score.toLocaleString('en-US')}${best.gain ? ` · Gain ${best.gain}` : ''}</p>` : '';
+    const records = RECORDS.filter((r) => meta.records[r.genre]).length;
+    const career = meta.runs ? `<p class="best career">Records ${records}/${RECORDS.length} · First sounds ${unlockedStarts(meta).length}/${INSTRUMENTS.length} · Songs finished ${meta.wins}</p>` : '';
     const el = this._mount('title', `
       <div class="title-wrap">
         <div class="logo" aria-label="Loop Survivors">
@@ -118,7 +122,7 @@ export class Screens {
           <button class="btn" type="button" data-act="howto">How to play</button>
           <button class="btn" type="button" data-act="settings">Settings</button>
         </div>
-        ${bestLine}
+        ${bestLine}${career}
         <p class="hint">Sound on. Headphones help.</p>
       </div>`);
     el.querySelector('[data-act=play]').addEventListener('click', () => this.h.onPlay());
