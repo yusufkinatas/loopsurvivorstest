@@ -193,7 +193,7 @@ export class Hud {
       this.strips[role].meter.style.transform = `scaleY(${Math.min(1, k)})`;
     }
 
-    const ready = g.dropCharge >= g.dropMax && !g.dropState;
+    const ready = g.dropCharge >= g.dropMax && !g.dropState && !g.won;
     this.drop.querySelector('.dropmeter-fill').style.transform = `scaleX(${g.dropState ? 1 : g.dropCharge / g.dropMax})`;
     this.drop.classList.toggle('ready', ready);
     this.drop.classList.toggle('building', !!g.dropState);

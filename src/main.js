@@ -176,7 +176,7 @@ let dropTipShown = false;
 // Prompts in the words of the device used last (touch, gamepad, or keyboard and mouse).
 const byDevice = (touch, pad, keys) => (input.device === 'touch' ? touch : input.device === 'pad' ? pad : keys);
 function tips() {
-  if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState) {
+  if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState && !game.won) {
     dropTipShown = true;
     hud.tip(`The Drop is ready. ${byDevice('Tap the Drop meter.', 'Press A.', 'Press Space.')}`, 6);
   }
