@@ -63,8 +63,10 @@ export class Director {
       this.lastFormationBar = ev.bar;
       this.formation();
     }
-    // Featured elites walk in on the 16-bar downbeats of the quiet stretches between bosses, each with a vinyl.
-    if (ev.beat === 0 && ev.bar % 16 === 0 && (g.section.id === 'verse2' || g.section.id === 'bridge')) this.spawnElite();
+    // Featured elites walk in on a crash in the quiet stretches between bosses, each with a vinyl: Verse II's bars
+    // 80 and 96, and the Bridge's 152 (the drums come back after the breakdown) and 168 (after a phrase fill).
+    const featured = g.section.id === 'verse2' ? 0 : g.section.id === 'bridge' ? 8 : -1;
+    if (ev.beat === 0 && ev.bar % 16 === featured) this.spawnElite();
     // Set piece: on beat 3 of the Build-Up's last bar a ring of Stomps appears around you, lights its lanes on
     // beat 4 and slams in on the downbeat where the song drops (a Drop timed for that downbeat clears it).
     if (ev.beat === 2 && g.section.build && g.song.position(ev.bar).barsLeft === 1) this.stompRing(ev.bar);
