@@ -139,8 +139,7 @@ export class Hud {
       s.el.classList.toggle('remix', !!inst?.remix);   // a remixed channel: its remix name and gold pips
       if (inst) {
         s.el.classList.remove('locked');
-        s.el.title = '';
-        s.name.textContent = inst.remix ? inst.def.remix.name : inst.def.name;
+        s.el.title = s.name.textContent = inst.remix ? inst.def.remix.name : inst.def.name;
         s.sub.textContent = STYLES[inst.def.style].name;
         s.sub.style.color = STYLES[inst.def.style].color;
         s.pips.innerHTML = Array.from({ length: MAX_INSTRUMENT_LEVEL }, (_, i) => `<i class="${i < inst.level ? 'on' : ''}"></i>`).join('');
