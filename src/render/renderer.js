@@ -81,6 +81,29 @@ export class Renderer {
     return f;
   }
 
+  // A full-screen radial gradient from `inner` (radius r0) to `outer` (r1), drawn at alpha `a`. It is the
+  // costliest fill of a frame on a software canvas, so each slot paints it once at full strength into a
+  // canvas of its own and repaints only when its colors or the screen change.
+  _shade(c, slot, a, r0, r1, inner, outer) {
+    const w = this.w, h = this.h, dpr = this.dpr;
+    const s = (this._shades ||= {})[slot] ||= { cv: document.createElement('canvas') };
+    if (s.inner !== inner || s.outer !== outer || s.w !== w || s.h !== h || s.dpr !== dpr) {
+      s.inner = inner; s.outer = outer; s.w = w; s.h = h; s.dpr = dpr;
+      s.cv.width = Math.round(w * dpr);
+      s.cv.height = Math.round(h * dpr);
+      const v = s.cv.getContext('2d');
+      v.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const vg = v.createRadialGradient(w / 2, h / 2, r0, w / 2, h / 2, r1);
+      vg.addColorStop(0, inner);
+      vg.addColorStop(1, outer);
+      v.fillStyle = vg;
+      v.fillRect(0, 0, w, h);
+    }
+    c.globalAlpha = a;
+    c.drawImage(s.cv, 0, 0, w, h);
+    c.globalAlpha = 1;
+  }
+
   // ------------------------------------------------------------------------------------------
 
   begin(dt) {
@@ -102,11 +125,8 @@ export class Renderer {
     const camX = this.cam.x + sx, camY = this.cam.y + sy;
     c.fillStyle = `hsl(${hue}, 38%, 6.5%)`;
     c.fillRect(0, 0, w, h);
-    const vg = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
-    vg.addColorStop(0, `hsla(${hue}, 60%, 20%, ${0.35 + beat * 0.12})`);
-    vg.addColorStop(1, `hsla(${hue}, 50%, 3%, 0)`);
-    c.fillStyle = vg;
-    c.fillRect(0, 0, w, h);
+    const hq = Math.round(hue);   // a section's color fade repaints the floor once per degree
+    this._shade(c, 'floor', 0.35 + beat * 0.12, 0, Math.max(w, h) * 0.7, `hsl(${hq}, 60%, 20%)`, `hsla(${hq}, 50%, 3%, 0)`);
     // Grid in world space
     const step = 64 * s;
     const ox = (-camX * s + w / 2) % step;
@@ -214,11 +234,7 @@ export class Renderer {
     const low = p.hp / p.maxHp;
     if (low < 0.3 || g.hurtFlash > 0.02) {
       const a = Math.max(g.settings.flashes ? g.hurtFlash * 0.45 : g.hurtFlash * 0.15, low < 0.3 ? (0.3 - low) * 0.9 * (0.7 + 0.3 * g.beatPulse) : 0);
-      const vg = c.createRadialGradient(this.w / 2, this.h / 2, Math.min(this.w, this.h) * 0.3, this.w / 2, this.h / 2, Math.max(this.w, this.h) * 0.75);
-      vg.addColorStop(0, 'rgba(255,40,70,0)');
-      vg.addColorStop(1, `rgba(255,40,70,${a})`);
-      c.fillStyle = vg;
-      c.fillRect(0, 0, this.w, this.h);
+      this._shade(c, 'hurt', a, Math.min(this.w, this.h) * 0.3, Math.max(this.w, this.h) * 0.75, 'rgba(255,40,70,0)', 'rgb(255,40,70)');
     }
     // Player position on screen, for screen-space effects centered on them.
     const px = (p.x - this.cam.x) * s + this.w / 2, py = (p.y - this.cam.y) * s + this.h / 2;
