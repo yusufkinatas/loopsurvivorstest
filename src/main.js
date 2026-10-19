@@ -8,6 +8,7 @@
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
 import { Song } from './music/song.js';
+import { playSheet } from './music/replay.js';
 import { KEYS } from './music/theory.js';
 import { Game } from './game/game.js';
 import { makeInst } from './game/loadout.js';
@@ -65,7 +66,7 @@ const stickEl = document.getElementById('stick');
 let mode = 'title';        // title | lobby | run
 let lobbyKey = 0;
 let lastStart = null;
-let listening = false;
+let lastEnd = null;        // the end screen's arguments, for Back from the Discography
 
 const hooks = {
   onLevelUp: (offers) => { hud.hideBanner(); screens.levelUp(game, offers); },
@@ -103,7 +104,11 @@ const screens = new Screens(screensRoot, {
   onSkip: () => skipLevel(),
   onResume: () => { game.unpause(); screens.hide(); },
   onQuit: () => { recordRun(game.summary(false)); showTitle(); },
-  onListen: (on) => { listening = on; audio.setMuffle(!on); },
+  onListen: (on) => { audio.setMuffle(!on); },
+  onDiscography: (back) => screens.discography(loadMeta(), back),
+  onShowEnd: () => screens.end(...lastEnd),
+  onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
+  onStopTrack: () => stopTrack(),
   onRestart: () => enterLobby(),
   onSettings: (s) => applySettings(s),
   getSettings: () => settings,
@@ -136,9 +141,30 @@ function showTitle() {
   seq.stop();
   game.state = 'idle';
   hudRoot.hidden = true;
-  listening = false;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
   screens.title(loadBest(), loadMeta());
+}
+
+// The radio edit of a track sheet (src/music/replay.js), from the end screen or a Discography sleeve. One plays
+// at a time. Screens stop it whenever they change, and so does hiding the page. onEnd runs however it stops.
+let track = null;
+let trackId = 0;
+async function playTrack(sheet, keyPc, onSection, onEnd) {
+  stopTrack();
+  const id = trackId;
+  audio.init();
+  await audio.resume();
+  if (id !== trackId) { onEnd(); return; }   // stopped while the audio woke up
+  audio.setVolume(settings.volume);
+  if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
+  track = { player: playSheet({ seq, audio, sheet, keyPc, onSection, onEnd: () => stopTrack() }), onEnd };
+}
+
+function stopTrack() {
+  trackId++;
+  const t = track;
+  track = null;
+  if (t) { t.player.stop(); t.onEnd(); }
 }
 
 async function enterLobby() {
@@ -167,7 +193,6 @@ function startRun(id) {
   mode = 'run';
   screens.hide();
   hudRoot.hidden = false;
-  listening = false;
   game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed });
   hud.refreshLoadout(game);
   hud.setBoss(null);
@@ -194,7 +219,8 @@ function endRun(sum) {
   const prevBest = loadBest();
   const best = saveBest(sum);
   hud.setBoss(null);
-  screens.end(sum, best, prevBest, recordRun(sum));
+  lastEnd = [sum, best, prevBest, recordRun(sum)];
+  screens.end(...lastEnd);
   if (opts.sim) window.__LS.done = true;
 }
 
@@ -224,8 +250,8 @@ function onKey(k) {
   if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
   // Escape and B leave banish mode. B is no other level-up action, so it never banishes or skips.
   if (screens.current === 'levelup' && screens.banishing && (k === 'Escape' || k === 'pad-b')) { screens.toggleBanish(false); return true; }
-  // B is Back (or Resume) on every screen that has one.
-  if (screens.current && k === 'pad-b') { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
+  // B is Back (or Resume) on every screen that has one. Escape too on the Discography.
+  if (screens.current && (k === 'pad-b' || (k === 'Escape' && screens.current === 'disco'))) { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
     if (!screens.armed() && !NAV_KEYS.has(k)) return true;
@@ -273,6 +299,7 @@ document.addEventListener('visibilitychange', () => {
   if (opts.sim) return;
   if (document.hidden) {
     if (mode === 'run' && game.state === 'playing') pauseRun();
+    stopTrack();
     audio.suspend();
   } else if (mode !== 'title') {
     audio.resume();

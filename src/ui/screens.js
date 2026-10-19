@@ -1,4 +1,5 @@
-// Menus and overlays: title, how to play, first-sound select, level-up cards, pause, and the end screen.
+// Menus and overlays: title, how to play, first-sound select, level-up cards, pause, the end screen and
+// the Discography.
 
 import { ROLE_INFO, STYLES, ROLES } from '../config.js';
 import { fmtTime } from '../util.js';
@@ -6,9 +7,11 @@ import { icon } from './icons.js';
 import { describeOffer, banKey } from '../game/upgrades.js';
 import { SECTIONS } from '../music/song.js';
 import { songMapHtml, songFraction, SONG_BARS } from './hud.js';
-import { RECORDS, unlockedStarts } from '../game/progress.js';
-import { INSTRUMENTS } from '../content/instruments/index.js';
+import { GOALS, RECORDS, unlockedStarts } from '../game/progress.js';
+import { INSTRUMENTS, BY_ID } from '../content/instruments/index.js';
+import { PEDAL_BY_ID } from '../content/pedals.js';
 
+const plural = (n, one, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // A level-up ignores picks and button presses this long after it opens, so a Drop press or the second
@@ -68,6 +71,37 @@ function songEndHtml(sum, isBest, prev) {
   return out.length ? `<div class="end-song">${out.join('')}</div>` : '';
 }
 
+// The 13 sleeves (gold ring for a finished song, dashed for a demo, a G tag for its Gain, dimmed with a hint
+// until pressed), then any other genre pressed, as hidden tracks.
+function recordsHtml(meta) {
+  const sleeve = (genre, rec, hint) => (rec
+    ? `<button class="sleeve ${rec.w ? 'gold' : 'demo'}" type="button" data-genre="${esc(genre)}" ${rec.sh.length ? '' : 'disabled'}>
+        <i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>
+        <span>${rec.w ? 'Gold' : 'Demo'} · ${esc(rec.k)}${rec.g ? ` <em>G${rec.g}</em>` : ''}</span></button>`
+    : `<div class="sleeve empty"><i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b><span>${esc(hint)}</span></div>`);
+  const hidden = Object.keys(meta.records).filter((g) => !RECORDS.some((r) => r.genre === g));
+  return `<p class="now-playing" aria-live="polite"></p>
+    <div class="sleeves">${RECORDS.map((r) => sleeve(r.genre, meta.records[r.genre], r.hint)).join('')}</div>
+    ${hidden.length ? `<p class="kicker disco-label">Hidden tracks</p><div class="sleeves">${hidden.map((g) => sleeve(g, meta.records[g])).join('')}</div>` : ''}`;
+}
+
+// The remix crate: channels in rows, styles in columns. Found remixes are gold, the rest show their recipe.
+function remixesHtml(meta) {
+  const styles = Object.keys(STYLES);
+  const tiles = ROLES.map((role) => styles.map((style) => {
+    const def = INSTRUMENTS.find((d) => d.role === role && d.style === style);
+    const found = !!meta.remixes[def.id];
+    return `<div class="rx${found ? ' found' : ''}" style="--c:${ROLE_INFO[role].color}"><b>${found ? esc(def.remix.name) : '? ? ?'}</b><span>${esc(def.name)} + ${esc(PEDAL_BY_ID[def.remix.pedal].name)}</span></div>`;
+  }).join('')).join('');
+  return `<p class="kicker disco-label">Found ${Object.keys(meta.remixes).length} of ${INSTRUMENTS.length}</p>
+    <div class="rx-grid">${styles.map((st) => `<span class="rx-head">${STYLES[st].name}</span>`).join('')}${tiles}</div>`;
+}
+
+function notesHtml(meta) {
+  return `<ol class="notes">${GOALS.map((g) => `<li class="${meta.goals[g.id] ? 'done' : ''}"><i aria-hidden="true">${meta.goals[g.id] ? '✓' : ''}</i>
+    <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(BY_ID[g.unlock].name)}</small></li>`).join('')}</ol>`;
+}
+
 export class Screens {
   constructor(root, h) {
     this.root = root;
@@ -79,8 +113,10 @@ export class Screens {
   }
 
   // armMs: the screen is 'arming' that long, and clicks on anything in it are dropped until then (keys wait
-  // in main.js onKey). Hover, focus and hold-to-listen keep working.
+  // in main.js onKey). Hover, focus and hold-to-listen keep working. A track playing on the screen that
+  // is left (the end screen's or a sleeve's radio edit) stops.
   _mount(name, html, armMs = 0) {
+    this.h.onStopTrack();
     this.current = name;
     document.body.dataset.screen = name;
     this.root.innerHTML = `<div class="screen screen-${name}" role="dialog" aria-modal="true">${html}</div>`;
@@ -98,6 +134,7 @@ export class Screens {
   armed() { return !this.root.firstElementChild?.classList.contains('arming'); }
 
   hide() {
+    this.h.onStopTrack();
     this.current = null;
     delete document.body.dataset.screen;
     this.root.innerHTML = '';
@@ -119,6 +156,7 @@ export class Screens {
         <p class="tagline">Every attack is a note. Every build is a song.</p>
         <div class="title-actions">
           <button class="btn btn-primary" type="button" data-act="play">Play</button>
+          <button class="btn" type="button" data-act="disco">Discography</button>
           <button class="btn" type="button" data-act="howto">How to play</button>
           <button class="btn" type="button" data-act="settings">Settings</button>
         </div>
@@ -126,6 +164,7 @@ export class Screens {
         <p class="hint">Sound on. Headphones help.</p>
       </div>`);
     el.querySelector('[data-act=play]').addEventListener('click', () => this.h.onPlay());
+    el.querySelector('[data-act=disco]').addEventListener('click', () => this.h.onDiscography('title'));
     el.querySelector('[data-act=howto]').addEventListener('click', () => this.howto('title'));
     el.querySelector('[data-act=settings]').addEventListener('click', () => this.settings('title'));
     el.querySelector('[data-act=play]').focus();
@@ -178,6 +217,41 @@ export class Screens {
     el.querySelectorAll('input').forEach((i) => i.addEventListener('input', upd));
     el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'pause' ? this.h.onShowPause() : this.h.onShowTitle()));
     el.querySelector('[data-act=back]').focus({ preventScroll: true });
+  }
+
+  // ---------------------------------------------------------------------------- discography
+
+  // The career: records pressed (a pressed sleeve plays its run's radio edit), the remix crate and the liner
+  // notes. back: 'title' or 'end', where Back returns.
+  discography(meta, back, page = 'records') {
+    const h = Math.floor(meta.secs / 3600), min = Math.floor((meta.secs % 3600) / 60);
+    const career = [plural(meta.runs, 'run'), plural(meta.wins, 'song finished', 'songs finished'), `${meta.kills.toLocaleString('en-US')} Noise silenced`, `${h ? `${h} h ` : ''}${min} min on stage`].join(' · ');
+    const tabs = [['records', 'Records'], ['remixes', 'Remixes'], ['notes', 'Liner notes']];
+    const el = this._mount('disco', `
+      <div class="panel panel-wide disco">
+        <h2>Discography</h2>
+        <p class="sub">${career}</p>
+        <div class="tabs" role="tablist">${tabs.map(([id, name]) => `<button class="tab" type="button" role="tab" data-page="${id}">${name}</button>`).join('')}</div>
+        <div class="disco-page"></div>
+        <div class="panel-actions"><button class="btn btn-primary" type="button" data-act="back">Back</button></div>
+      </div>`);
+    const show = (id) => {
+      this.h.onStopTrack();
+      el.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.page === id)));
+      el.querySelector('.disco-page').innerHTML = id === 'records' ? recordsHtml(meta) : id === 'remixes' ? remixesHtml(meta) : notesHtml(meta);
+      const np = el.querySelector('.now-playing');
+      // A pressed sleeve plays its radio edit. Pressed again, or on any way off the page, it stops.
+      el.querySelectorAll('button.sleeve').forEach((sl) => sl.addEventListener('click', () => {
+        if (sl.classList.contains('playing')) { this.h.onStopTrack(); return; }
+        const genre = sl.dataset.genre, rec = meta.records[genre];
+        this.h.onPlayTrack(rec.sh, rec.kp, (name, n) => { np.textContent = `Now playing: ${genre} · ${name} · ${plural(n, 'sound')}`; }, () => { sl.classList.remove('playing'); np.textContent = ''; });
+        sl.classList.add('playing');
+      }));
+    };
+    el.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.page)));
+    el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'end' ? this.h.onShowEnd() : this.h.onShowTitle()));
+    show(page);
+    el.querySelector(`[data-page=${page}]`).focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------------------- first sound
