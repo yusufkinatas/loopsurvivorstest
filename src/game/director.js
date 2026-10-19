@@ -35,7 +35,7 @@ export class Director {
     let n = 12 + t * 0.5 + m * m * 3.4;
     if (this.g.section.id === 'build') n *= 1.25;
     if (this.g.boss) n *= this.g.boss.def.final ? 0.55 : 0.7;
-    return Math.min(WORLD.maxEnemies, Math.floor(n * (this.g.opts.density ?? 1)));
+    return Math.min(WORLD.maxEnemies, Math.floor(n * (this.g.opts.density ?? 1) * this.g.mods.density));
   }
 
   spawnPoint(extra = 0) {
@@ -128,7 +128,7 @@ export class Director {
 
   update(dt) {
     const g = this.g;
-    this.eliteTimer -= dt;
+    this.eliteTimer -= dt * g.mods.elite;   // Gain 8: elites come more often
     if (this.eliteTimer <= 0) {
       this.eliteTimer = Math.max(28, 52 - g.time / 25);
       this.spawnElite();

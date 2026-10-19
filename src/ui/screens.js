@@ -1,7 +1,7 @@
 // Menus and overlays: title, how to play, first-sound select, level-up cards, pause, the end screen and
 // the Discography.
 
-import { ROLE_INFO, STYLES, ROLES } from '../config.js';
+import { ROLE_INFO, STYLES, ROLES, GAIN } from '../config.js';
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer, banKey } from '../game/upgrades.js';
@@ -256,8 +256,8 @@ export class Screens {
   // ---------------------------------------------------------------------------- first sound
 
   // defs: the three featured first sounds. chips: the other sounds the career has unlocked, picked and
-  // auditioned like the cards.
-  select(defs, chips) {
+  // auditioned like the cards. meta: the career when a Gain is open (the stepper), else null.
+  select(defs, chips, meta) {
     const cards = defs.map((def, i) => cardHtml({
       title: def.name, eyebrow: `${ROLE_INFO[def.role].name} channel`, color: ROLE_INFO[def.role].color,
       style: STYLES[def.style], tag: 'Your first sound', level: 1, maxLevel: 5, body: def.blurb, detail: def.levels[0].text,
@@ -271,6 +271,14 @@ export class Screens {
     const yours = chips.length
       ? `<p class="kicker chips-label">Your sounds</p><div class="chips">${chipHtml}</div>`
       : `<p class="chips-none">Liner-note goals unlock ${INSTRUMENTS.length - defs.length} more first sounds.</p>`;
+    const gain = meta ? `
+      <div class="gain">
+        <button class="btn btn-ghost" type="button" data-gain="-1" aria-label="Less Gain">◂</button>
+        <span class="gain-name" aria-live="polite"></span>
+        <button class="btn btn-ghost" type="button" data-gain="1" aria-label="More Gain">▸</button>
+        <span class="gain-score"></span><span class="muted k-key"> · [ ]</span><span class="muted k-pad"> · LB RB</span>
+      </div>
+      <p class="gain-mods"></p>` : '';
     const all = [...defs, ...chips];
     const el = this._mount('select', `
       <div class="cards-wrap">
@@ -279,10 +287,22 @@ export class Screens {
         <p class="sub">Hover or hold a card to hear it. You add the rest of the band as you level up.</p>
         <div class="cards">${cards}</div>
         ${yours}
+        ${gain}
         <div class="row-actions"><button class="btn btn-ghost" type="button" data-act="back">Back</button></div>
       </div>`);
+    el.querySelectorAll('[data-gain]').forEach((b) => b.addEventListener('click', () => this.h.onGain(Number(b.dataset.gain))));
+    if (meta) this.setGain(meta.gainSel);
     this._wireCards(el, (i) => this.h.onPickStart(all[i].id), (i) => this.h.onPreviewStart(i === null ? null : all[i].id));
     el.querySelector('[data-act=back]').addEventListener('click', () => { this.h.onPreviewStart(null); this.h.onShowTitle(); });
+  }
+
+  // The Gain stepper: the tier, its name and score multiplier, and every modifier it adds in one muted line.
+  setGain(n) {
+    const el = this.root.querySelector('.gain');
+    if (!el) return;
+    el.querySelector('.gain-name').textContent = `Gain ${n}${n ? ` · ${GAIN[n - 1].name}` : ''}`;
+    el.querySelector('.gain-score').textContent = `· score x${(1 + 0.1 * n).toFixed(1)}`;
+    this.root.querySelector('.gain-mods').textContent = n ? GAIN.slice(0, n).map((t) => t.text).join(' · ') : 'The song as written.';
   }
 
   // ---------------------------------------------------------------------------- level up
@@ -372,7 +392,7 @@ export class Screens {
     // Arrow keys only: A and D are movement keys and would move focus while strafing.
     if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
       const a = document.activeElement;
-      const rows = [...this.root.querySelectorAll('.cards, .chips, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
+      const rows = [...this.root.querySelectorAll('.cards, .chips, .gain, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
       const r = rows.findIndex((row) => row.includes(a));
       if (r < 0) this.cards[0].focus();   // first press lands on the first card
       else if (key === 'ArrowDown' || key === 'ArrowUp') {
@@ -427,6 +447,7 @@ export class Screens {
     const pedals = sum.pedals.length ? sum.pedals.map((p) => `${esc(p.name)} ${p.level}`).join(' · ') : 'No pedals';
     const lines = news?.saved ? [
       ...(news.record ? [`Record pressed: ${news.record.genre}, ${news.record.gold ? 'gold' : 'demo'}.`] : []),
+      ...(news.gain ? [`Gain ${news.gain} unlocked: ${GAIN[news.gain - 1].name}.`] : []),
       ...news.goals.map((g) => `New first sound: ${BY_ID[g.unlock].name}.`),
       ...news.remixes.map((id) => `New remix in your crate: ${BY_ID[id].remix.name}.`),
     ] : [];
@@ -434,7 +455,7 @@ export class Screens {
       : lines.length ? `<div class="end-notes"><p class="kicker">Liner notes</p><ul>${lines.slice(0, 4).map((l) => `<li>${esc(l)}</li>`).join('')}${lines.length > 4 ? `<li class="more">and ${lines.length - 4} more</li>` : ''}</ul></div>` : '';
     const el = this._mount('end', `
       <div class="panel panel-wide end">
-        <p class="kicker">${sum.won ? 'The song is finished' : `The music stopped in ${esc(sum.section)}`}</p>
+        <p class="kicker">${sum.gain ? `Gain ${sum.gain} · ` : ''}${sum.won ? 'The song is finished' : `The music stopped in ${esc(sum.section)}`}</p>
         <h2>${sum.won ? 'Encore!' : 'Drowned out'}</h2>
         <div class="end-stats">
           <div><b>${fmtTime(sum.time)}</b><span>survived</span></div>

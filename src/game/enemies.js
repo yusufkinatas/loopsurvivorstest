@@ -32,7 +32,7 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
   if (!def) return null;
   const minutes = g.time / 60;
   const elite = !!opts.elite;
-  const hpMul = def.boss ? 1 + minutes * 0.2 : (1 + minutes * 0.25 + minutes * minutes * 0.09) * (elite ? 9 : 1) * (opts.hpMul ?? 1);
+  const hpMul = def.boss ? (1 + minutes * 0.2) * g.mods.bossHp : (1 + minutes * 0.25 + minutes * minutes * 0.09) * (elite ? 9 : 1) * (opts.hpMul ?? 1) * g.mods.hp;
   const e = {
     id: nextId++, type, def, x, y, vx: 0, vy: 0,
     r: def.r * (elite ? 1.55 : 1) * (opts.scale ?? 1),
@@ -54,6 +54,7 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
 // opts.from: the enemy that fired it, so a hit is credited to it by name (damageBy, lastHitBy).
 export function enemyShot(g, x, y, angle, speed = 160, dmg = 8, opts = {}) {
   if (g.shots.length > 500) return;
+  speed *= g.mods.shotSpeed;
   g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? '#ff4d6d', from: opts.from ?? null });
 }
 
@@ -167,7 +168,7 @@ function bossOnBeat(g, e, ev) {
       break;
     }
     case 'whitenoise': {
-      const phase = frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3;
+      const phase = Math.max(g.mods.wnPhase, frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3);   // Gain 8 starts it in phase 2
       if (e.ai.phase !== phase) {
         e.ai.phase = phase;
         e.ai.spiralAcc = 0;

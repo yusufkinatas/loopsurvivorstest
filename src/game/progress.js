@@ -6,6 +6,7 @@
 //          remixes: { [instrumentId]: firstMs }, gainMax: 0-8, gainSel: 0-gainMax }
 // rec  = { s: score, k: key name, kp: key pitch class, w: 0|1, g: gain, sh: track sheet, d: 'YYYY-MM-DD' }
 
+import { GAIN } from '../config.js';
 import { SECTIONS } from '../music/song.js';
 import { BY_ID } from '../content/instruments/index.js';
 
@@ -54,7 +55,6 @@ export const RECORDS = [
 ];
 
 const FINALE = SECTIONS.findIndex((s) => s.id === 'finale');
-const GAIN_MAX = 8;
 const SHEET_MAX = SECTIONS.length;
 
 export function newMeta() {
@@ -77,11 +77,11 @@ export function normalizeMeta(raw) {
   for (const [genre, r] of Object.entries(obj(m.records))) {
     if (!r || !Number.isFinite(r.s)) continue;
     records[genre] = {
-      s: r.s, k: typeof r.k === 'string' ? r.k : '', kp: pc(r.kp), w: r.w === 1 ? 1 : 0, g: int(r.g, GAIN_MAX),
+      s: r.s, k: typeof r.k === 'string' ? r.k : '', kp: pc(r.kp), w: r.w === 1 ? 1 : 0, g: int(r.g, GAIN.length),
       sh: sheetOf(r.sh), d: typeof r.d === 'string' ? r.d : '',
     };
   }
-  const gainMax = int(m.gainMax, GAIN_MAX);
+  const gainMax = int(m.gainMax, GAIN.length);
   return {
     ...newMeta(), runs: Math.floor(num(m.runs)), wins: Math.floor(num(m.wins)), kills: num(m.kills), secs: num(m.secs),
     goals: stamps(m.goals, (id) => GOALS.some((g) => g.id === id)), records,
@@ -108,14 +108,14 @@ export function applyRun(meta, sum, { now }) {
   }
   if (sum.sectionIndex >= FINALE && typeof sum.genre === 'string' && Number.isFinite(sum.score)) {
     const old = meta.records[sum.genre];
-    const rec = { s: sum.score, k: String(sum.key ?? ''), kp: pc(sum.keyPc), w: sum.won ? 1 : 0, g: int(sum.gain, GAIN_MAX), sh: sheetOf(sum.sheet), d: new Date(now).toISOString().slice(0, 10) };
+    const rec = { s: sum.score, k: String(sum.key ?? ''), kp: pc(sum.keyPc), w: sum.won ? 1 : 0, g: int(sum.gain, GAIN.length), sh: sheetOf(sum.sheet), d: new Date(now).toISOString().slice(0, 10) };
     if (!old || rec.w > old.w || (rec.w === old.w && rec.s > old.s)) {
       meta.records[sum.genre] = rec;
       out.record = { genre: sum.genre, fresh: !old, gold: !!rec.w, upgraded: !!old && rec.w > old.w };
     }
   }
   // A win at the highest Gain open opens the next one.
-  if (sum.won && sum.gain === meta.gainMax && meta.gainMax < GAIN_MAX) out.gain = ++meta.gainMax;
+  if (sum.won && sum.gain === meta.gainMax && meta.gainMax < GAIN.length) out.gain = ++meta.gainMax;
   for (const g of GOALS) {
     if (meta.goals[g.id]) continue;
     let ok = false;
