@@ -106,7 +106,11 @@ const screens = new Screens(screensRoot, {
   onBanish: (i) => { const o = game.banish(i); if (o) screens.levelUp(game, o); },
   onSkip: () => skipLevel(),
   onResume: () => { game.unpause(); screens.hide(); },
-  onQuit: () => { recordRun(game.summary(false)); showTitle(); },
+  onQuit: () => {
+    if (game.won) { game.victory(); return; }   // White Noise is already silenced: the song is finished, show its end
+    recordRun(game.summary(false));
+    showTitle();
+  },
   onDiscography: (back) => screens.discography(loadMeta(), back),
   onShowEnd: () => screens.end(...lastEnd),
   onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
