@@ -1,8 +1,8 @@
 // Keyboard, touch (floating stick) and gamepad. Movement is the only thing the player steers.
 // The device used last is kept on body[data-input] (key, mouse, touch or pad), so prompts can match it.
 
-// Gamepad buttons (W3C standard mapping) and the keys they send. Y is mapped but not used yet.
-const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 3: 'pad-y', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
+// Gamepad buttons (W3C standard mapping) and the keys they send.
+const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
 
 export class Input {
   constructor(canvas, stickEl, onKey) {
