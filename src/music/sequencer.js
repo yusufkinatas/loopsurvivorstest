@@ -102,6 +102,7 @@ export class Sequencer {
     const sib = this.globalStep % STEPS_PER_BAR;
     const emit = !this.hold;
     let impactAt = null, crash = 0, landed = false;
+    let swept = false, runIn = false, rolling = false;   // what this downbeat already plays into the next one
     const audioOn = this._audioOn();
     const A = audioOn ? this.audio : null;
     if (!this.pos) this.pos = this.song.position(this.bar);
@@ -126,12 +127,14 @@ export class Sequencer {
         }
         if (arr.impact) impactAt = t;   // The Drop drops
         if (arr.sweep && !this.dropState) A && A.buildSweep(t, t + 2 * BAR_SEC);
+        swept = was.sweep;
+        // A Beat channel rolling replaces the system snare roll.
+        rolling = !!arr.roll && this.getInstruments().some((i) => i.def.role === 'beat');
         const next = pos.next || this.song.sections[pos.index + 1];
         if (pos.barsLeft === 1 && next && next.riser) {
+          runIn = true;
           A && A.riser(t, BAR_SEC);
-          // A Beat channel rolling into The Drop replaces the system snare roll.
-          const rolling = arr.roll && this.getInstruments().some((i) => i.def.role === 'beat');
-          if ((next.drop || next.id === 'finale') && !rolling) A && A.snareRoll(t, BAR_SEC);
+          if ((next.drop || next.id === 'finale') && !rolling) { rolling = true; A && A.snareRoll(t, BAR_SEC); }
         }
       }
       // The Drop: queued -> one bar of build -> impact on the next downbeat.
@@ -145,7 +148,12 @@ export class Sequencer {
         }
       } else if (this.dropState === 'queued' && !this.hold && !landed) {   // a stop bar first: silence, riser, impact
         this.dropState = 'building';
-        if (A) { A.buildSweep(t, t + BAR_SEC); A.riser(t, BAR_SEC); A.snareRoll(t, BAR_SEC); }
+        // Over a section's run-in, the build adds only what that bar does not already play.
+        if (A) {
+          if (!swept) A.buildSweep(t, t + BAR_SEC);
+          if (!runIn) A.riser(t, BAR_SEC);
+          if (!rolling) A.snareRoll(t, BAR_SEC);
+        }
         this.events.push({ type: 'build', time: t });
       }
     }
