@@ -572,7 +572,8 @@ export class Renderer {
   _bossArrow(c, g, s) {
     const e = g.boss;
     if (!e || e.dead) return;
-    const top = 72, bottom = this.w < 760 ? 150 : 104, side = 24;
+    // Clear of the HUD: the top bar, the boss bar and the fight note under it (styles.css), and the mixer.
+    const top = this.w < 760 ? 140 : 152, bottom = this.w < 760 ? 150 : 104, side = 24;
     const sxp = (e.x - this.cam.x) * s + this.w / 2, syp = (e.y - this.cam.y) * s + this.h / 2;
     if (sxp > side && sxp < this.w - side && syp > top && syp < this.h - bottom) return;
     // Center of the clear area, and the point where the ray toward the boss leaves it.
