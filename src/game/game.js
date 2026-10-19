@@ -480,7 +480,7 @@ export class Game {
         case 'beat': this.onBeat(ev); break;
         case 'section': this.onSection(ev); break;
         case 'build': this.dropState = 'building'; this.hooks.onDrop?.('building'); break;
-        case 'drop': this.doDrop(ev.bar); break;
+        case 'drop': if (this.won) this.dropState = null; else this.doDrop(ev.bar); break;   // on the ending it only sounds
       }
     }
     evs.length = 0;
