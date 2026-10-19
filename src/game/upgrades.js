@@ -241,9 +241,9 @@ export function describeOffer(g, o) {
     };
   }
   const extra = {
-    heal: { title: 'Breather', body: 'Restore 40% of your health.', color: '#ff6f8a', icon: 'heal' },
+    heal: { title: 'Breather', tag: 'Catch your breath', body: 'Restore 40% of your health.', color: '#ff6f8a', icon: 'heal' },
     hype: { title: 'Crowd Surge', body: 'Fill the Drop meter instantly.', color: '#ffd166', icon: 'drop' },
     score: { title: 'Royalties', body: '+500 score.', color: '#c7c2ff', icon: 'score' },
   }[o.kind];
-  return { ...extra, eyebrow: 'Bonus', tag: 'Everything else is maxed', style: null, cells: null, chem: [], level: 0, maxLevel: 0 };
+  return { ...extra, eyebrow: 'Bonus', tag: extra.tag || 'Everything else is maxed', style: null, cells: null, chem: [], level: 0, maxLevel: 0 };
 }
