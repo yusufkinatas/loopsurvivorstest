@@ -101,6 +101,11 @@ export class Game {
     this.boss = null;
     this.bossesBeaten = 0;
     this.bossesSpawned = [];
+    this.bossKills = [];         // boss types silenced, in order
+    this.staggers = 0;           // Drops that knocked a boss off the beat
+    // The career's goals read the band at its peak, not only at the end (src/game/progress.js).
+    this.peak = { synth: 0, organic: 0, chip: 0 };
+    this.fullBand = this.fused = this.maxedAll = false;
     this.chanPulse = Object.fromEntries(ROLES.map((r) => [r, 0]));
     this.sectionIndex = 0;
     this.section = SECTIONS[0];
@@ -211,6 +216,12 @@ export class Game {
       this.audio.setActiveCount(this.loadout.filled());
     }
     this.genre = genreName(this.loadout);
+    const counts = this.loadout.styleCounts();
+    for (const st in counts) this.peak[st] = Math.max(this.peak[st], counts[st]);
+    const full = this.loadout.filled() === ROLES.length;
+    this.fullBand ||= full;
+    this.fused ||= this.genre === 'Fusion';
+    this.maxedAll ||= full && this.loadout.instruments().every((i) => i.level >= MAX_INSTRUMENT_LEVEL);
     this.hooks.onLoadout?.();
   }
 
@@ -540,6 +551,7 @@ export class Game {
 
   onBossDeath(e) {
     this.bossesBeaten++;
+    this.bossKills.push(e.type);
     this._logBossEnd(e, 'silenced');
     if (this.boss === e) {
       this.boss = null;
@@ -868,6 +880,7 @@ export class Game {
       byId.set(i.def.id, r);
     }
     const rows = [...byId.values()];
+    const snap = this._snapshot();
     return {
       won, time: this.time, kills: this.kills, level: this.level, score: this.score(),
       genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,
@@ -875,7 +888,10 @@ export class Game {
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),
       remixes: this.remixed.map((id) => ({ id, name: BY_ID[id].name, remix: BY_ID[id].remix.name })),
-      sheet: [...this.sheet, this._snapshot()], keyPc: this.key.pc,
+      sheet: [...this.sheet, snap], keyPc: this.key.pc,
+      // What the career's goals read (src/game/progress.js).
+      drops: this.drops, sectionIndex: this.sectionIndex, bossKills: this.bossKills, staggers: this.staggers, peak: this.peak,
+      fullBand: this.fullBand, fused: this.fused, maxedAll: this.maxedAll, band: snap.band, pedalLv: snap.pedals,
     };
   }
 

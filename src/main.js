@@ -16,7 +16,8 @@ import { Hud } from './ui/hud.js';
 import { Screens } from './ui/screens.js';
 import { Input } from './input.js';
 import { botMove, autopick } from './bot.js';
-import { loadSettings, saveSettings, loadBest, saveBest } from './storage.js';
+import { loadSettings, saveSettings, loadBest, saveBest, loadMeta, saveMeta } from './storage.js';
+import { applyRun } from './game/progress.js';
 import { BY_ID, byRole } from './content/instruments/index.js';
 
 function parseOpts() {
@@ -101,7 +102,7 @@ const screens = new Screens(screensRoot, {
   onBanish: (i) => { const o = game.banish(i); if (o) screens.levelUp(game, o); },
   onSkip: () => skipLevel(),
   onResume: () => { game.unpause(); screens.hide(); },
-  onQuit: () => showTitle(),
+  onQuit: () => { recordRun(game.summary(false)); showTitle(); },
   onListen: (on) => { listening = on; audio.setMuffle(!on); },
   onRestart: () => enterLobby(),
   onSettings: (s) => applySettings(s),
@@ -191,8 +192,18 @@ function endRun(sum) {
   const prevBest = loadBest();
   const best = saveBest(sum);
   hud.setBoss(null);
-  screens.end(sum, best, prevBest);
+  screens.end(sum, best, prevBest, recordRun(sum));
   if (opts.sim) window.__LS.done = true;
+}
+
+// Fold a finished (or quit) run into the career: goals, records, the remix crate and Gain. Returns what is
+// new, with saved = false when the device did not keep it. Sims never read or write the career.
+function recordRun(sum) {
+  if (opts.sim) return null;
+  const meta = loadMeta();
+  const news = applyRun(meta, sum, { now: Date.now() });
+  news.saved = saveMeta(meta);
+  return news;
 }
 
 // Skip a level-up: a lower blip (the chord's root) than a pick, and the notes go to the Drop meter.
@@ -379,6 +390,8 @@ window.__LS = {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
       damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
       damageBy: game.damageBy, lastHitBy: game.lastHitBy, bossLog: game.bossLog,
+      // What the career's goals read.
+      bossKills: game.bossKills, staggers: game.staggers, peak: game.peak, fullBand: game.fullBand, fused: game.fused, maxedAll: game.maxedAll,
       bossesSpawned: game.bossesSpawned, sectionIndex: game.sectionIndex, cap: game.channelCap(), dropState: game.dropState,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
       genre: game.genre, key: game.key?.name,
