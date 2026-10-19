@@ -417,6 +417,10 @@ body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
   .row-actions .btn { min-height: 36px; padding: 8px 14px; }
   .hud-side .chem, .hud-side .seqgrid { display: none; }
   .panel-actions.col { display: grid; grid-template-columns: 1fr 1fr; }
+  /* The section banner is one line under the boss bar and the fight note, so all three fit above you. */
+  .banner { top: calc(var(--safe-t) + 150px); }
+  .banner-title { display: inline; font-size: 24px; }
+  .banner-sub { display: inline; margin-left: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
