@@ -8,7 +8,7 @@ import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
 import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
-import { updateEnemies, enemiesOnBeat, spawnEnemy, BOSS_TYPES } from './enemies.js';
+import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat, BOSS_TYPES } from './enemies.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
 import { buildOffers, applyOffer } from './upgrades.js';
@@ -53,6 +53,9 @@ export class Game {
     };
     this.enemies = [];
     this.damageTaken = { contact: 0, shots: 0, boss: 0 };
+    this.damageBy = {};      // enemy name -> damage taken from it (bodies and shots)
+    this.lastHitBy = null;
+    this.bossLog = [];       // { type, spawn, end, how: 'silenced' | 'faded' } in game seconds
     this.shots = [];
     this.gems = [];
     this.later = [];
@@ -265,7 +268,7 @@ export class Game {
     e.hitColor = o.color || (src ? this.color(src) : '#ffffff');
     if (!e.boss) e.flash = 0.09;
     else if ((e.flashAcc = (e.flashAcc || 0) + dmg) >= e.maxHp * 0.01) { e.flashAcc = 0; e.flash = 0.09; }
-    if (o.kb && !e.boss) {
+    if (o.kb && !e.boss && !(e.ai.charge > 0)) {   // a charging enemy holds its lane
       const fx = o.fx ?? this.player.x, fy = o.fy ?? this.player.y;
       let dx = e.x - fx, dy = e.y - fy;
       const d = Math.hypot(dx, dy) || 1;
@@ -273,7 +276,10 @@ export class Game {
       const k = (o.kb * this.stats.knockback * 3) / Math.max(0.5, e.mass);
       e.kbx += dx * k; e.kby += dy * k;
     }
-    if (o.stun) e.stun = Math.max(e.stun, o.stun * (e.boss ? 0.12 : e.elite ? 0.5 : 1));
+    if (o.stun) {
+      e.stun = Math.max(e.stun, o.stun * (e.boss ? 0.12 : e.elite ? 0.5 : 1));
+      if (!e.boss && e.ai.charge > 0) e.ai.charge = 0;   // a stun hit stops a Stomp mid-dash
+    }
     if (o.slow) { e.slow = Math.max(e.slow, Math.min(0.8, o.slow) * (e.boss ? 0.4 : 1)); e.slowT = 1.2; }
     // Numbers only for hits worth reading: big crits always, and on a calm screen also other crits, killing
     // blows and big chunks. Otherwise they flood the screen.
@@ -324,19 +330,22 @@ export class Game {
 
   // ------------------------------------------------------------------ player
 
-  hurt(dmg, from) {
+  // from: the enemy body that touched the player (null for a shot). shotFrom: the enemy that fired the shot.
+  hurt(dmg, from, shotFrom) {
     const p = this.player;
     if (this.state !== 'playing' || this.won || p.iframes > 0 || this.opts.god) return;
     const taken = Math.max(1, dmg - this.stats.armor);
     p.hp -= taken;
     const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
     this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
+    const by = (from || shotFrom)?.def.name;
+    if (by) { this.damageBy[by] = (this.damageBy[by] || 0) + taken; this.lastHitBy = by; }
     p.iframes = PLAYER_BASE.iframes;
     p.hurtT = 0.3;
     this.hurtFlash = 1;
     this.shake = Math.max(this.shake, 7);
     if (this.audio?.ready && !this.opts.sim) this.audio.hurt();
-    if (from && !from.boss) {
+    if (from && !from.boss && !(from.ai.charge > 0)) {
       const dx = from.x - p.x, dy = from.y - p.y, d = Math.hypot(dx, dy) || 1;
       from.kbx += (dx / d) * 260; from.kby += (dy / d) * 260;
     }
@@ -389,7 +398,13 @@ export class Game {
     // Kills color by distance as a spectrum of your band: Beat nearest, Sparkle outermost.
     const band = ROLES.filter((r) => this.loadout.channels[r]).map((r) => ROLE_INFO[r].color);
     const colorAt = (e) => band[Math.min(band.length - 1, Math.floor(Math.hypot(e.x - p.x, e.y - p.y) / (720 / band.length)))];
-    for (const e of this.inRadius(p.x, p.y, DROP.radius)) this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6, color: colorAt(e) });
+    // A boss can arrive on the same downbeat as the Drop: index this frame's spawns before the query.
+    this.grid.clear();
+    for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
+    for (const e of this.inRadius(p.x, p.y, DROP.radius)) {
+      this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6, color: colorAt(e) });
+      if (e.boss && !e.dead) knockOffBeat(this, e);
+    }
     this.src = prev;
     this.shots.length = 0;
     this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
@@ -451,6 +466,16 @@ export class Game {
     const opened = this.channelCap() > before;
     this.banner(ev.section.name, ev.section.boss ? `${BOSS_TYPES[ev.section.boss]?.name || 'A boss'} is here` : opened ? 'A new channel opens on the mixer' : '');
     if (opened) this.hooks.onLoadout?.();
+    // A boss belongs to its chorus. One still alive when the section ends fades out unbeaten (no notes,
+    // no credit, no stop), so the next boss always arrives alone.
+    for (const e of this.enemies) {
+      if (!e.boss || e.dead || e.def.final) continue;
+      e.dead = true;
+      this._logBossEnd(e, 'faded');
+      this.fx.particles(e.x, e.y, e.color, 40, 300, 1, 3);
+      this.banner(`${e.def.name} fades out`, '', true);
+    }
+    if (this.boss?.dead) { this.boss = null; this.hooks.onBoss?.(null); }
     this.director.onSection(ev);
     this.hooks.onSection?.(ev.section);
   }
@@ -458,11 +483,13 @@ export class Game {
   onBossSpawn(e) {
     this.boss = e;
     (this.bossesSpawned ||= []).push(e.type);
+    this.bossLog.push({ type: e.type, spawn: this.time, end: null, how: null });
     this.hooks.onBoss?.(e);
   }
 
   onBossDeath(e) {
     this.bossesBeaten++;
+    this._logBossEnd(e, 'silenced');
     if (this.boss === e) {
       this.boss = null;
       for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -471,6 +498,12 @@ export class Game {
       }
     }
     this.shake = Math.max(this.shake, 14);
+    // Its noise turns into music: every shot still in the air pops into a small note (at most 60).
+    this.shots.forEach((s, i) => {
+      if (i < 60) dropGem(this, s.x, s.y, 0.25);
+      this.fx.particles(s.x, s.y, '#ffffff', 3, 90, 0.3, 2);
+    });
+    this.shots.length = 0;
     this.hooks.onBoss?.(this.boss);
     if (e.def.final) {
       this.won = true;
@@ -485,6 +518,11 @@ export class Game {
       this.fx.ring({ x: e.x, y: e.y, r0: e.r * 3.2, r1: 6, dur: 0.22, damage: 0, kb: 0, width: 12, color: e.color });
       this.later.push({ at: this.time + 2 * STEP_SEC, fn: () => this.fx.ring({ x: e.x, y: e.y, r0: 10, r1: 640, dur: 0.7, damage: 0, kb: 0, width: 16, color: e.color }) });
     }
+  }
+
+  _logBossEnd(e, how) {
+    const b = this.bossLog.find((b) => b.type === e.type && b.end === null);
+    if (b) { b.end = this.time; b.how = how; }
   }
 
   // compact: a short line under the boss bar instead of the big center banner (for mid-fight messages).
@@ -730,6 +768,7 @@ export class Game {
     return {
       won, time: this.time, kills: this.kills, level: this.level, score: this.score(),
       genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,
+      bar: this.seq.bar, damageBy: this.damageBy, lastHitBy: this.lastHitBy,
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),
     };

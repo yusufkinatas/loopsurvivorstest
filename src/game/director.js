@@ -7,13 +7,13 @@ import { spawnEnemy, randomType } from './enemies.js';
 
 const MIX = {
   intro:   { static: 1 },
-  verse1:  { static: 0.72, buzz: 0.28 },
-  chorus1: { static: 0.5, buzz: 0.3, hum: 0.2 },
-  verse2:  { static: 0.38, buzz: 0.24, hum: 0.16, glitch: 0.22 },
-  chorus2: { static: 0.3, buzz: 0.2, hum: 0.14, glitch: 0.14, screech: 0.11, feedback: 0.11 },
-  bridge:  { static: 0.24, buzz: 0.14, hum: 0.2, glitch: 0.14, screech: 0.12, feedback: 0.16 },
-  build:   { buzz: 0.55, static: 0.25, glitch: 0.2 },
-  drop:    { static: 0.25, buzz: 0.2, hum: 0.2, glitch: 0.1, screech: 0.1, feedback: 0.15 },
+  verse1:  { static: 0.68, buzz: 0.27, stomp: 0.05 },
+  chorus1: { static: 0.48, buzz: 0.28, hum: 0.19, stomp: 0.05 },
+  verse2:  { static: 0.34, buzz: 0.22, hum: 0.15, glitch: 0.21, stomp: 0.08 },
+  chorus2: { static: 0.28, buzz: 0.19, hum: 0.13, glitch: 0.13, screech: 0.11, feedback: 0.11, stomp: 0.05 },
+  bridge:  { static: 0.22, buzz: 0.13, hum: 0.19, glitch: 0.13, screech: 0.11, feedback: 0.15, stomp: 0.07 },
+  build:   { buzz: 0.52, static: 0.23, glitch: 0.19, stomp: 0.06 },
+  drop:    { static: 0.24, buzz: 0.19, hum: 0.19, glitch: 0.1, screech: 0.1, feedback: 0.14, stomp: 0.04 },
   finale:  { static: 0.3, buzz: 0.22, hum: 0.18, screech: 0.14, feedback: 0.16 },
 };
 
@@ -23,6 +23,7 @@ export class Director {
   reset() {
     this.eliteTimer = 58;
     this.lastFormationBar = -1;
+    this.ringBar = -1;       // the bar the Stomp ring lights its lanes on (enemiesOnBeat reads it)
   }
 
   get mix() { return MIX[this.g.section.id] || MIX.finale; }
@@ -60,6 +61,11 @@ export class Director {
       this.lastFormationBar = ev.bar;
       this.formation();
     }
+    // Featured elites walk in on the 16-bar downbeats of the quiet stretches between bosses, each with a vinyl.
+    if (ev.beat === 0 && ev.bar % 16 === 0 && (g.section.id === 'verse2' || g.section.id === 'bridge')) this.spawnElite();
+    // Set piece: on beat 3 of the Build-Up's last bar a ring of Stomps appears around you, lights its lanes on
+    // beat 4 and slams in on the downbeat where the song drops (a Drop timed for that downbeat clears it).
+    if (ev.beat === 2 && g.section.build && g.song.position(ev.bar).barsLeft === 1) this.stompRing(ev.bar);
   }
 
   // Set pieces: an encircling ring, or a swarm charging from one side.
@@ -90,6 +96,24 @@ export class Director {
     }
   }
 
+  stompRing(bar) {
+    const g = this.g, p = g.player;
+    const n = 10, R = Math.min(g.view.w, g.view.h) / 2 - 80;   // well inside the view on every screen
+    this.ringBar = bar;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      const e = spawnEnemy(g, 'stomp', p.x + Math.cos(a) * R, p.y + Math.sin(a) * R, { hpMul: 1.5 });
+      if (e) e.ai.ring = true;
+    }
+  }
+
+  // An elite from the section's mix: a big gold-outlined body that drops a vinyl (one level-up).
+  spawnElite() {
+    const s = this.spawnPoint();
+    const types = Object.keys(this.mix).filter((k) => k !== 'buzz');
+    spawnEnemy(this.g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true });
+  }
+
   onSection(ev) {
     const sec = ev.section;
     if (sec.boss) {
@@ -103,9 +127,7 @@ export class Director {
     this.eliteTimer -= dt;
     if (this.eliteTimer <= 0) {
       this.eliteTimer = Math.max(28, 52 - g.time / 25);
-      const s = this.spawnPoint();
-      const types = Object.keys(this.mix).filter((k) => k !== 'buzz');
-      spawnEnemy(g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true });
+      this.spawnElite();
     }
     // Recycle stragglers left far behind so the density stays around the player.
     const p = g.player;

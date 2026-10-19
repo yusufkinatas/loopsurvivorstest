@@ -2,7 +2,7 @@
 // Enemies move to the beat too. They surge on every beat, and some act on specific beats.
 
 import { TAU, rand, rng, pick, dist2, clamp } from '../util.js';
-import { STEP_SEC, BEAT_SEC } from '../config.js';
+import { STEP_SEC, BEAT_SEC, BAR_SEC } from '../config.js';
 
 export const ENEMY_TYPES = {
   static:   { name: 'Static',   hp: 9,  speed: 64,  r: 11, dmg: 7,  xp: 1, shape: 'square',  color: '#d9d4ea', mass: 1 },
@@ -11,12 +11,17 @@ export const ENEMY_TYPES = {
   glitch:   { name: 'Glitch',   hp: 20, speed: 56,  r: 12, dmg: 9,  xp: 2, shape: 'glitch',  color: '#94f0ff', mass: 1, blink: true },
   screech:  { name: 'Screech',  hp: 24, speed: 62,  r: 13, dmg: 6,  xp: 3, shape: 'diamond', color: '#ffa3b6', mass: 1, ranged: true },
   feedback: { name: 'Feedback', hp: 34, speed: 50,  r: 16, dmg: 10, xp: 3, shape: 'ring',    color: '#ffd38c', mass: 2, splits: 'static' },
+  stomp:    { name: 'Stomp',    hp: 30, speed: 54,  r: 15, dmg: 12, xp: 2, shape: 'stomp',   color: '#ff8a5c', mass: 3, charger: true },
 };
+
+// Stomp: a speaker cabinet that lights a lane on beat 4 and slams down it on the downbeat, for one beat at
+// `speed`. It only arms on screen with the player `min` to `max` px away, and at most `lanes` light per beat.
+const STOMP = { speed: 900, time: BEAT_SEC, min: 120, max: 520, lanes: 6 };
 
 export const BOSS_TYPES = {
   drone:      { name: 'The Drone',       hp: 1600,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
-  clipper:    { name: 'The Clipper',     hp: 4600,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
-  glitchking: { name: 'The Glitch King', hp: 12100, speed: 58, r: 44, dmg: 22, xp: 800, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
+  clipper:    { name: 'The Clipper',     hp: 3600,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
+  glitchking: { name: 'The Glitch King', hp: 12100, speed: 58, r: 44, dmg: 22, xp: 250, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
   whitenoise: { name: 'White Noise',     hp: 22800, speed: 46, r: 64, dmg: 26, xp: 0,   shape: 'noise',  color: '#ffffff', mass: 60, boss: true, final: true },
 };
 
@@ -46,13 +51,14 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
   return e;
 }
 
+// opts.from: the enemy that fired it, so a hit is credited to it by name (damageBy, lastHitBy).
 export function enemyShot(g, x, y, angle, speed = 160, dmg = 8, opts = {}) {
   if (g.shots.length > 500) return;
-  g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? '#ff4d6d' });
+  g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? '#ff4d6d', from: opts.from ?? null });
 }
 
 function radial(g, e, n, speed, dmg, offset = 0, color) {
-  for (let i = 0; i < n; i++) enemyShot(g, e.x, e.y, offset + (i / n) * TAU, speed, dmg, { color });
+  for (let i = 0; i < n; i++) enemyShot(g, e.x, e.y, offset + (i / n) * TAU, speed, dmg, { color, from: e });
 }
 
 function summonRing(g, e, type, n, dist) {
@@ -65,6 +71,10 @@ function summonRing(g, e, type, n, dist) {
 // Called on every beat (beat 0..3 of each bar) while playing.
 export function enemiesOnBeat(g, ev) {
   const p = g.player;
+  const isRingBar = ev.bar === g.director.ringBar;   // the Build-Up's last bar: only the Stomp ring arms
+  // Stomp lanes lit this bar. A resume can replay beat 4, so lanes already lit count toward the cap.
+  let lanes = 0;
+  if (ev.beat === 3) for (const e of g.enemies) if (!e.dead && e.ai.chargeWarn?.bar === ev.bar) lanes++;
   for (const e of g.enemies) {
     if (e.dead || e.spawnT > 0) continue;
     if (e.boss) { bossOnBeat(g, e, ev); continue; }
@@ -78,19 +88,52 @@ export function enemiesOnBeat(g, ev) {
         e.ai.glitchT = 0.18;
       }
     }
+    // Stomp: lights its lane on beat 4 of every other bar and dashes on the next downbeat only. A lane never
+    // outlives the next bar's first beat, so a pause cannot release a dash nobody saw lit.
+    // The lane leads the player: keep going and it cuts you off.
+    if (e.def.charger) {
+      const cw = e.ai.chargeWarn;
+      if (cw && ev.bar > cw.bar) {
+        if (ev.beat === 0 && ev.bar === cw.bar + 1 && e.stun <= 0) { e.ai.charge = STOMP.time; e.ai.chargeA = cw.a; e.ai.chargeSpeed = STOMP.speed; }
+        e.ai.chargeWarn = null;
+      } else if (!cw && ev.beat === 3 && e.stun <= 0 && (isRingBar ? e.ai.ring : (ev.bar + e.id) % 2 === 0 && lanes < STOMP.lanes)) {
+        const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy);
+        if (d > STOMP.min && d < STOMP.max && Math.abs(dx) < g.view.w / 2 && Math.abs(dy) < g.view.h / 2) {
+          lanes++;
+          const lead = BEAT_SEC + d / STOMP.speed;
+          e.ai.chargeWarn = { a: Math.atan2(dy + p.vy * lead, dx + p.vx * lead), t: BEAT_SEC, len: STOMP.speed * STOMP.time + e.r, bar: ev.bar };
+        }
+      }
+    }
     // Screech winds up for a beat (a growing red glow), then fires on beat 3.
     if (e.def.ranged && ev.beat === 1 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0 && dist2(e.x, e.y, p.x, p.y) < 480 * 480) e.ai.windup = BEAT_SEC;
     if (e.def.ranged && ev.beat === 2 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0) {
       const d2 = dist2(e.x, e.y, p.x, p.y);
       if (d2 < 480 * 480) {
-        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, 14 * (1 + g.time / 60 * 0.06), { color: '#ff7a95' });
+        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, 14 * (1 + g.time / 60 * 0.06), { color: '#ff7a95', from: e });
         e.ai.shootT = 0.2;
       }
     }
   }
 }
 
+// The player's Drop knocks a boss off the beat: no attacks and no spiral, and any tell it was showing
+// goes away. It lasts a little under two bars, so the boss comes back in on the downbeat of the bar
+// after next together with the cue the sequencer schedules ahead of that downbeat (it reads offbeatT).
+// Then the boss has four bars to find the groove before another Drop can stagger it again.
+export function knockOffBeat(g, e) {
+  if (g.time < (e.ai.restaggerAt ?? 0)) return;
+  e.ai.offbeatT = 2 * BAR_SEC - 0.45;   // over after beat 4 of the second bar, before the next downbeat's cue is scheduled
+  e.ai.restaggerAt = g.time + e.ai.offbeatT + 4 * BAR_SEC;
+  e.ai.blinkTo = null;
+  e.ai.chargeWarn = null;
+  e.ai.spiral = false;     // restarts on a downbeat once the boss is back
+  e.ai.spiralAcc = 0;
+  g.banner(`${e.def.name} lost the beat`, '', true);
+}
+
 function bossOnBeat(g, e, ev) {
+  if (e.ai.offbeatT > 0) return;
   const p = g.player;
   const aim = Math.atan2(p.y - e.y, p.x - e.x);
   const frac = e.hp / e.maxHp;
@@ -103,9 +146,9 @@ function bossOnBeat(g, e, ev) {
       if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff9fe2');
       break;
     case 'clipper':
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, 14, 160, 16, (ev.beat === 2 ? Math.PI / 14 : 0) + ev.bar * 0.13, '#ffb06a');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, 14, 160, 13, (ev.beat === 2 ? Math.PI / 14 : 0) + ev.bar * 0.13, '#ffb06a');
       if (ev.beat === 0 && ev.bar % 4 === 3) summonRing(g, e, 'static', 6, e.r + 36);
-      if (frac < 0.7 && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 16, { color: '#ffd08a' });
+      if (frac < 0.7 && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 13, { color: '#ffd08a', from: e });
       break;
     case 'glitchking': {
       if (ev.beat === 0 && ev.bar % 2 === 0) {
@@ -119,7 +162,7 @@ function bossOnBeat(g, e, ev) {
         radial(g, e, 20, 150, 25, rand(0, TAU), '#8ff3ff');
         summonRing(g, e, 'glitch', 4, e.r + 40);
       }
-      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, 22, { color: '#b9f7ff' });
+      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, 22, { color: '#b9f7ff', from: e });
       break;
     }
     case 'whitenoise': {
@@ -129,7 +172,7 @@ function bossOnBeat(g, e, ev) {
         e.ai.spiralAcc = 0;
         if (phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
       }
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 22, ev.bar * 0.21 + ev.beat, '#ffffff');
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
       break;
@@ -139,13 +182,6 @@ function bossOnBeat(g, e, ev) {
 
 function bossUpdate(g, e, dt) {
   const p = g.player;
-  if (e.type === 'drone' && e.ai.charge > 0) {
-    e.ai.charge -= dt;
-    const sp = e.speed * 3.4;
-    e.x += Math.cos(e.ai.chargeA) * sp * dt;
-    e.y += Math.sin(e.ai.chargeA) * sp * dt;
-    return true;
-  }
   if (e.type === 'whitenoise' && e.ai.spiral) {
     // Spiral arms on 8th notes. Started on a beat, so it stays on the grid.
     e.ai.spiralAcc = (e.ai.spiralAcc || 0) + dt;
@@ -155,7 +191,7 @@ function bossUpdate(g, e, dt) {
       e.ai.spiralAcc -= every;
       e.ai.spiralA += 0.42;
       const arms = e.ai.phase === 3 ? 4 : 3;
-      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5 });
+      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 20, { color: '#e6e6ff', r: 5, from: e });
     }
   }
   void p;
@@ -169,6 +205,8 @@ export function updateEnemies(g, dt) {
   for (const e of g.enemies) {
     if (e.dead) continue;
     e.age += dt;
+    // Runs through a boss's spawn-in too, so a Drop on its arrival downbeat staggers it for the same time.
+    if (e.ai.offbeatT) e.ai.offbeatT = Math.max(0, e.ai.offbeatT - dt);
     if (e.spawnT > 0) { e.spawnT -= dt; continue; }
     e.flash = Math.max(0, e.flash - dt);
     if (e.ai.glitchT) e.ai.glitchT = Math.max(0, e.ai.glitchT - dt);
@@ -183,6 +221,16 @@ export function updateEnemies(g, dt) {
     e.kbx *= kd; e.kby *= kd;
 
     if (e.stun > 0) { e.stun -= dt; continue; }
+    // A charge (the Drone, a Stomp) runs straight down its lane, deaf to knockback.
+    if (e.ai.charge > 0) {
+      e.ai.charge -= dt;
+      const sp = e.ai.chargeSpeed ?? e.speed * 3.4;
+      e.x += Math.cos(e.ai.chargeA) * sp * dt;
+      e.y += Math.sin(e.ai.chargeA) * sp * dt;
+      if (e.ai.charge <= 0 && !e.boss) e.stun = 0.45;   // winded for about a beat: the window to punish it
+      continue;
+    }
+    if (e.def.charger && e.ai.chargeWarn) continue;   // a Stomp stands its ground while its lane is lit
     if (e.boss && bossUpdate(g, e, dt)) continue;
 
     const dx = p.x - e.x, dy = p.y - e.y;
@@ -235,7 +283,7 @@ export function updateEnemies(g, dt) {
     s.age += dt;
     s.x += s.vx * dt; s.y += s.vy * dt;
     const rr = s.r + p.r - 4;
-    if (dist2(s.x, s.y, p.x, p.y) < rr * rr) { g.hurt(s.dmg, null); g.shots.splice(i, 1); continue; }
+    if (dist2(s.x, s.y, p.x, p.y) < rr * rr) { g.hurt(s.dmg, null, s.from); g.shots.splice(i, 1); continue; }
     if (s.age > s.life) g.shots.splice(i, 1);
   }
 }
