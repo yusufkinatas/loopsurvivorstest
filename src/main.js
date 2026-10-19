@@ -330,10 +330,12 @@ function simFrame() {
     if (game.state === 'paused') { if (--pausedFor <= 0) game.unpause(); continue; }
     if (game.state !== 'playing' && game.state !== 'dying') {
       if (game.state === 'levelup') {
-        // chaos: now and then skip the level, or banish or reroll first (the calls the buttons make).
+        // chaos: now and then skip the level, or banish or reroll first (the calls the buttons make). It only
+        // banishes sounds and pedals you do not have, so the run still reaches the late game.
         const r = opts.chaos ? Math.random() : 1;
+        const spare = game.offers.findIndex((o) => o.kind === 'new' || o.kind === 'swap' || o.kind === 'pedal-new');
         if (r < 0.05) game.skip();
-        else if ((r < 0.1 && game.banish(Math.floor(Math.random() * game.offers.length))) || (r < 0.15 && game.reroll())) continue;
+        else if ((r < 0.1 && spare >= 0 && game.banish(spare)) || (r < 0.15 && game.reroll())) continue;
         else game.choose(autopick(game.offers, game, opts.autopick || 'smart'));
       } else { window.__LS.done = true; break; }
     }

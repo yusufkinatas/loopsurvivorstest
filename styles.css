@@ -286,7 +286,7 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 /* Banish mode: the cards that can go get a red outline, the rest step back. */
 .cards.banishing .card:not(.no-ban) { border-color: var(--bad); }
 .cards.banishing .card:not(.no-ban):hover, .cards.banishing .card:not(.no-ban):focus-visible, .cards.banishing .card:not(.no-ban).focused { box-shadow: 0 0 0 1px var(--bad), 0 18px 44px -20px var(--bad); }
-.cards.banishing .card.no-ban { opacity: 0.4; }
+.cards.banishing .card.no-ban { filter: grayscale(0.7) brightness(0.5); }
 .row-actions .btn[aria-pressed="true"] { color: var(--bad); border-color: var(--bad); }
 /* Reroll, Banish and Skip stay on one line on a phone. */
 @media (max-width: 760px) { .row-actions { gap: 6px; } .row-actions .btn { padding: 12px 14px; } .row-actions .muted { display: none; } }
