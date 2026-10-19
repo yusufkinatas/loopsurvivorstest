@@ -279,7 +279,9 @@ export class Sequencer {
     const at = this.pendingStop ? Math.ceil(this.globalStep / STEPS_PER_BAR) * STEPS_PER_BAR : this.lastStop?.step;
     if (s && i > at && i < at + s.len) return;
     const bar = this.bar + Math.floor(i / STEPS_PER_BAR) - Math.floor(Math.max(0, this.globalStep - 1) / STEPS_PER_BAR);
-    this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, chimeMidi(this.song.position(bar).chord, idx), gain);
+    const pos = this.song.position(bar);
+    const chord = s?.home && i === at ? this.song.chord(0, pos.section.lift) : pos.chord;   // the ending's downbeat is on i
+    this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, chimeMidi(chord, idx), gain);
   }
 
   _report(where, e) {
