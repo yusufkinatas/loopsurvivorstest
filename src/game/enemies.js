@@ -25,8 +25,6 @@ export const BOSS_TYPES = {
   whitenoise: { name: 'White Noise',     hp: 34000, speed: 46, r: 64, dmg: 26, xp: 0,   shape: 'noise',  color: '#ffffff', mass: 60, boss: true, final: true },
 };
 
-let nextId = 1;
-
 export function spawnEnemy(g, type, x, y, opts = {}) {
   const def = ENEMY_TYPES[type] || BOSS_TYPES[type];
   if (!def) return null;
@@ -34,7 +32,7 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
   const elite = !!opts.elite;
   const hpMul = def.boss ? (1 + minutes * 0.2) * g.mods.bossHp : (1 + minutes * 0.25 + minutes * minutes * 0.09) * (elite ? 9 : 1) * (opts.hpMul ?? 1) * g.mods.hp;
   const e = {
-    id: nextId++, type, def, x, y, vx: 0, vy: 0,
+    id: g.nextId++, type, def, x, y, vx: 0, vy: 0,
     r: def.r * (elite ? 1.55 : 1) * (opts.scale ?? 1),
     hp: def.hp * hpMul, maxHp: def.hp * hpMul,
     speed: def.speed * (1 + minutes * 0.05) * (elite ? 0.9 : 1) * rand(0.92, 1.08),

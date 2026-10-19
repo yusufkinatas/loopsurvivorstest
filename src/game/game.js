@@ -69,6 +69,7 @@ export class Game {
       iframes: 0, faceX: 1, faceY: 0, vx: 0, vy: 0, speedNow: 0, hurtT: 0,
     };
     this.enemies = [];
+    this.nextId = 1;         // enemy ids pace Stomps and Screeches, so each run counts from 1
     this.damageTaken = { contact: 0, shots: 0, boss: 0 };
     this.damageBy = {};      // enemy name -> damage taken from it (bodies and shots)
     this.lastHitBy = null;
