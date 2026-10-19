@@ -182,7 +182,7 @@ export class Hud {
     set('sec', g.section.name, (v) => { this.clock.querySelector('.clock-section').textContent = v; });
     // Song map: the playhead moves on every 16th note that is heard, and finished sections fill in.
     const cur = seq.sounding(now);
-    if (cur) set('head', cur.bar * 16 + cur.sib, (v) => { this.songHead.style.left = `${songFraction(v / 16) * 100}%`; });
+    set('head', cur ? cur.bar * 16 + cur.sib : 0, (v) => { this.songHead.style.left = `${songFraction(v / 16) * 100}%`; });
     set('done', g.sectionIndex, (v) => { this.songSegs.forEach((s, i) => s.classList.toggle('done', i < v)); });
     set('kills', g.kills, (v) => { this.kills.querySelector('.kills-n').textContent = v.toLocaleString('en-US'); });
 
