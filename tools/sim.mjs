@@ -8,7 +8,7 @@
 //
 // Flags: --timeout <s> (wall clock per run, default 240), --screenshot <path>, --summary (short output),
 // --runs N (seeds 1..N unless the query sets one), --parallel N (pages at once; results stay in seed order).
-// Exits with 1 when a run crashed or produced no metrics; the other runs still print.
+// Exits with 1 when a run crashed, threw, timed out or produced no metrics; the other runs still print.
 import { serve, launch } from './serve.mjs';
 
 const args = process.argv.slice(2);
@@ -62,5 +62,5 @@ try {
   await browser.close();
   server.close();
 }
-if (results.some((x) => x.error)) process.exitCode = 1;
+if (results.some((x) => x.error || x.errors > 0 || x.logs.some((l) => /^(pageerror|timeout)/.test(l)))) process.exitCode = 1;
 console.log(JSON.stringify(runs === 1 ? results[0] : results, null, summary ? 0 : 2));
