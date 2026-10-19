@@ -61,7 +61,7 @@ const subBass = {
 
   remix: {
     id: 'wobblebass', name: 'Wobble Bass', pedal: 'wah',
-    text: 'Every note wobbles: a wave sweeps out past your pulse and back while the note plays, hitting and slowing on the way out and on the way back.',
+    text: 'Every note wobbles. A wave sweeps out past your pulse and back while the note plays, hitting and slowing both ways.',
     stats: { wobble: 0.4, wobbleReach: 1.3, wobbleSlow: 0.6 },
     fire(g, note, st, inst) {
       this.fire(g, note, st, inst);

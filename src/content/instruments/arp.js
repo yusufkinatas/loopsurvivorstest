@@ -141,7 +141,7 @@ const musicBox = {
 
   remix: {
     id: 'lullaby', name: 'Lullaby', pedal: 'reverb',
-    text: 'Stars sing the Noise to sleep: what they land on stays frozen longer and takes 35% more damage from your whole band for 2 seconds.',
+    text: 'Stars sing the Noise to sleep. What they land on stays frozen longer and takes 35% more damage from your whole band for 2 seconds.',
     stats: { stun: 0.8, vuln: 0.35, vulnTime: 2 },
   },
 };
