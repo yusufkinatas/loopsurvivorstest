@@ -3,7 +3,7 @@
 // Test hooks (query string, local only): ?sim=1 runs without audio on a simulated clock.
 // Also: speed=N (sim steps per frame), bot=1, autopick=smart|random|first, god=1, seed=N,
 // start=<instrumentId>, give=id:level,id:level, pedals=id:level, remix=id,id (remix given instruments),
-// gain=N (Gain tier), minutes=N (stop the sim), render=0, key=N.
+// gain=N (Gain tier), minutes=N (stop the sim), key=N, solo=1 (no level-ups).
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
@@ -41,10 +41,7 @@ function parseOpts() {
     remix: (get('remix') || '').split(',').filter(Boolean),
     gain: Number(get('gain')) || 0,
     minutes: Number(get('minutes')) || 0,
-    render: get('render') !== '0',
     key: get('key') !== null ? Number(get('key')) : undefined,
-    density: get('density') !== null ? Number(get('density')) : 1,
-    debug: get('debug') === '1',
     solo: get('solo') === '1',
     realpick: get('realpick') === '1',   // sim: level-ups go through the real pause path
     chaos: get('chaos') === '1',         // sim: pause and resume at random moments; with realpick, also reroll, banish and skip
