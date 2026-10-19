@@ -804,7 +804,8 @@ export class Game {
     if (o) applyOffer(this, o);
     this.offers = null;
     if (this.pendingLevels > 0) {
-      this.hooks.onLevelUp?.(this._deal());
+      this._deal();
+      this.hooks.onLevelUp?.(this.offers);
       return;
     }
     this._resume();
