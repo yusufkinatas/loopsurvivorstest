@@ -224,10 +224,11 @@ export function updateEnemies(g, dt) {
     if (e.stun > 0) { e.stun -= dt; continue; }
     // A charge (the Drone, a Stomp) runs straight down its lane, deaf to knockback.
     if (e.ai.charge > 0) {
+      const t = Math.min(dt, e.ai.charge);   // the last frame stops at the end of the lane
       e.ai.charge -= dt;
       const sp = e.ai.chargeSpeed ?? e.speed * 3.4;
-      e.x += Math.cos(e.ai.chargeA) * sp * dt;
-      e.y += Math.sin(e.ai.chargeA) * sp * dt;
+      e.x += Math.cos(e.ai.chargeA) * sp * t;
+      e.y += Math.sin(e.ai.chargeA) * sp * t;
       if (e.ai.charge <= 0 && !e.boss) e.stun = 0.45;   // winded for about a beat: the window to punish it
       continue;
     }
