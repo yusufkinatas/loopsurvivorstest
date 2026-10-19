@@ -1,7 +1,7 @@
 // Canvas renderer. The arena is a dark stage floor whose grid pulses with the beat and whose
 // color follows the song section. Music is color: every attack wears its channel's color.
 
-import { TAU, clamp, lerp, rand, rgba, hexToRgb } from '../util.js';
+import { TAU, clamp, lerp, rgba, hexToRgb } from '../util.js';
 import { BEAT_SEC } from '../config.js';
 import { ROLE_INFO, ROLES } from '../config.js';
 import { ITEM_INFO } from '../game/pickups.js';
@@ -15,6 +15,8 @@ export class Renderer {
     this.hue = 248;
     this.time = 0;
     this.scale = 1;
+    this.zoom = 1;               // the Drop camera, on top of scale (see draw)
+    this.waveAt = -Infinity;     // when the last section wave started
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -71,6 +73,14 @@ export class Renderer {
     return t;
   }
 
+  // Half-transparent channel color: the body of an enemy under that channel's fire.
+  hitFill(color) {
+    let f = this._fills?.get(color);
+    if (f) return f;
+    (this._fills ||= new Map()).set(color, f = rgba(color, 0.5));
+    return f;
+  }
+
   // ------------------------------------------------------------------------------------------
 
   begin(dt) {
@@ -87,8 +97,8 @@ export class Renderer {
     this._background(c, 258, pulse, pulse * 0.6);
   }
 
-  _background(c, hue, beat, bar, sx = 0, sy = 0) {
-    const w = this.w, h = this.h, s = this.scale;
+  _background(c, hue, beat, bar, sx = 0, sy = 0, s = this.scale) {
+    const w = this.w, h = this.h;
     const camX = this.cam.x + sx, camY = this.cam.y + sy;
     c.fillStyle = `hsl(${hue}, 38%, 6.5%)`;
     c.fillRect(0, 0, w, h);
@@ -132,25 +142,44 @@ export class Renderer {
     this.cam.x = lerp(this.cam.x, p.x, Math.min(1, dt * 8));
     this.cam.y = lerp(this.cam.y, p.y, Math.min(1, dt * 8));
     const shakeAmt = g.settings.shake ? g.shake : g.shake * 0.2;
-    const sx = rand(-1, 1) * shakeAmt, sy = rand(-1, 1) * shakeAmt;
+    // Cosmetic randomness never draws from the seeded rng, so a seed plays the same run at any frame rate.
+    const sx = (Math.random() * 2 - 1) * shakeAmt, sy = (Math.random() * 2 - 1) * shakeAmt;
+    // The Drop camera pushes in through the build bar and punches out on the impact. It scales only the drawing,
+    // never viewSize(), so spawns, the bot and the game's view are untouched. Screen shake off keeps it still.
+    const building = g.dropState === 'building';
+    const cur = building ? g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0)) : null;
+    const prog = cur ? cur.sib / 16 : 0;
+    if (g.drops > this._drops) this.zoom = 0.94;
+    this._drops = g.drops;
+    if (!g.settings.shake) this.zoom = 1;
+    else this.zoom += ((building && g.state === 'playing' ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
+    const s = this.scale * this.zoom;
 
-    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy);
+    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy, s);
 
-    const s = this.scale;
     c.setTransform(this.dpr * s, 0, 0, this.dpr * s, this.dpr * (this.w / 2 - (this.cam.x + sx) * s), this.dpr * (this.h / 2 - (this.cam.y + sy) * s));
     const vw = this.w / s / 2 + 80, vh = this.h / s / 2 + 80;
     const cx = this.cam.x, cy = this.cam.y;
     const inView = (x, y, r = 0) => Math.abs(x - cx) < vw + r && Math.abs(y - cy) < vh + r;
 
-    // Soft stage light under the player that thumps with the kick, and a floor ripple on every beat.
+    // Soft stage light under the player that thumps with the kick and widens as the band grows, and a floor
+    // ripple on every beat.
     c.globalCompositeOperation = 'lighter';
     const thump = Math.max(g.beatPulse, g.chanPulse.beat || 0);
-    this.drawGlow(p.x, p.y, 150 + thump * 36, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.16 + thump * 0.16);
+    this.drawGlow(p.x, p.y, 120 + 10 * g.loadout.filled() + thump * 36, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.16 + thump * 0.16);
     c.globalCompositeOperation = 'source-over';
     if (g.beatPulse > 0.05) {
       c.strokeStyle = `hsla(${Math.round(this.hue)}, 80%, 70%, ${g.beatPulse * 0.12})`;
       c.lineWidth = 2;
       circle(c, p.x, p.y, 40 + (1 - g.beatPulse) * 300); c.stroke();
+    }
+    // A section's downbeat sends a wave across the floor from you, landing with its crash cymbal.
+    if (g.sectionIndex !== this._section) { if (g.sectionIndex > 0) this.waveAt = this.time; this._section = g.sectionIndex; }
+    const wt = (this.time - this.waveAt) / 0.7;
+    if (wt < 1) {
+      c.strokeStyle = `hsla(${g.section.hue}, 80%, 70%, ${0.55 * (1 - wt)})`;
+      c.lineWidth = (14 * (1 - wt) + 2) / s;
+      circle(c, p.x, p.y, lerp(40, 0.75 * Math.max(this.w, this.h), 1 - (1 - wt) * (1 - wt)) / s); c.stroke();
     }
 
     this._pickups(c, g, inView);
@@ -160,16 +189,25 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
     this._orbits(c, g);
     this._bullets(c, g, inView);
-    this._rings(c, g);
+    this._rings(c, g, inView);
+    // The silence wave's front, until it has passed the far corner of the view.
+    const sw = g.won && g.silence;
+    if (sw && sw.r < Math.hypot(Math.abs(sw.x - cx) + vw, Math.abs(sw.y - cy) + vh)) {
+      c.strokeStyle = 'rgba(255,255,255,0.12)'; c.lineWidth = 28;
+      circle(c, sw.x, sw.y, sw.r); c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = 6;
+      c.stroke();
+    }
     this._beams(c, g);
     this._particles(c, g, inView);
     c.globalCompositeOperation = 'source-over';
     // The player and everything that can hurt them go on top of the band's effects, so they stay readable.
-    this._player(c, g);
+    if (g.state === 'dying') this._shatter(c, g);
+    else if (g.state !== 'gameover') this._player(c, g);   // after the death beat the speaker is gone
     this._telegraphs(c, g);
     this._shots(c, g, inView);
     this._texts(c, g, inView);
-    this._bossArrow(c, g);
+    this._bossArrow(c, g, s);
 
     // Screen-space overlays
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -184,10 +222,8 @@ export class Renderer {
     }
     // Player position on screen, for screen-space effects centered on them.
     const px = (p.x - this.cam.x) * s + this.w / 2, py = (p.y - this.cam.y) * s + this.h / 2;
-    if (g.dropState === 'building') {
+    if (building) {
       // One bar of build: the screen darkens, a ring closes in on you, and four beat ticks light up.
-      const cur = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
-      const prog = cur ? cur.sib / 16 : 0;
       c.fillStyle = `rgba(4,2,10,${0.18 + 0.4 * prog})`;
       c.fillRect(0, 0, this.w, this.h);
       const R0 = Math.max(this.w, this.h) * 0.62;
@@ -306,8 +342,9 @@ export class Renderer {
   _enemyShape(c, e, r, t) {
     const j = () => (Math.random() - 0.5) * r * 0.16;
     const flash = e.flash > 0;
-    // Elites keep their dark body and flash only their outline, so they stay recognizable under fire.
-    const fill = flash && !e.elite ? 'rgba(255,255,255,0.8)' : 'rgba(18,14,28,0.92)';
+    // Under fire the body tints in the hitting channel's color and the outline flashes white. Elites keep
+    // their dark body and flash only their outline, so they stay recognizable under fire.
+    const fill = flash && !e.elite ? this.hitFill(e.hitColor || '#ffffff') : 'rgba(18,14,28,0.92)';
     const stroke = flash ? '#ffffff' : e.elite ? '#ffd166' : e.color;
     c.lineWidth = e.elite ? 3 : 2;
     c.fillStyle = fill;
@@ -513,10 +550,9 @@ export class Renderer {
   }
 
   // An arrow pointing at a boss that is off-screen or hidden under the HUD, drawn inside the clear play area.
-  _bossArrow(c, g) {
+  _bossArrow(c, g, s) {
     const e = g.boss;
     if (!e || e.dead) return;
-    const s = this.scale;
     const top = 72, bottom = this.w < 760 ? 150 : 104, side = 24;
     const sxp = (e.x - this.cam.x) * s + this.w / 2, syp = (e.y - this.cam.y) * s + this.h / 2;
     if (sxp > side && sxp < this.w - side && syp > top && syp < this.h - bottom) return;
@@ -544,15 +580,15 @@ export class Renderer {
     const r = p.r * (1 + g.beatPulse * 0.06);
     c.fillStyle = 'rgba(8,6,14,0.6)';
     circle(c, p.x, p.y, r + 9); c.fill();
-    // Channel rings: each instrument that just played lights its ring.
+    // Channel rings: each instrument that just played lights its ring, and a ring thickens as its sound levels up.
     let i = 0;
     for (const role of ROLES) {
       const inst = g.loadout.channels[role];
       if (!inst) continue;
       const k = g.chanPulse[role];
-      const rr = r + 5 + i * 3.2;
+      const rr = r + 5 + i * 3.8;
       c.strokeStyle = rgba(ROLE_INFO[role].color, 0.22 + k * 0.7);
-      c.lineWidth = 1.6 + k * 1.6;
+      c.lineWidth = 1.2 + 0.45 * inst.level + k * 1.6;
       circle(c, p.x, p.y, rr + k * 2); c.stroke();
       i++;
     }
@@ -573,6 +609,39 @@ export class Renderer {
     c.lineTo(p.x + Math.cos(a + 0.35) * (r + 1), p.y + Math.sin(a + 0.35) * (r + 1));
     c.lineTo(p.x + Math.cos(a - 0.35) * (r + 1), p.y + Math.sin(a - 0.35) * (r + 1));
     c.closePath(); c.fill();
+    c.globalAlpha = 1;
+  }
+
+  // The death beat: the channel rings break into arcs that fly off and fade, and the speaker splits into four
+  // wedges that drift apart. Cracks show from the first frame, so no intact speaker appears after the lethal hit.
+  _shatter(c, g) {
+    const p = g.player;
+    const k = clamp(1 - g.dyingT / 0.9, 0, 1);
+    const e = 1 - (1 - k) * (1 - k);
+    let i = 0;
+    c.globalAlpha = 1 - k;
+    for (const role of ROLES) {
+      const inst = g.loadout.channels[role];
+      if (!inst) continue;
+      const rr = p.r + 5 + i * 3.8 + e * (70 + 18 * i);
+      const a0 = i * 0.9 + (i % 2 ? 1.2 : -1.2) * e;
+      c.strokeStyle = ROLE_INFO[role].color;
+      c.lineWidth = 1.2 + 0.45 * inst.level;
+      for (let j = 0; j < 3; j++) { c.beginPath(); c.arc(p.x, p.y, rr, a0 + (j / 3) * TAU, a0 + (j / 3) * TAU + 1.5); c.stroke(); }
+      i++;
+    }
+    c.globalAlpha = 1 - k * k;
+    const d = 3 + 28 * e, q = Math.PI / 2;
+    for (let j = 0; j < 4; j++) {
+      const a = j * q + q / 2, x = p.x + Math.cos(a + q / 2) * d, y = p.y + Math.sin(a + q / 2) * d;
+      c.beginPath(); c.moveTo(x, y); c.arc(x, y, p.r, a, a + q); c.closePath();
+      c.fillStyle = '#16121f'; c.fill();
+      c.strokeStyle = '#f4efff'; c.lineWidth = 2.5; c.stroke();
+      c.strokeStyle = 'rgba(244,239,255,0.55)'; c.lineWidth = 1.5;
+      c.beginPath(); c.arc(x, y, p.r * 0.58, a, a + q); c.stroke();
+      c.fillStyle = '#f4efff';
+      c.beginPath(); c.moveTo(x, y); c.arc(x, y, p.r * 0.22, a, a + q); c.closePath(); c.fill();
+    }
     c.globalAlpha = 1;
   }
 
@@ -620,8 +689,9 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
   }
 
-  _rings(c, g) {
+  _rings(c, g, inView) {
     for (const r of g.fx.rings) {
+      if (!inView(r.x, r.y, r.r)) continue;
       const k = clamp(r.t / r.dur, 0, 1);
       const a = (1 - k) * 0.9 + 0.05;
       c.strokeStyle = rgba(r.color, a);
@@ -632,9 +702,9 @@ export class Renderer {
       circle(c, r.x, r.y, r.r); c.stroke();
     }
     for (const f of g.fx.flashes) {
+      if (!inView(f.x, f.y, f.r)) continue;
       const k = f.age / f.life;
-      c.fillStyle = rgba(f.color, f.fill * (1 - k));
-      circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.fill();
+      if (f.fill > 0) { c.fillStyle = rgba(f.color, f.fill * (1 - k)); circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.fill(); }
       c.strokeStyle = rgba(f.color, 0.8 * (1 - k));
       c.lineWidth = 2.5 * (1 - k) + 0.5;
       circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.stroke();
