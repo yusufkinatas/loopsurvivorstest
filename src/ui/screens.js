@@ -3,7 +3,7 @@
 import { ROLE_INFO, STYLES, ROLES } from '../config.js';
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
-import { describeOffer } from '../game/upgrades.js';
+import { describeOffer, banKey } from '../game/upgrades.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -21,9 +21,9 @@ function pipsHtml(level, max) {
 
 export function cardHtml(d, index, opts = {}) {
   const style = d.style ? `<span class="badge" style="--s:${d.style.color}">${esc(d.style.name)}</span>` : '';
-  const chem = (d.chem || []).map((c) => `<li class="${c.good === true ? 'good' : c.good === false ? 'bad' : ''}">${esc(c.text)}</li>`).join('');
+  const chem = (d.chem || []).map((c) => `<li class="${c.good === true ? 'good' : c.good === false ? 'bad' : ''}${c.remix ? ' remix' : ''}">${esc(c.text)}</li>`).join('');
   return `
-  <button class="card" type="button" data-i="${index}" style="--c:${d.color}">
+  <button class="card${d.remix ? ' card-remix' : ''}" type="button" data-i="${index}" style="--c:${d.color}">
     <span class="card-key" aria-hidden="true">${index + 1}</span>
     <span class="card-top"><span class="eyebrow">${esc(d.eyebrow)}</span>${style}</span>
     <span class="card-head"><span class="card-icon">${icon(d.icon)}</span><span class="card-title">${esc(d.title)}</span></span>
@@ -167,10 +167,27 @@ export class Screens {
         <div class="cards">${cards}</div>
         <div class="row-actions">
           <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left · R)</span></button>
+          <button class="btn btn-ghost" type="button" data-act="banish" aria-pressed="false" title="Pick a card to remove its sound or pedal for the rest of the run, upgrades included" ${g.banishes > 0 && offers.some(banKey) ? '' : 'disabled'}>Banish <span class="muted">(${g.banishes} left · X)</span></button>
+          <button class="btn btn-ghost" type="button" data-act="skip" title="Pass on this level. Its notes fill the Drop meter instead">Skip <span class="muted">(+Drop · Q)</span></button>
         </div>
       </div>`);
-    this._wireCards(el, (i) => this.h.onChoose(i), (i) => this.h.onPreview(i));
+    // Banish mode: the next card picked is banished instead of taken. Remix, Fader and bonus cards cannot be.
+    this.banishing = false;
+    el.querySelectorAll('.card').forEach((c, i) => c.classList.toggle('no-ban', !banKey(offers[i])));
+    this._wireCards(el, (i) => (this.banishing ? this.h.onBanish(i) : this.h.onChoose(i)), (i) => this.h.onPreview(i));
     el.querySelector('[data-act=reroll]').addEventListener('click', () => this.h.onReroll());
+    el.querySelector('[data-act=banish]').addEventListener('click', () => this.toggleBanish());
+    el.querySelector('[data-act=skip]').addEventListener('click', () => this.h.onSkip());
+  }
+
+  toggleBanish(on = !this.banishing) {
+    const btn = this.current === 'levelup' ? this.root.querySelector('[data-act=banish]') : null;
+    if (!btn || btn.disabled) return;
+    this.banishing = on;
+    btn.setAttribute('aria-pressed', String(on));
+    this.root.querySelector('.cards').classList.toggle('banishing', on);
+    this.root.querySelector('.cards-wrap h2').textContent = on ? 'Pick a card to banish' : 'Pick your next sound';
+    this.root.querySelector('.cards-wrap .sub').textContent = on ? 'It never comes back this run, upgrades included.' : 'Hover or hold a card to hear it in your mix.';
   }
 
   _wireCards(el, onPick, onPreview) {

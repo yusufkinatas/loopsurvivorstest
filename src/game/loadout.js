@@ -25,8 +25,9 @@ export const CHEMISTRY = {
 export const FUSION = { mods: { damage: 0.1, area: 0.1, xpGain: 0.15 }, text: 'Fusion: 2+ of every style. +10% damage, +10% area, +15% XP' };
 export const FULL_BAND = { mods: { damage: 0.1 }, text: 'Full band: all six channels. +10% damage' };
 
+// remix: true once the instrument has been remixed (it stays at level 5 and plays its remix's attack).
 export function makeInst(def, level = 1) {
-  return { def, level, state: {}, voicing: null, dmg: 0, kills: 0, notes: 0, since: 0 };
+  return { def, level, remix: false, state: {}, voicing: null, dmg: 0, kills: 0, notes: 0, since: 0 };
 }
 
 export class Loadout {
@@ -34,6 +35,7 @@ export class Loadout {
     this.channels = {};
     for (const r of ROLES) this.channels[r] = null;
     this.pedals = [];
+    this.faders = {};   // role -> Fader cards taken. A channel keeps its fader when its instrument is swapped.
   }
 
   instruments() {
@@ -63,6 +65,13 @@ export class Loadout {
   pedalLevels() {
     const out = {};
     for (const p of this.pedals) out[p.def.id] = p.level;
+    return out;
+  }
+
+  // role -> pedal id for every remixed channel: the desk runs that pedal at full on the channel's strip.
+  remixBoost() {
+    const out = {};
+    for (const inst of this.instruments()) if (inst.remix) out[inst.def.role] = inst.def.remix.pedal;
     return out;
   }
 }

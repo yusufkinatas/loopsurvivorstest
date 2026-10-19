@@ -3,6 +3,7 @@
 //   node tools/check.mjs --role bass           # one role
 //   node tools/check.mjs --mix kick808,upright,squarelead [--level 5]   # a band through the full mixing desk
 //   node tools/check.mjs --mixall              # one band per style, plus a mixed band, at level 5
+//   node tools/check.mjs --mixall --remix      # the same bands remixed: every pedal on, remix pedals at full on their strips
 //   node tools/check.mjs --audit               # whole-song note audit in Node, no browser (see auditSong)
 //   node tools/check.mjs --replay ["speed=12&bot=1&minutes=9"]   # play a sim run's track sheet as a radio edit
 // A band bar by bar (with --mix): --start N [--bars M] [--key pc] prints RMS, peak, clipping and
@@ -19,8 +20,11 @@ const role = flag('--role', null);
 const mix = flag('--mix', null);
 const level = Number(flag('--level', 5));
 const mixall = args.includes('--mixall');
+const remix = args.includes('--remix');
 const timeout = num('--timeout', 600) * 1000;
-const opts = { level, bars: num('--bars', 8), keyPc: num('--key', 9), start: num('--start', 0), boss: flag('--boss', null), frac: num('--frac', 1), stopAt: num('--stopAt', null), ending: args.includes('--ending'), pickups: num('--pickups', 0) };
+// A remixed band owns its remix pedals, so every pedal is on (level 1) under the boost.
+const pedals = remix ? { reverb: 1, delay: 1, overdrive: 1, compressor: 1, chorus: 1, wah: 1, bitcrusher: 1 } : {};
+const opts = { level, remix, pedals, bars: num('--bars', 8), keyPc: num('--key', 9), start: num('--start', 0), boss: flag('--boss', null), frac: num('--frac', 1), stopAt: num('--stopAt', null), ending: args.includes('--ending'), pickups: num('--pickups', 0) };
 const perBar = ['--start', '--boss', '--stopAt', '--pickups'].some((f) => args.includes(f));
 
 if (args.includes('--audit')) {
@@ -70,8 +74,9 @@ try {
       const byStyle = (st) => ['beat', 'perc', 'bass', 'chords', 'lead', 'arp'].map((r) => INSTRUMENTS.find((d) => d.role === r && d.style === st)).filter(Boolean).map((d) => d.id);
       const mixed = ['beat', 'perc', 'bass', 'chords', 'lead', 'arp'].map((r, i) => INSTRUMENTS.filter((d) => d.role === r)[i % 3]).filter(Boolean).map((d) => d.id);
       const out = [];
-      for (const ids of [byStyle('synth'), byStyle('organic'), byStyle('chip'), mixed]) out.push(await m.checkMix(ids, { level: opts.level }));
-      out.push(await m.checkMix(mixed, { level: opts.level, pedals: { reverb: 3, delay: 3, overdrive: 3, compressor: 3, chorus: 3, wah: 3, bitcrusher: 3 } }));
+      const { level, remix, pedals } = opts;
+      for (const ids of [byStyle('synth'), byStyle('organic'), byStyle('chip'), mixed]) out.push(await m.checkMix(ids, { level, remix, pedals }));
+      out.push(await m.checkMix(mixed, { level, remix, pedals: { reverb: 3, delay: 3, overdrive: 3, compressor: 3, chorus: 3, wah: 3, bitcrusher: 3 } }));
       return out;
     }
     return m.checkAll({ roles: role ? [role] : null });
@@ -93,7 +98,7 @@ if (result) {
     if (r.outOfKey) flags.push(`${r.outOfKey} notes out of key`);
     if (r.offGrid) flags.push(`${r.offGrid} notes off the grid`);
     if (r.errors?.length || r.nan || r.clipSamples || r.outOfKey || r.offGrid) failed = true;
-    const name = r.id ? `${r.id} L${r.level}` : `MIX ${r.ids.join('+')}`;
+    const name = r.id ? `${r.id} L${r.level}` : `MIX${r.remix ? ' REMIX' : ''} ${r.ids.join('+')}`;
     console.log(`${name.padEnd(mix || mixall ? 60 : 16)} peak ${String(r.peak).padEnd(5)} rms ${String(r.rmsDb).padStart(6)} dB  centroid ${String(r.centroidHz).padStart(5)} Hz  bands%(sub/low/mid/high/air) ${Object.values(r.bandsPct || {}).join('/')}${r.notes !== undefined ? `  notes ${r.notes}` : ''}${r.midiRange ? `  midi ${r.midiRange.join('-')}` : ''} ${flags.length ? ' !! ' + flags.join('; ') : ''}`);
     if (perBar && r.perBar) {
       for (const b of r.perBar) console.log(`  ${String(b.bar).padStart(4)} ${b.section.padEnd(8)} ${String(b.barInSection).padStart(2)} ${b.chord.padEnd(4)} notes ${String(b.notes).padStart(3)}  rms ${String(b.rmsDb).padStart(6)} dB  peak ${b.peak.toFixed(3)}  clip ${b.clip}  ~${String(b.brightHz).padStart(5)} Hz`);

@@ -10,6 +10,7 @@ export const ICONS = {
   lead: wrap('<path d="M9 18V5l10-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
   arp: wrap('<path d="M12 2.5 13.7 9 20 11l-6.3 2L12 19.5 10.3 13 4 11l6.3-2Z"/><path d="M19 3v3M17.5 4.5h3M5 17v3M3.5 18.5h3"/>'),
   pedal: wrap('<rect x="5" y="3" width="14" height="18" rx="2.5"/><circle cx="9" cy="7.5" r="1.4"/><circle cx="15" cy="7.5" r="1.4"/><rect x="8" y="13" width="8" height="5" rx="1"/>'),
+  fader: wrap('<path d="M7 3v18M17 3v18" opacity=".45"/><rect x="4" y="12" width="6" height="4" rx="1"/><rect x="14" y="6" width="6" height="4" rx="1"/>'),
   heal: wrap('<path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10Z"/>'),
   drop: wrap('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 20h16"/>'),
   score: wrap('<circle cx="12" cy="12" r="8"/><path d="M12 7.5v9M9.5 9.5h4a1.8 1.8 0 0 1 0 3.5h-3a1.8 1.8 0 0 0 0 3.5h4"/>'),

@@ -14,7 +14,10 @@ server below. Sound on, headphones help.
   plays launches its attack at the exact moment you hear it.
 - **Level up** by collecting the notes the noise drops. Pick one of three cards: a new sound, a
   stronger version of one you have, a swap to a different style, or an effect pedal. Hover (or press
-  and hold) a card to hear it in your mix before you choose.
+  and hold) a card to hear it in your mix before you choose. You can also reroll the cards, banish a
+  sound or pedal for the rest of the run (three times), or skip the level to fill the Drop meter.
+- **Remix.** An instrument at level 5 with its paired pedal on your board (Canon is Wooden Flute plus
+  Tape Delay) can be remixed: the same part, a new attack, and that pedal opened up on its channel.
 - **The Drop.** Collected notes fill the Drop meter. Press Space when it is full: the music builds for
   one bar, then slams on the downbeat and blasts everything on screen.
 - **Survive the song.** About eight minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
@@ -27,8 +30,8 @@ arrangement, so the game enforces the rules a producer would:
 
 1. **One instrument per channel.** The mixer has six channels (Beat, Groove, Bass, Chords, Lead,
    Sparkle). Each owns a frequency range and a rhythmic job, and holds exactly one instrument. Taking
-   a new sound for a full channel swaps out the old one (it keeps most of its level). That makes every
-   card a real decision: fill an empty channel, deepen one you have, or change a channel's style.
+   a new sound for a full channel swaps out the old one (the new sound keeps the channel's level). That
+   makes every card a real decision: fill an empty channel, deepen one you have, or change a channel's style.
    Channels also open with the song: two in the intro, one more each section, all six from the second
    chorus. The run literally starts as one sound and grows into a full band.
 2. **Every note is in key and on the grid.** Instruments never play raw pitches. Patterns ask for
@@ -88,6 +91,7 @@ All run headless in Chromium through Playwright.
 node tools/sim.mjs "speed=12&bot=1&minutes=8" --summary     # autopiloted run on a simulated clock, no audio
 node tools/check.mjs                                          # render every instrument level offline: level, clipping, spectrum
 node tools/check.mjs --mixall                                 # whole bands through the real mixing desk
+node tools/check.mjs --mixall --remix                         # the same bands remixed (remix pedals at full)
 node tools/shots.mjs shots/ [--mobile]                        # drive the real UI and save screenshots
 
 The balance targets (pacing, boss fight lengths, instrument parity) and how they were measured are in
@@ -95,4 +99,4 @@ the commit history of the balance pass.
 ```
 
 Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god`, `solo` (no level-ups),
-`seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `minutes`, `key`, `density`.
+`seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `remix=id,...`, `minutes`, `key`, `density`.

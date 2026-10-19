@@ -212,6 +212,8 @@ export function autopick(offers, g, mode = 'smart') {
       }
       case 'pedal-new': s = 3.5; break;
       case 'pedal-up': s = 3.2; break;
+      case 'remix': s = 9; break;
+      case 'fader': s = 3; break;
       default: s = 0.5;
     }
     s += rng() * 0.8;

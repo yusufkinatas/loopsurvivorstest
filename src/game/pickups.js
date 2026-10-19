@@ -4,7 +4,7 @@ import { rand, dist2, rng, swapRemove } from '../util.js';
 import { WORLD } from '../config.js';
 
 export const ITEM_INFO = {
-  heal:   { color: '#ff6f8a', r: 9, label: 'Encore' },
+  heal:   { color: '#ff6f8a', r: 9, label: 'Breather' },
   magnet: { color: '#7fd7ff', r: 9, label: 'Magnet' },
   vinyl:  { color: '#ffd166', r: 11, label: 'Vinyl' },
 };

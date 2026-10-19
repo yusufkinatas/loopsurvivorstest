@@ -133,13 +133,14 @@ export async function checkInstrument(id, level, { bars = 4, keyPc = 9 } = {}) {
 
 // Full band through the real mixing desk (faders, pan, ducking, returns, compressor, limiter), with the
 // song's arrangement. Options:
+//   remix    play every instrument remixed, with its remix pedal at full on its own strip
 //   start    song bar to begin at; a lead-in bar is rendered first so a section's first bar gets its
 //            crash and riser (perBar lists the lead-in too)
 //   boss     play that boss's cues (drone | clipper | glitchking | whitenoise) as if alive at frac health
 //   stopAt   a boss goes down so bar stopAt is stop-time; ending: the final boss, so it is the song's ending
 //   pickups  collected notes per second, chiming through seq.ping, plus a 3-note run every 4 bars
 // Returns the whole render's analysis, per-bar RMS and peak, and the scheduled notes' key and grid counts.
-export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {}, start = 0, boss = null, frac = 1, stopAt = null, ending = false, pickups = 0 } = {}) {
+export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {}, remix = false, start = 0, boss = null, frac = 1, stopAt = null, ending = false, pickups = 0 } = {}) {
   // Seeded noise (this page only checks), so two renders differ only by what an option adds.
   seedRng(7);
   Math.random = rng;
@@ -147,7 +148,8 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
   const ctx = new OfflineAudioContext(2, Math.floor(SR * ((bars + lead) * BAR_SEC + 2)), SR);
   const eng = new AudioEngine();
   eng.attach(ctx);
-  eng.applyPedals(pedals);
+  const boost = remix ? Object.fromEntries(ids.map((id) => BY_ID[id]).filter((d) => d?.remix).map((d) => [d.role, d.remix.pedal])) : {};
+  eng.applyPedals(pedals, boost);
   eng.setActiveCount(ids.length);
   const errors = [];
   const clock = { sim: false, t: 0, now() { return this.t; } };
@@ -157,6 +159,7 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
   seq.reset(song);
   seq.bar = start - lead;
   const insts = ids.map((id) => makeInst(BY_ID[id], typeof level === 'number' ? level : level[id] || 1)).filter((i) => i.def);
+  for (const i of insts) i.remix = !!(remix && i.def.remix);
   seq.getInstruments = () => insts;
   if (boss) {
     const e = { type: boss, hp: frac, maxHp: 1, spawnT: 0, ai: { blinkTo: {} } };
@@ -197,7 +200,7 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
       brightHz: sum ? Math.round((Math.sqrt(d / sum) * SR) / (2 * Math.PI)) : 0,   // RMS-frequency estimate
     });
   }
-  return { ids, level, errors, ...analyze(buf), notes: notes.length, offGrid, outOfKey, perBar };
+  return { ids, level, remix, errors, ...analyze(buf), notes: notes.length, offGrid, outOfKey, perBar };
 }
 
 // Whole-song note audit, no audio. Every key x instrument x level through the song's first `bars` bars

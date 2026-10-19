@@ -32,7 +32,8 @@ export class Effects {
 
   // Moving projectile. o: x, y, angle|vx+vy, speed, r, damage, pierce (extra enemies it passes through),
   // life (s), color, shape ('dot'|'note'|'square'|'star'|'seed'|'shard'|'coin'), homing (turn rad/s),
-  // bounce (ricochets to new targets), kb, stun, slow, drag, trail (bool), spin.
+  // bounce (ricochets to new targets), kb, stun, slow, drag, trail (bool), spin, curve (turn rad/s),
+  // onHit(b, enemy, g), onReturn(b, g) (a boomerang that reaches you; return true to keep it flying).
   bullet(o) {
     if (this.bullets.length >= MAX_BULLETS) return null;
     const speed = o.speed ?? 300;
@@ -45,7 +46,7 @@ export class Effects {
       kb: o.kb ?? 40, stun: o.stun ?? 0, slow: o.slow ?? 0, drag: o.drag ?? 0, trail: o.trail ?? false,
       spin: o.spin ?? 0, rot: o.rot ?? Math.random() * TAU, hit: new Set(), target: null, retarget: 0, src: this.g.src,
       range: o.range ?? 420, onHit: o.onHit ?? null, dead: false,
-      boomerang: !!o.boomerang, returning: false,
+      boomerang: !!o.boomerang, returning: false, curve: o.curve ?? 0, onReturn: o.onReturn ?? null,
     };
     b.maxAge = b.boomerang ? b.life * 2.5 : b.life;
     this.bullets.push(b);
@@ -53,12 +54,14 @@ export class Effects {
   }
 
   // Expanding shockwave that damages each enemy once as it passes. o: x, y, follow (bool: stays on player),
-  // r0, r1, dur, damage, kb, stun, slow, width (visual), color.
+  // r0, r1, dur, damage, kb, stun, slow, width (visual), color, yoyo (out to r1 and back, hitting again on
+  // the way back), erase (wipes out enemy shots inside this share of its radius while it moves).
   ring(o) {
     const r = {
       x: o.x, y: o.y, follow: !!o.follow, r0: o.r0 ?? 10, r1: o.r1 ?? 120, dur: o.dur ?? 0.3, t: 0,
       damage: o.damage ?? 10, kb: o.kb ?? 120, stun: o.stun ?? 0, slow: o.slow ?? 0,
       width: o.width ?? 6, color: o.color ?? '#fff', hit: new Set(), src: this.g.src, r: o.r0 ?? 10,
+      yoyo: !!o.yoyo, back: false, erase: o.erase ?? 0,
     };
     this.rings.push(r);
     return r;
@@ -80,7 +83,7 @@ export class Effects {
     return n;
   }
 
-  // Instant straight line. o: x, y, angle, length, width, damage, kb, color, pierce (max targets).
+  // Instant straight line. o: x, y, angle, length, width, damage, kb, color, pierce (max targets), onHit(enemy).
   beam(o) {
     const g = this.g;
     const L = o.length ?? 400, w = o.width ?? 8;
@@ -95,14 +98,16 @@ export class Effects {
     hits.sort((a, b) => dist2(a.x, a.y, o.x, o.y) - dist2(b.x, b.y, o.x, o.y));
     const max = o.pierce ?? Infinity;
     for (let i = 0; i < hits.length && i < max; i++) {
+      const alive = !hits[i].dead;   // an earlier hit's onHit may have killed it already
       g.hit(hits[i], o.damage, { kb: o.kb ?? 60, fx: o.x, fy: o.y, stun: o.stun, slow: o.slow });
+      if (o.onHit && alive) o.onHit(hits[i]);
     }
     this.beams.push({ x1: o.x, y1: o.y, x2, y2, width: w, color: o.color ?? '#fff', life: o.life ?? 0.16, age: 0 });
     return hits.length;
   }
 
   // Chain lightning. o: x, y, target (optional enemy), range (first jump), chain (number of targets),
-  // chainRange, damage, falloff (per jump multiplier), color, stun.
+  // chainRange, damage, falloff (per jump multiplier), color, stun, onHit(enemy).
   zap(o) {
     const g = this.g;
     const hitSet = new Set();
@@ -114,6 +119,7 @@ export class Effects {
       hitSet.add(cur);
       pts.push([cur.x, cur.y]);
       g.hit(cur, dmg, { kb: o.kb ?? 20, fx: pts[pts.length - 2][0], fy: pts[pts.length - 2][1], stun: o.stun, slow: o.slow });
+      if (o.onHit) o.onHit(cur);
       dmg *= o.falloff ?? 0.85;
       cur = g.nearest(cur.x, cur.y, o.chainRange ?? 140, hitSet);
     }
@@ -150,22 +156,34 @@ export class Effects {
   }
 
   // Blow up the mines of `owner` (optionally scaling damage). With armed: true, only mines that
-  // have an enemy inside their blast go off; the rest keep waiting. Returns how many detonated.
-  detonateMines(owner, scale = 1, { armed = false } = {}) {
-    let n = 0;
+  // have an enemy inside their blast go off; the rest keep waiting. With chain: true, a blast also sets off
+  // the owner's other mines inside it, and those set off more. Returns how many detonated.
+  detonateMines(owner, scale = 1, { armed = false, chain = false } = {}) {
     const prev = this.g.src;
-    for (let i = this.mines.length - 1; i >= 0; i--) {
+    const blasts = [];
+    const boom = (i) => {
       const m = this.mines[i];
-      if (m.owner !== owner || m.age < 0.05) continue;
-      if (armed && !this.g.inRadius(m.x, m.y, m.r * 0.75).length) continue;
       this.g.src = m.src;
       this.pulse({ x: m.x, y: m.y, r: m.r, damage: m.damage * scale, kb: m.kb, stun: m.stun, slow: m.slow, color: m.color, fill: 0.3 });
       this.particles(m.x, m.y, m.color, 10, 220, 0.4, 3);
       this.mines.splice(i, 1);
-      n++;
+      blasts.push(m);
+    };
+    for (let i = this.mines.length - 1; i >= 0; i--) {
+      const m = this.mines[i];
+      if (m.owner !== owner || m.age < 0.05) continue;
+      if (armed && !this.g.inRadius(m.x, m.y, m.r * 0.75).length) continue;
+      boom(i);
+    }
+    for (let k = 0; chain && k < blasts.length; k++) {
+      const b = blasts[k];
+      for (let i = this.mines.length - 1; i >= 0; i--) {
+        const m = this.mines[i];
+        if (m.owner === owner && dist2(m.x, m.y, b.x, b.y) <= b.r * b.r) boom(i);
+      }
     }
     this.g.src = prev;
-    return n;
+    return blasts.length;
   }
 
   // Persistent group of objects circling the player, owned by an instrument instance. Calling again
@@ -219,6 +237,17 @@ export class Effects {
     this.mines = this.mines.filter((m) => m.owner !== ownerId);
   }
 
+  // Wipe out the enemy shots inside a circle (a ring's erase). Each one pops in a small spark.
+  _erase(x, y, rad) {
+    const shots = this.g.shots;
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const s = shots[i];
+      if (dist2(s.x, s.y, x, y) > rad * rad) continue;
+      this.particles(s.x, s.y, s.color, 2, 90, 0.25, 2);
+      swapRemove(shots, i);
+    }
+  }
+
   // ---------------------------------------------------------------- cosmetics
   // Cosmetics use Math.random, never the seeded rng, so juice can change without changing a seeded run.
 
@@ -262,7 +291,7 @@ export class Effects {
           const sp = Math.max(260, Math.hypot(b.vx, b.vy));
           b.vx += ((dx / d) * sp - b.vx) * Math.min(1, dt * 6);
           b.vy += ((dy / d) * sp - b.vy) * Math.min(1, dt * 6);
-          if (d < p.r + 8) { swapRemove(this.bullets, i); continue; }
+          if (d < p.r + 8) { if (!(b.onReturn && b.onReturn(b, g))) swapRemove(this.bullets, i); continue; }
         }
       }
       if (b.homing) {
@@ -280,6 +309,7 @@ export class Effects {
         }
       }
       if (b.drag) { const k = Math.max(0, 1 - b.drag * dt); b.vx *= k; b.vy *= k; }
+      if (b.curve) { const c = Math.cos(b.curve * dt), s = Math.sin(b.curve * dt), vx = b.vx; b.vx = vx * c - b.vy * s; b.vy = vx * s + b.vy * c; }
       b.x += b.vx * dt; b.y += b.vy * dt;
       b.rot += b.spin * dt;
       if (b.trail && !g.opts.sim && Math.random() < 0.5) this.parts.push({ x: b.x, y: b.y, vx: 0, vy: 0, life: 0.22, age: 0, color: b.color, size: b.r * 0.55 });
@@ -316,8 +346,13 @@ export class Effects {
       r.t += dt;
       if (r.follow) { r.x = p.x; r.y = p.y; }
       const k = clamp(r.t / r.dur, 0, 1);
-      r.r = r.r0 + (r.r1 - r.r0) * (1 - (1 - k) * (1 - k));
-      const cand = r.damage > 0 ? g.inRadius(r.x, r.y, r.r) : NO_TARGETS;   // a ring with no damage is only a visual
+      if (!r.yoyo) r.r = r.r0 + (r.r1 - r.r0) * (1 - (1 - k) * (1 - k));
+      else {
+        r.r = r.r0 + (r.r1 - r.r0) * Math.sin(Math.PI * k);
+        if (k >= 0.5 && !r.back) { r.back = true; r.hit.clear(); }
+      }
+      if (r.erase && k < 1) this._erase(r.x, r.y, r.r * r.erase);
+      const cand = r.damage > 0 ? g.inRadius(r.x, r.y, r.r) : NO_TARGETS;   // a ring with no damage hits no one
       const prev = g.src; g.src = r.src;
       for (const e of cand) {
         if (r.hit.has(e)) continue;

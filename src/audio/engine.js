@@ -47,6 +47,7 @@ export class AudioEngine {
     this.volume = 0.8;
     this.muted = false;
     this.pedals = {};
+    this.boost = {};
     this.channels = {};
     this.previewRole = null;
   }
@@ -235,6 +236,13 @@ export class AudioEngine {
     for (const role of DUCKED) {
       const g = this.channels[role].duck.gain;
       g.cancelScheduledValues(t);
+      if (this.boost[role] === 'compressor') {
+        // A remixed strip with the Compressor (Soul Keys) pumps hard: a deeper, slower duck, eased in so a
+        // held chord does not click.
+        g.setTargetAtTime(1 - Math.min(0.8, amount + 0.3), t, 0.004);
+        g.setTargetAtTime(1, t + 0.02, (release * 1.8) / 3);
+        continue;
+      }
       g.setValueAtTime(1 - amount, t);
       g.setTargetAtTime(1, t + 0.01, release / 3);
     }
@@ -278,9 +286,12 @@ export class AudioEngine {
   }
 
   // Map pedal levels (0..3) onto the effects so each pedal is heard as well as felt.
-  applyPedals(levels) {
+  // boost: { role: pedalId } for remixed channels. That pedal runs at level 3 on that one strip (the same
+  // insert settings a level 3 pedal uses everywhere), while the shared returns and the bus keep the real levels.
+  applyPedals(levels, boost = {}) {
     if (!this.ctx) return;
     this.pedals = { reverb: 0, delay: 0, overdrive: 0, compressor: 0, chorus: 0, wah: 0, bitcrusher: 0, ...levels };
+    this.boost = boost;
     const p = this.pedals;
     const t = this.ctx.currentTime;
     const set = (param, v) => param.setTargetAtTime(v, t, 0.08);
@@ -289,23 +300,24 @@ export class AudioEngine {
     const dly = { beat: 0, perc: 0.05, bass: 0, chords: 0.05, lead: 0.1, arp: 0.11 };
     for (const role of ROLES) {
       const ch = this.channels[role];
-      set(ch.revSend.gain, rev[role] + revPer[role] * p.reverb);
-      set(ch.dlySend.gain, p.delay ? dly[role] * (0.9 + 0.35 * p.delay) : 0);
+      const q = boost[role] ? { ...p, [boost[role]]: 3 } : p;
+      set(ch.revSend.gain, rev[role] + revPer[role] * q.reverb);
+      set(ch.dlySend.gain, q.delay ? dly[role] * (0.9 + 0.35 * q.delay) : 0);
       let level = ch.level;
       if (ch.drive) {
-        ch.drive.curve = driveCurve([0, 1.8, 3.2, 5][p.overdrive]);
-        level *= [1, 0.6, 0.42, 0.3][p.overdrive];
+        ch.drive.curve = driveCurve([0, 1.8, 3.2, 5][q.overdrive]);
+        level *= [1, 0.6, 0.42, 0.3][q.overdrive];
       }
       if (ch.crusher) {
-        ch.crusher.curve = crushCurve([0, 6, 5, 4][p.bitcrusher]);
-        set(ch.crushWet.gain, [0, 0.3, 0.42, 0.55][p.bitcrusher]);
-        set(ch.crushDry.gain, 1 - [0, 0.3, 0.42, 0.55][p.bitcrusher]);
+        ch.crusher.curve = crushCurve([0, 6, 5, 4][q.bitcrusher]);
+        set(ch.crushWet.gain, [0, 0.3, 0.42, 0.55][q.bitcrusher]);
+        set(ch.crushDry.gain, 1 - [0, 0.3, 0.42, 0.55][q.bitcrusher]);
       }
       if (ch.wah) {
-        set(ch.wah.gain, [0, 5, 7, 9][p.wah]);
-        set(ch.wahDepth.gain, [0, 1, 1.4, 1.8][p.wah] * (role === 'bass' ? 250 : 650));
+        set(ch.wah.gain, [0, 5, 7, 9][q.wah]);
+        set(ch.wahDepth.gain, [0, 1, 1.4, 1.8][q.wah] * (role === 'bass' ? 250 : 650));
       }
-      if (ch.chorusWet) set(ch.chorusWet.gain, [0, 0.35, 0.5, 0.65][p.chorus]);
+      if (ch.chorusWet) set(ch.chorusWet.gain, [0, 0.35, 0.5, 0.65][q.chorus]);
       set(ch.fader.gain, level);
     }
     set(this.dlyFb.gain, 0.22 + 0.08 * p.delay);

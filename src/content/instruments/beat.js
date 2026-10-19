@@ -33,11 +33,13 @@ const kick808 = {
       stats: { damage: 26, radius: 258, kb: 180, shards: 10, shardDamage: 14, stun: 0.25 } },
   ],
 
-  sound(A, t, note, out) {
+  sound(A, t, note, out, inst) {
     const { ctx, v } = A;
     if (note.k === 'kick') {
       v.kick(ctx, out, t, { f0: 150, f1: 44, pitchDecay: 0.075, decay: 0.42 + 0.1 * note.v, gain: 0.8 * note.v, click: 0.15 });
-      A.duck(t, 0.42 * note.v, 0.22);
+      // Sidechain 808 (remix): the downbeat kick ducks the whole mix deeper and longer.
+      const deep = inst?.remix && note.s === 0;
+      A.duck(t, (deep ? 0.62 : 0.42) * note.v, deep ? 0.32 : 0.22);
     } else {
       // Clap: three quick noise bursts through a band-pass.
       for (let i = 0; i < 3; i++) {
@@ -50,8 +52,10 @@ const kick808 = {
     const p = g.player;
     const color = g.color('beat');
     if (note.k === 'kick') {
+      // Sidechain 808 (remix, st.erase): the downbeat kick's shockwave wipes out enemy shots close around you.
+      const duck = st.erase && note.s === 0;
       g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 16, r1: g.area(st.radius) * (0.75 + 0.25 * note.v), dur: 0.26,
-        damage: g.dmg(st.damage) * note.v, kb: st.kb, stun: st.stun || 0, color, width: 7 });
+        damage: g.dmg(st.damage) * note.v, kb: st.kb, stun: st.stun || 0, color, width: duck ? 12 : 7, erase: duck ? st.erase : 0 });
       g.shake = Math.max(g.shake, 2.5 * note.v);
     } else {
       const n = g.amount(st.shards);
@@ -61,6 +65,13 @@ const kick808 = {
           damage: g.dmg(st.shardDamage) * note.v, pierce: 1, kb: 50, color, shape: 'shard', drag: 1.5 });
       }
     }
+  },
+
+  remix: {
+    id: 'sidechain808', name: 'Sidechain 808', pedal: 'compressor',
+    text: 'The kick on every downbeat wipes out the enemy shots close around you. Claps throw 12 shards.',
+    sound: 'the downbeat kick pumps the whole mix deeper.',
+    stats: { shards: 12, shardDamage: 16, erase: 0.5 },
   },
 };
 
@@ -109,8 +120,14 @@ const taiko = {
     const color = g.color('beat');
     if (note.k === 'kick') {
       const slam = (x, y) => {
-        g.fx.pulse({ x, y, r: g.area(st.radius) * (0.8 + 0.2 * note.v), damage: g.dmg(st.damage) * note.v, kb: st.kb, stun: st.stun, color, fill: 0.3 });
+        const r = g.area(st.radius) * (0.8 + 0.2 * note.v);
+        g.fx.pulse({ x, y, r, damage: g.dmg(st.damage) * note.v, kb: st.kb, stun: st.stun, color, fill: 0.3 });
         g.fx.particles(x, y, color, 10, 240, 0.4, 3);
+        // Thunder Hall (remix, st.hallDamage): the slam rolls on through the hall as a stunning shockwave.
+        if (st.hallDamage) {
+          g.fx.ring({ x, y, r0: r * 0.6, r1: g.area(st.hallRadius) * (0.8 + 0.2 * note.v), dur: 0.4,
+            damage: g.dmg(st.hallDamage) * note.v, kb: 120, stun: st.hallStun, color, width: 6 });
+        }
       };
       const spot = g.densest(460);
       if (spot) slam(spot.x, spot.y);
@@ -124,6 +141,12 @@ const taiko = {
     } else {
       g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 10, r1: g.area(st.rimRadius), dur: 0.16, damage: g.dmg(st.rimDamage), kb: 260, color, width: 3 });
     }
+  },
+
+  remix: {
+    id: 'thunderhall', name: 'Thunder Hall', pedal: 'reverb',
+    text: 'Every slam booms through the hall: a shockwave rolls out from where it lands and stuns what it passes.',
+    stats: { hallDamage: 11, hallRadius: 230, hallStun: 0.25 },
   },
 };
 
@@ -172,13 +195,33 @@ const chipDrums = {
     const n = g.amount(st.count || 1);
     const target = g.nearest(p.x, p.y, 520);
     const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
+    // Glitch Kit (remix, st.split): blocks split on their first hit.
+    const onHit = st.split ? (b, e, gg) => glitch(b, e, gg, st.split) : null;
     for (let i = 0; i < n; i++) {
       const a = base + (i - (n - 1) / 2) * 0.35;
       g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed) * (note.k === 'kick' ? 0.9 : 1.1),
         r: st.size * (note.k === 'kick' ? 1.1 : 0.85), life: 1.6, damage: g.dmg(st.damage) * note.v,
-        bounce: st.bounce, pierce: st.pierce || 0, kb: 70, color, shape: 'square', spin: 8 });
+        bounce: st.bounce, pierce: st.pierce || 0, kb: 70, color, shape: 'square', spin: 8, onHit });
     }
   },
+
+  remix: {
+    id: 'glitchkit', name: 'Glitch Kit', pedal: 'bitcrusher',
+    text: 'Blocks glitch in two on their first hit, and both halves keep ricocheting.',
+    stats: { split: 0.75 },
+  },
 };
+
+// Glitch Kit: a block glitches in two on its first hit. The copy veers off to alternating sides with
+// `share` of the size and damage and one ricochet fewer. (Bullet hits run with g.src set to the drums.)
+function glitch(b, e, g, share) {
+  if (b.split) return;
+  b.split = true;
+  const S = g.src.state;
+  S.flip = -(S.flip || 1);
+  const c = g.fx.bullet({ x: b.x, y: b.y, angle: Math.atan2(b.vy, b.vx) + S.flip * 0.9, speed: Math.hypot(b.vx, b.vy), r: b.r * share, life: 1.2,
+    damage: b.damage * share, bounce: Math.max(1, b.bounce - 1), pierce: 0, kb: 50, color: b.color, shape: 'square', spin: -8 });
+  if (c) { c.split = true; c.hit.add(e); }
+}
 
 export default [kick808, taiko, chipDrums];

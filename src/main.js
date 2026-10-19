@@ -2,7 +2,8 @@
 //
 // Test hooks (query string, local only): ?sim=1 runs without audio on a simulated clock.
 // Also: speed=N (sim steps per frame), bot=1, autopick=smart|random|first, god=1, seed=N,
-// start=<instrumentId>, give=id:level,id:level, pedals=id:level, minutes=N (stop the sim), render=0, key=N.
+// start=<instrumentId>, give=id:level,id:level, pedals=id:level, remix=id,id (remix given instruments),
+// minutes=N (stop the sim), render=0, key=N.
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
@@ -34,6 +35,7 @@ function parseOpts() {
     start: get('start'),
     give: list(get('give')),
     givePedals: list(get('pedals')),
+    remix: (get('remix') || '').split(',').filter(Boolean),
     minutes: Number(get('minutes')) || 0,
     render: get('render') !== '0',
     key: get('key') !== null ? Number(get('key')) : undefined,
@@ -41,7 +43,7 @@ function parseOpts() {
     debug: get('debug') === '1',
     solo: get('solo') === '1',
     realpick: get('realpick') === '1',   // sim: level-ups go through the real pause path
-    chaos: get('chaos') === '1',         // sim: pause and resume at random moments
+    chaos: get('chaos') === '1',         // sim: pause and resume at random moments; with realpick, also reroll, banish and skip
   };
 }
 
@@ -96,6 +98,8 @@ const screens = new Screens(screensRoot, {
   },
   onPreview: (i) => game.previewOffer(i === null ? null : game.offers?.[i] ?? null),
   onReroll: () => { const o = game.reroll(); if (o) screens.levelUp(game, o); },
+  onBanish: (i) => { const o = game.banish(i); if (o) screens.levelUp(game, o); },
+  onSkip: () => skipLevel(),
   onResume: () => { game.unpause(); screens.hide(); },
   onQuit: () => showTitle(),
   onListen: (on) => { listening = on; audio.setMuffle(!on); },
@@ -189,6 +193,13 @@ function endRun(sum) {
   if (opts.sim) window.__LS.done = true;
 }
 
+// Skip a level-up: a lower blip (the chord's root) than a pick, and the notes go to the Drop meter.
+function skipLevel() {
+  const c = seq.position?.chord;
+  audio.uiBlip(c ? 440 * Math.pow(2, (72 + (c.rootPc % 12) - 69) / 12) : 523, 0.12);
+  game.skip();
+}
+
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
   // Space and E are the Drop keys: on menus they must never press a focused button by accident.
@@ -196,6 +207,9 @@ function onKey(k) {
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
+    if (k === 'x' && screens.current === 'levelup') { screens.toggleBanish(); return true; }
+    if (k === 'q' && screens.current === 'levelup') { skipLevel(); return true; }
+    if (k === 'Escape' && screens.current === 'levelup' && screens.banishing) { screens.toggleBanish(false); return true; }
     if (k === 'pad-a') {
       const card = document.activeElement?.classList?.contains('card') ? document.activeElement : screens.cards?.[screens.focus];
       if (card) { screens.onPick(Number(card.dataset.i)); return true; }
@@ -315,8 +329,15 @@ function simFrame() {
     if (opts.chaos && game.state === 'playing' && Math.random() < 0.004) { game.pause(); pausedFor = 1 + Math.floor(Math.random() * 30); }
     if (game.state === 'paused') { if (--pausedFor <= 0) game.unpause(); continue; }
     if (game.state !== 'playing' && game.state !== 'dying') {
-      if (game.state === 'levelup') game.choose(autopick(game.offers, game, opts.autopick || 'smart'));
-      else { window.__LS.done = true; break; }
+      if (game.state === 'levelup') {
+        // chaos: now and then skip the level, or banish or reroll first (the calls the buttons make). It only
+        // banishes sounds and pedals you do not have, so the run still reaches the late game.
+        const r = opts.chaos ? Math.random() : 1;
+        const spare = game.offers.findIndex((o) => o.kind === 'new' || o.kind === 'swap' || o.kind === 'pedal-new');
+        if (r < 0.05) game.skip();
+        else if ((r < 0.1 && spare >= 0 && game.banish(spare)) || (r < 0.15 && game.reroll())) continue;
+        else game.choose(autopick(game.offers, game, opts.autopick || 'smart'));
+      } else { window.__LS.done = true; break; }
     }
     if (opts.minutes && game.time >= opts.minutes * 60) { window.__LS.done = true; break; }
   }
@@ -341,6 +362,8 @@ window.__LS = {
       bossesSpawned: game.bossesSpawned, sectionIndex: game.sectionIndex, cap: game.channelCap(), dropState: game.dropState,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
       genre: game.genre, key: game.key?.name,
+      // Remixes taken (ids, in order) and card screens with no real choice (only bonus cards or level-losing swaps).
+      remixes: game.remixed || [], deadScreens: game.deadScreens || 0, cardScreens: game.cardScreens || 0,
       loadout: game.loadout ? game.loadout.instruments().map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg), kills: i.kills, notes: i.notes })) : [],
       retired: (game.retired || []).map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg) })),
       pedals: game.loadout ? game.loadout.pedals.map((p) => ({ id: p.def.id, level: p.level })) : [],

@@ -76,6 +76,21 @@ const supersaw = {
         damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 60, color, shape: 'diamond', trail: true });
     }
   },
+
+  remix: {
+    id: 'hypersaw', name: 'Hypersaw', pedal: 'chorus',
+    text: 'Every stab doubles: a second fan fires the opposite way, so the chords cut all around you.',
+    fire(g, note, st, inst) {
+      this.fire(g, note, st, inst);
+      if (note.k === 'pad') return;
+      const p = g.player;
+      const n = g.amount(note.midis.length);
+      for (let i = 0; i < n; i++) {
+        g.fx.bullet({ x: p.x, y: p.y, angle: inst.state.turn + Math.PI + spread(i, n, st.fan), speed: g.speed(st.speed), r: st.size, life: 1.0,
+          damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 60, color: g.color(inst), shape: 'diamond', trail: true });
+      }
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------- Electric Piano (Live)
@@ -127,7 +142,17 @@ const rhodes = {
     const color = g.color(inst);
     g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 18, r1: g.area(st.radius) * (0.8 + 0.2 * note.v), dur: 0.55,
       damage: g.dmg(st.damage) * note.v, kb: st.kb, slow: st.slow, color, width: 5 });
-    if (g.heal(st.heal * note.v) > 0) g.fx.particles(p.x, p.y, '#7dffb0', 3, 70, 0.5, 2);
+    const healed = g.heal(st.heal * note.v);
+    if (healed > 0) g.fx.particles(p.x, p.y, '#7dffb0', 3, 70, 0.5, 2);
+    // Soul Keys (remix, st.spill): healing you do not need fills the Drop meter instead.
+    if (st.spill) g.chargeDrop((st.heal * note.v * g.dmgScale - healed) * st.spill);
+  },
+
+  remix: {
+    id: 'soulkeys', name: 'Soul Keys', pedal: 'compressor',
+    text: 'Wider waves. Healing you do not need fills the Drop meter instead.',
+    sound: 'the chords pump under every kick.',
+    stats: { radius: 290, spill: 4 },
   },
 };
 
@@ -181,6 +206,22 @@ const chipChords = {
       g.fx.strike({ x: e.x, y: e.y, target: e, delay: 0.125, r: g.area(st.radius), damage: g.dmg(st.damage) * note.v,
         kb: st.kb, stun: st.stun || 0, color, style: 'drop' });
     }
+  },
+
+  remix: {
+    id: 'lineclear', name: 'Line Clear', pedal: 'wah',
+    text: 'The two loudest chords of every bar also clear a line: a beam across the whole screen through the thickest crowd.',
+    stats: { lineDamage: 50, lineWidth: 34, lineStun: 0.3 },
+    fire(g, note, st, inst) {
+      this.fire(g, note, st, inst);
+      if (note.v < 1) return;
+      const spot = g.densest(st.range);
+      if (!spot) return;
+      // Across the screen in the first half of the bar, down it in the second.
+      const down = note.s % 16 >= 8;
+      g.fx.beam({ x: spot.x - (down ? 0 : 720), y: spot.y - (down ? 720 : 0), angle: down ? Math.PI / 2 : 0, length: 1440,
+        width: g.area(st.lineWidth), damage: g.dmg(st.lineDamage) * note.v, kb: 60, stun: st.lineStun, color: g.color(inst), life: 0.3 });
+    },
   },
 };
 
