@@ -69,11 +69,13 @@ src/config.js                 tempo, channels, styles, tuning constants
 src/music/theory.js           keys, diatonic chords, chord-tone and scale-step lookup, voice leading
 src/music/song.js             the song: sections, progressions, where the bosses are
 src/music/sequencer.js        lookahead scheduler; emits a game event for every scheduled note
+src/music/replay.js           the radio edit: plays a run's track sheet back
 src/audio/engine.js           the mixing desk: channel strips, pedal effects, returns, master bus
 src/audio/voices.js           synth voices (subtractive, FM, Karplus-Strong pluck, noise, kick)
 src/game/game.js              the run, and the API instruments use to attack
 src/game/effects.js           attack archetypes (bullets, rings, beams, zaps, strikes, mines, orbiters)
 src/game/enemies.js           the Noise and its bosses
+src/game/bosscues.js          the sound cue a boss plays on the beat it attacks
 src/game/director.js          spawns on the beat, section by section
 src/game/loadout.js           channels, pedals, stats, style chemistry
 src/game/upgrades.js          level-up offers
@@ -92,11 +94,21 @@ node tools/sim.mjs "speed=12&bot=1&minutes=8" --summary     # autopiloted run on
 node tools/check.mjs                                          # render every instrument level offline: level, clipping, spectrum
 node tools/check.mjs --mixall                                 # whole bands through the real mixing desk
 node tools/check.mjs --mixall --remix                         # the same bands remixed (remix pedals at full)
+node tools/check.mjs --audit                                  # every note of the song in every key: in key, on the grid
+node tools/check.mjs --replay "speed=12&bot=1&minutes=10"     # play a sim run's track sheet back as a radio edit
 node tools/shots.mjs shots/ [--mobile]                        # drive the real UI and save screenshots
+```
+
+`sim.mjs --runs N` plays seeds 1 to N, `--parallel N` runs that many pages at once, and `--summary` also
+lists the damage taken from each enemy, the boss fights, the remixes taken and the card screens with no
+real choice. `check.mjs --mix a,b,c --start N --bars M` renders a band bar by bar through the song's
+arrangement (add `--boss <type>`, `--stopAt N` or `--pickups R` for boss cues, stop-time or chimes).
+check.mjs fails on clipping, NaN, or a note out of key or off the grid.
 
 The balance targets (pacing, boss fight lengths, instrument parity) and how they were measured are in
 the commit history of the balance pass.
-```
 
 Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god`, `solo` (no level-ups),
-`seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `remix=id,...`, `minutes`, `key`, `density`.
+`seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `remix=id,...`, `minutes`, `key`, `density`,
+`realpick` (level-ups through the real pause path) and `chaos` (random pauses, and with `realpick` also
+rerolls, banishes and skips).
