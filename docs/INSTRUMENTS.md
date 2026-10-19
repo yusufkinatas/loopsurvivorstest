@@ -130,7 +130,7 @@ with `g.dmg(base)` (applies pedals, chemistry and echo scaling), areas with `g.a
 
 Queries: `g.player` `{x, y, faceX, faceY}`, `g.aim()` facing angle, `g.nearest(x, y, range, excludeSet)`,
 `g.nearestN(x, y, n, range)`, `g.inRadius(x, y, r)`, `g.randomEnemy(x, y, range)`, `g.densest(range)`
-→ `{x, y, enemy, count}` or null, `g.time`, `g.stats`.
+→ `{x, y, enemy, count}` or null, `g.bossInRange(x, y, range)` → the boss or null, `g.time`, `g.stats`.
 
 Attack archetypes (`src/game/effects.js`), all record which instrument made them:
 
@@ -212,6 +212,10 @@ The reference beat instruments deal roughly 10k to 25k total damage at level 1 a
 level 5. Land in that band. Each role has a flavor: `perc` is many small hits, `bass` heavy and
 close, `chords` wide area and support, `lead` precise long-range, `arp` many glittery extras.
 A support effect (slow, stun, heal, knockback) can justify lower damage.
+
+Every sound should also hurt bosses. Sounds that pick a crowd or a random enemy (Taiko, Music Box, 8-Bit
+Drums) send the bar's first hit (step 0) at a boss in range with `g.bossInRange`, a visible rule instead of a
+hidden boss multiplier. Solo at level 5 against The Drone, every sound lands 1.9k to 2.1k damage in its chorus.
 
 A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>`:
 

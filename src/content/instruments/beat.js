@@ -129,7 +129,8 @@ const taiko = {
             damage: g.dmg(st.hallDamage) * note.v, kb: 120, stun: st.hallStun, color, width: 6 });
         }
       };
-      const spot = g.densest(460);
+      // The bar's first slam lands on a boss in range, so the drums play the fight too.
+      const spot = (note.s === 0 && g.bossInRange(p.x, p.y, 460)) || g.densest(460);
       if (spot) slam(spot.x, spot.y);
       else slam(p.x + Math.cos(g.aim()) * 90, p.y + Math.sin(g.aim()) * 90);
       const extra = g.amount(1 + (st.extra || 0)) - 1;
@@ -193,7 +194,8 @@ const chipDrums = {
     const p = g.player;
     const color = g.color('beat');
     const n = g.amount(st.count || 1);
-    const target = g.nearest(p.x, p.y, 520);
+    // The bar's first hit goes at a boss in range.
+    const target = (note.s === 0 && g.bossInRange(p.x, p.y, 520)) || g.nearest(p.x, p.y, 520);
     const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
     // Glitch Kit (remix, st.split): blocks split on their first hit.
     const onHit = st.split ? (b, e, gg) => glitch(b, e, gg, st.split) : null;

@@ -281,6 +281,12 @@ export class Game {
     return out;
   }
 
+  // The boss when it is alive and in range (some sounds aim the bar's first hit at it), else null.
+  bossInRange(x, y, range) {
+    const b = this.boss;
+    return b && !b.dead && b.spawnT <= 0.2 && dist2(b.x, b.y, x, y) < (range + b.r) * (range + b.r) ? b : null;
+  }
+
   randomEnemy(x, y, range = 450) {
     const arr = this.inRadius(x, y, range);
     return arr.length ? arr[Math.floor(rng() * arr.length)] : null;
