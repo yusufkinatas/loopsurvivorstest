@@ -99,7 +99,8 @@ export class Director {
 
   stompRing(bar) {
     const g = this.g, p = g.player;
-    const n = 10, R = Math.min(g.view.w, g.view.h) / 2 - 80;   // well inside the view on every screen
+    // Well inside the view on every screen, and on big screens still inside a Stomp's 520 px arm range.
+    const n = 10, R = Math.min(400, Math.min(g.view.w, g.view.h) / 2 - 80);
     this.ringBar = bar;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU;
