@@ -31,8 +31,8 @@ server below. Sound on, headphones help.
   - **Remixes.** The crate of all 18 remix recipes, gold once you have made one.
 - **Gain.** Finishing the song opens Gain 1, and a win at the highest Gain open opens the next, up to 8.
   Each tier adds its modifier on top of the ones below (more Noise health, a slower Drop, harder hits,
-  costlier level-ups, a bigger crowd, tougher bosses, faster shots, then White Noise starting loud and
-  more elites) and 10% score. Gain only changes combat numbers, never the music. Step it on the first-sound screen with
+  costlier level-ups, a bigger crowd that shares the same notes, tougher bosses, faster shots, then White Noise
+  starting loud and more elites with no extra vinyls) and 10% score. Gain only changes combat numbers, never the music. Step it on the first-sound screen with
   the arrows, `[` and `]`, or LB and RB.
 
 ## The mechanic that keeps the music clean

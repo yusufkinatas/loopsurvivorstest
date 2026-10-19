@@ -376,8 +376,8 @@ export class Game {
       if (e.boss) { for (let i = 0; i < 12; i++) dropGem(this, e.x + rand(-50, 50), e.y + rand(-50, 50), Math.ceil(e.xp / 12)); }
       else dropGem(this, e.x, e.y, e.xp);
     }
-    if (e.elite) dropItem(this, e.x, e.y, 'vinyl');
-    else if (!e.boss) {
+    if (e.vinyl) dropItem(this, e.x, e.y, 'vinyl');
+    else if (!e.boss && !e.elite) {
       const r = rng();
       if (r < 0.005) dropItem(this, e.x, e.y, 'heal');
       else if (r < 0.0065) dropItem(this, e.x, e.y, 'magnet');

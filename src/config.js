@@ -62,14 +62,14 @@ export const WORLD = {
 // each and only touch combat numbers, never the tempo, the channels, the patterns or the desk. The mods
 // multiply where those numbers live (Game.mods, all 1 at Gain 0). wnPhase is the phase White Noise starts in.
 export const GAIN = [
-  { name: 'Hot signal',   text: 'Noise +15% health',     mods: { hp: 1.15 } },
-  { name: 'Slow build',   text: 'Drop +25% notes',       mods: { drop: 1.25 } },
-  { name: 'Loud room',    text: 'Hits +20% damage',      mods: { dmgIn: 1.2 } },
+  { name: 'Hot signal',   text: 'Noise +20% health',     mods: { hp: 1.2 } },
+  { name: 'Slow build',   text: 'Drop +30% notes',       mods: { drop: 1.3 } },
+  { name: 'Loud room',    text: 'Hits +25% damage',      mods: { dmgIn: 1.25 } },
   { name: 'Low budget',   text: 'Level-ups +10% notes',  mods: { xp: 1.1 } },
-  { name: 'Packed house', text: 'Crowd +15%',            mods: { density: 1.15 } },
-  { name: 'Headliners',   text: 'Bosses +25% health',    mods: { bossHp: 1.25 } },
-  { name: 'Feedback',     text: 'Shots +15% speed',      mods: { shotSpeed: 1.15 } },
-  { name: 'Brickwall',    text: 'White Noise starts loud · Elites +30%', mods: { wnPhase: 2, elite: 1.3 } },
+  { name: 'Packed house', text: 'Crowd +30%, same notes', mods: { density: 1.3 } },
+  { name: 'Headliners',   text: 'Bosses +60% health',    mods: { bossHp: 1.6 } },
+  { name: 'Feedback',     text: 'Shots +30% speed',      mods: { shotSpeed: 1.3 } },
+  { name: 'Brickwall',    text: 'White Noise starts loud · Elites +50%, no extra vinyls', mods: { wnPhase: 2, elite: 1.5 } },
 ];
 
 // Drop ability: fills from collected notes, fires on the next downbeat after a one-bar build.
