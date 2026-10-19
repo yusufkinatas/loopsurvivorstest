@@ -21,7 +21,7 @@ const STOMP = { speed: 900, time: BEAT_SEC, min: 120, max: 520, lanes: 6 };
 export const BOSS_TYPES = {
   drone:      { name: 'The Drone',       hp: 1600,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
   clipper:    { name: 'The Clipper',     hp: 3600,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
-  glitchking: { name: 'The Glitch King', hp: 12100, speed: 58, r: 44, dmg: 22, xp: 250, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
+  glitchking: { name: 'The Glitch King', hp: 12100, speed: 58, r: 44, dmg: 22, xp: 150, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
   whitenoise: { name: 'White Noise',     hp: 30000, speed: 46, r: 64, dmg: 26, xp: 0,   shape: 'noise',  color: '#ffffff', mass: 60, boss: true, final: true },
 };
 
