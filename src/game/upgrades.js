@@ -138,11 +138,14 @@ function recipeLine(g, def) {
   return g.loadout.pedalSlotsFree() > 0 && !g.banished.has(pd.id) ? [{ good: null, remix: true, text: `+ ${pd.name} pedal = ${rm.name} remix` }] : [];
 }
 
-// The remixes a new pedal unlocks for instruments already in your band.
+// The remixes a new pedal unlocks for instruments already in your band (not one banished below level 5:
+// its level cards are gone, so it never gets there).
 function pedalRecipes(g, pd) {
-  return g.loadout.instruments().filter((i) => i.def.remix?.pedal === pd.id && !i.remix).map((i) => (i.level >= MAX_INSTRUMENT_LEVEL
-    ? { good: true, remix: true, text: `Unlocks the ${i.def.remix.name} remix` }
-    : { good: null, remix: true, text: `+ ${i.def.name} at Lv 5 = ${i.def.remix.name} remix` }));
+  return g.loadout.instruments()
+    .filter((i) => i.def.remix?.pedal === pd.id && !i.remix && (i.level >= MAX_INSTRUMENT_LEVEL || !g.banished.has(i.def.id)))
+    .map((i) => (i.level >= MAX_INSTRUMENT_LEVEL
+      ? { good: true, remix: true, text: `Unlocks the ${i.def.remix.name} remix` }
+      : { good: null, remix: true, text: `+ ${i.def.name} at Lv 5 = ${i.def.remix.name} remix` }));
 }
 
 const STAT_NAMES = {
