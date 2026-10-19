@@ -273,8 +273,9 @@ function auditRun(r, song, def, lv, bars, stops) {
 
 // Plays a track sheet (Game.summary().sheet) through playSheet on a simulated clock with a stub desk.
 // Checks that every section starts in order with its own band (all of it, and no sound from another
-// entry), every note is in key and on the grid, the outro plays one downbeat and the edit then ends by
-// itself, and that stop() (at the end, and when pressed part way through) leaves the sequencer clean.
+// entry), every note is in key and on the grid, the outro plays one downbeat on i in the last section's
+// key (a won run ends lifted) and the edit then ends by itself, and that stop() (at the end, and when
+// pressed part way through) leaves the sequencer clean.
 export function checkReplay(sheet, keyPc) {
   const errors = [];
   const run = (stopAfter) => {
@@ -283,10 +284,11 @@ export function checkReplay(sheet, keyPc) {
     seq._report = (w, e) => errors.push(`${w}: ${e && e.message}`);
     const desk = { pedalSets: 0, applyPedals() { this.pedalSets++; }, setActiveCount() {} };
     const sections = [];
-    let ended = 0, notes = 0, outOfKey = 0, offGrid = 0, wrongBand = 0, outroNotes = 0, outroLeaks = 0;
+    let ended = 0, notes = 0, outOfKey = 0, offGrid = 0, wrongBand = 0, outroNotes = 0, outroLeaks = 0, outroUnlifted = 0;
     const player = playSheet({ seq, audio: desk, sheet, keyPc, onEnd: () => ended++,
       onSection: (name, size) => { if (size !== sheet[sections.length].band.length) wrongBand++; sections.push(`${name}:${size}`); } });
     const song = seq.song, t0 = seq.nextTime;
+    const home = (song.keyPc + (SECTIONS[sheet[sheet.length - 1].index].lift || 0)) % 12;
     let t = 0;
     for (; t < 200 && t < stopAfter && seq.running; t += 0.05) {
       clock.t = t;
@@ -300,6 +302,7 @@ export function checkReplay(sheet, keyPc) {
         if (pos.section.end) {
           outroNotes++;
           if (pos.barInSection > 0 || Math.round((n.time - t0) / STEP_SEC) % 16) outroLeaks++;   // only the outro's first downbeat sounds
+          if (n.chord.rootPc !== home) outroUnlifted++;
         }
         if (!sheet[pos.section.end ? sheet.length - 1 : pos.index].band.some(([id]) => id === ev.inst.def.id)) wrongBand++;
       }
@@ -307,7 +310,7 @@ export function checkReplay(sheet, keyPc) {
     }
     if (seq.running) player.stop();
     const clean = !seq.running && seq.onBar === null && seq.getInstruments().length === 0 && seq.events.length === 0;
-    return { seconds: +t.toFixed(2), bars: seq.bar, sections: sections.length, playing: sections.join(' · '), pedalSets: desk.pedalSets, notes, outroNotes, outroLeaks, outOfKey, offGrid, wrongBand, ended, clean };
+    return { seconds: +t.toFixed(2), bars: seq.bar, sections: sections.length, playing: sections.join(' · '), pedalSets: desk.pedalSets, notes, outroNotes, outroLeaks, outroUnlifted, outOfKey, offGrid, wrongBand, ended, clean };
   };
   return { full: run(Infinity), stoppedEarly: run(9), errors };
 }
