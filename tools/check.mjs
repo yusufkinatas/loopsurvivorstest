@@ -10,7 +10,8 @@
 // brightness for each bar from song bar N, with the arrangement. Add --boss drone|clipper|glitchking|
 // whitenoise [--frac 0.5] for its cues, --stopAt N [--ending] for stop-time (or the song's ending) on
 // bar N, --pickups R for R collected notes a second.
-// Fails (exit 1) on clipping, NaN, notes out of key or off the grid, or errors. --timeout <s> (default 600).
+// Fails (exit 1) on clipping, NaN, notes out of key or off the grid, or errors. --timeout <s> (default 600)
+// bounds page loads and the --replay wait, not a render once it runs.
 import { serve, launch } from './serve.mjs';
 
 const args = process.argv.slice(2);
