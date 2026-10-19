@@ -185,7 +185,7 @@ button { font: inherit; }
   -webkit-user-select: none; user-select: none;
 }
 #screens:has(.screen-levelup, .screen-pause, .screen-end, .screen-howto, .screen-settings) { background: rgba(11, 8, 20, 0.84); }
-body[data-screen] #hud .hud-top, body[data-screen] #hud .hud-side, body[data-screen] #hud .banner, body[data-screen] #hud .tip, body[data-screen] #hud .pausebtn, body[data-screen] #hud .bossbar, body[data-screen] #hud .fightnote { visibility: hidden; }
+body[data-screen] #hud .hud-top, body[data-screen] #hud .hud-side, body[data-screen] #hud .banner, body[data-screen] #hud .tip, body[data-screen] #hud .pausebtn, body[data-screen] #hud .bossbar, body[data-screen] #hud .fightnote, body[data-screen] #hud .mixcap { visibility: hidden; }
 .screen { min-height: 100%; display: grid; place-items: center; }
 .screen-levelup, .screen-pause, .screen-end, .screen-howto, .screen-settings { animation: screenIn 0.18s ease-out; }
 @keyframes screenIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
