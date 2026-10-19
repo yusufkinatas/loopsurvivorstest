@@ -707,8 +707,10 @@ export class Game {
     if (ready && !this.dropReady) this._ping('run');
     this.dropReady = ready;
 
-    // Card screens wait until a pending or playing stop bar is over (two bars at most).
-    if (this.pendingLevels > 0 && this.state === 'playing' && !this.won && this._stopLeft() <= 0) this.openLevelUp();
+    // Card screens wait until a pending or playing stop bar is over (two bars at most), and until a Drop
+    // that has started its build bar has landed (one more bar), so the vamp never loops the build.
+    const building = this.dropState === 'building' || this.seq.dropState === 'building';
+    if (this.pendingLevels > 0 && this.state === 'playing' && !this.won && !building && this._stopLeft() <= 0) this.openLevelUp();
   }
 
   // Seconds until the pending or playing stop bar has been heard to its end (negative when there is none).
