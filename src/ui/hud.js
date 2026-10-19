@@ -9,6 +9,19 @@ import { SECTIONS } from '../music/song.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 
+// The song map draws the open-ended Finale as 24 bars.
+const MAP_BARS = SECTIONS.map((s) => (s.bars === Infinity ? 24 : s.bars));
+export const SONG_BARS = MAP_BARS.reduce((a, b) => a + b, 0);
+export const songFraction = (bar) => Math.min(1, Math.max(0, bar) / SONG_BARS);
+
+// The whole song as a strip of sections in their colors, with a red tick where each boss arrives. Sections
+// before `done` are filled in. Markers: { at: 0..1, cls, label }.
+export function songMapHtml(done = 0, markers = []) {
+  const segs = SECTIONS.map((s, i) => `<i class="${s.boss ? 'boss' : ''}${i < done ? ' done' : ''}" style="flex:${MAP_BARS[i]};--h:hsl(${s.hue} 75% 62%)"></i>`).join('');
+  const marks = markers.map((m) => `<b class="${m.cls}" style="left:${(m.at * 100).toFixed(2)}%;--a:${m.at.toFixed(3)}">${m.label ? `<span>${m.label}</span>` : ''}</b>`).join('');
+  return `<div class="songmap" aria-hidden="true">${segs}${marks}</div>`;
+}
+
 export class Hud {
   constructor(root, { onDrop, onPause }) {
     this.root = root;
@@ -16,7 +29,9 @@ export class Hud {
     this.top = el('div', 'hud-top');
     this.hp = el('div', 'meter hp', '<div class="meter-fill"></div><span class="meter-text"></span>');
     this.xp = el('div', 'meter xp', '<div class="meter-fill"></div><span class="meter-text"></span>');
-    this.clock = el('div', 'clock', '<span class="clock-time">0:00</span><span class="clock-section">Intro</span>');
+    this.clock = el('div', 'clock', `<span class="clock-time">0:00</span><span class="clock-section">Intro</span>${songMapHtml(0, [{ at: 0, cls: 'head' }])}`);
+    this.songSegs = [...this.clock.querySelectorAll('.songmap i')];
+    this.songHead = this.clock.querySelector('.songmap b');
     this.kills = el('div', 'kills', '<span class="kills-n">0</span><span class="kills-l">silenced</span>');
     const bars = el('div', 'hud-bars');
     bars.append(this.hp, this.xp);
@@ -50,13 +65,14 @@ export class Hud {
     this.pedalSlots = [];
     for (let i = 0; i < PEDAL_SLOTS; i++) { const p = el('div', 'pedal empty'); this.pedalSlots.push(p); this.pedals.append(p); }
 
-    this.drop = el('button', 'dropmeter', '<div class="dropmeter-fill"></div><span class="dropmeter-label">Drop</span><kbd>Space</kbd>');
+    this.drop = el('button', 'dropmeter', '<div class="dropmeter-fill"></div><span class="dropmeter-label">Drop</span><kbd class="k-key">Space</kbd><kbd class="k-pad">A</kbd>');
     this.drop.type = 'button';
     this.drop.setAttribute('aria-label', 'Trigger the Drop');
     this.drop.addEventListener('click', (e) => { e.stopPropagation(); onDrop(); });
     this.pauseBtn = el('button', 'pausebtn', icon('pause'));
     this.pauseBtn.type = 'button';
     this.pauseBtn.setAttribute('aria-label', 'Pause');
+    this.pauseBtn.title = 'Pause (Esc or Start)';
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); onPause(); });
 
     const mixWrap = el('div', 'mixwrap');
@@ -166,6 +182,10 @@ export class Hud {
     this.xp.querySelector('.meter-fill').style.transform = `scaleX(${Math.min(1, g.xp / g.xpNeed)})`;
     set('time', fmtTime(g.time), (v) => { this.clock.querySelector('.clock-time').textContent = v; });
     set('sec', g.section.name, (v) => { this.clock.querySelector('.clock-section').textContent = v; });
+    // Song map: the playhead moves on every 16th note that is heard, and finished sections fill in.
+    const cur = seq.sounding(now);
+    set('head', cur ? cur.bar * 16 + cur.sib : 0, (v) => { this.songHead.style.left = `${songFraction(v / 16) * 100}%`; });
+    set('done', g.sectionIndex, (v) => { this.songSegs.forEach((s, i) => s.classList.toggle('done', i < v)); });
     set('kills', g.kills, (v) => { this.kills.querySelector('.kills-n').textContent = v.toLocaleString('en-US'); });
 
     for (const role of ROLES) {

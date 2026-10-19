@@ -1,4 +1,8 @@
 // Keyboard, touch (floating stick) and gamepad. Movement is the only thing the player steers.
+// The device used last is kept on body[data-input] (key, mouse, touch or pad), so prompts can match it.
+
+// Gamepad buttons (W3C standard mapping) and the keys they send. Y is mapped but not used yet.
+const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 3: 'pad-y', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
 
 export class Input {
   constructor(canvas, stickEl, onKey) {
@@ -6,10 +10,13 @@ export class Input {
     this.stick = { active: false, id: null, ox: 0, oy: 0, x: 0, y: 0 };
     this.stickEl = stickEl;
     this.onKey = onKey;
-    this.touchUsed = false;
     this.padPrev = {};
+    this.device = null;
+    this.setDevice(typeof matchMedia === 'function' && matchMedia('(hover: none)').matches ? 'touch' : 'key');
 
+    window.addEventListener('pointerdown', (e) => this.setDevice(e.pointerType === 'mouse' ? 'mouse' : 'touch'), true);
     window.addEventListener('keydown', (e) => {
+      this.setDevice('key');
       if (e.target && (e.target.tagName === 'INPUT' && e.target.type === 'range')) return;
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k)) e.preventDefault();
@@ -26,7 +33,6 @@ export class Input {
     const R = 56;
     canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse') return;
-      this.touchUsed = true;
       if (this.stick.active) return;
       this.stick = { active: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
       try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
@@ -85,21 +91,35 @@ export class Input {
     return { x, y };
   }
 
-  // Edge-triggered gamepad buttons: A = drop / confirm, Start = pause.
+  setDevice(d) {
+    if (this.device === d) return;
+    this.device = d;
+    document.body.dataset.input = d;
+  }
+
+  // Edge-triggered gamepad buttons: A = drop / confirm, B = back, X = reroll, Start = pause, d-pad = menus.
+  // Any button press, or a stick pushed past 0.5, makes the pad the current device.
   pollPad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = [...pads].find(Boolean);
     if (!gp) return;
-    const map = { 0: 'pad-a', 9: 'Escape', 2: 'r', 14: 'pad-left', 15: 'pad-right' };
-    for (const idx in map) {
-      const pressed = !!gp.buttons[idx]?.pressed;
-      if (pressed && !this.padPrev[idx]) this.onKey(map[idx], null);
-      this.padPrev[idx] = pressed;
+    for (let i = 0; i < gp.buttons.length; i++) {
+      const pressed = !!gp.buttons[i]?.pressed;
+      if (pressed && !this.padPrev[i]) { this.setDevice('pad'); if (PAD_MAP[i]) this.onKey(PAD_MAP[i], null); }
+      this.padPrev[i] = pressed;
     }
+    const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+    const push = Math.hypot(ax, ay) > 0.5;
+    if (push && !this.padPrev.push) this.setDevice('pad');
+    this.padPrev.push = push;
     // The stick also steps through menus, with hysteresis so a resting stick does not repeat.
-    const ax = gp.axes[0] || 0;
-    const dir = this.padPrev.stick || 0;
-    if (dir === 0 && Math.abs(ax) > 0.6) { this.padPrev.stick = Math.sign(ax); this.onKey(ax > 0 ? 'pad-right' : 'pad-left', null); }
-    else if (dir !== 0 && Math.abs(ax) < 0.3) this.padPrev.stick = 0;
+    this._stickStep('x', ax, 'pad-left', 'pad-right');
+    this._stickStep('y', ay, 'pad-up', 'pad-down');
+  }
+
+  _stickStep(axis, v, neg, pos) {
+    const dir = this.padPrev[axis] || 0;
+    if (dir === 0 && Math.abs(v) > 0.6) { this.padPrev[axis] = Math.sign(v); this.onKey(v > 0 ? pos : neg, null); }
+    else if (dir !== 0 && Math.abs(v) < 0.3) this.padPrev[axis] = 0;
   }
 }

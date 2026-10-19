@@ -4,8 +4,14 @@ import { ROLE_INFO, STYLES, ROLES } from '../config.js';
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer, banKey } from '../game/upgrades.js';
+import { SECTIONS } from '../music/song.js';
+import { songMapHtml, songFraction, SONG_BARS } from './hud.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// A level-up ignores picks and button presses this long after it opens, so a Drop press or the second
+// half of a double tap never takes a card blind.
+const ARM_MS = 350;
 
 function stepsHtml(cells) {
   if (!cells) return '';
@@ -37,6 +43,29 @@ export function cardHtml(d, index, opts = {}) {
   </button>`;
 }
 
+// End screen: where the song stopped on the song map (your previous best as a dashed marker) and what took
+// you out. bar, damageBy ({ name: damage }) and lastHitBy (a name) can be missing; their parts are left out.
+function songEndHtml(sum, isBest, prev) {
+  const idx = SECTIONS.findIndex((s) => s.name === sum.section);
+  const out = [];
+  if (sum.won || typeof sum.bar === 'number') {
+    const at = sum.won ? 1 : songFraction(sum.bar);
+    const marks = [{ at, cls: 'you', label: isBest ? 'New best' : 'You' }];
+    const prevAt = prev?.won ? 1 : typeof prev?.bar === 'number' ? songFraction(prev.bar) : null;
+    if (prevAt !== null && Math.round(prevAt * SONG_BARS) !== Math.round(at * SONG_BARS)) marks.push({ at: prevAt, cls: 'best', label: isBest ? 'Old best' : 'Best' });
+    out.push(songMapHtml(sum.won ? SECTIONS.length : Math.max(0, idx), marks));
+    const ahead = idx >= 0 ? SECTIONS.slice(idx + 1).map((s) => esc(s.name)) : [];
+    out.push(`<p>${sum.won ? 'You played the whole song.' : `You made it <b>${Math.min(99, Math.round(at * 100))}%</b> through the song.${ahead.length ? ` Still ahead: ${ahead.join(' · ')}.` : ''}`}</p>`);
+  }
+  const by = Object.entries(sum.damageBy && typeof sum.damageBy === 'object' ? sum.damageBy : {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const top = by[0];
+  const p = top ? Math.round((100 * top[1]) / by.reduce((s, [, v]) => s + v, 0)) : 0;
+  const last = !sum.won && typeof sum.lastHitBy === 'string' ? sum.lastHitBy : null;
+  if (last && top && top[0] === last) out.push(`<p>Taken out by <b>${esc(last)}</b> (${p}% of your damage).</p>`);
+  else if (last || top) out.push(`<p>${[last && `Taken out by <b>${esc(last)}</b>.`, top && `Most damage: <b>${esc(top[0])}</b> (${p}%).`].filter(Boolean).join(' ')}</p>`);
+  return out.length ? `<div class="end-song">${out.join('')}</div>` : '';
+}
+
 export class Screens {
   constructor(root, h) {
     this.root = root;
@@ -47,13 +76,24 @@ export class Screens {
     this.lastPointer = -1e9;
   }
 
-  _mount(name, html) {
+  // armMs: the screen is 'arming' that long, and clicks on anything in it are dropped until then (keys wait
+  // in main.js onKey). Hover, focus and hold-to-listen keep working.
+  _mount(name, html, armMs = 0) {
     this.current = name;
     document.body.dataset.screen = name;
     this.root.innerHTML = `<div class="screen screen-${name}" role="dialog" aria-modal="true">${html}</div>`;
     this.root.hidden = false;
-    return this.root.firstElementChild;
+    this.root.scrollTop = 0;
+    const el = this.root.firstElementChild;
+    if (armMs) {
+      el.classList.add('arming');
+      el.addEventListener('click', (e) => { if (el.classList.contains('arming')) { e.stopPropagation(); e.preventDefault(); } }, true);
+      setTimeout(() => el.classList.remove('arming'), armMs);
+    }
+    return el;
   }
+
+  armed() { return !this.root.firstElementChild?.classList.contains('arming'); }
 
   hide() {
     this.current = null;
@@ -89,24 +129,27 @@ export class Screens {
 
   howto(back) {
     const rows = ROLES.map((r) => `<li style="--c:${ROLE_INFO[r].color}"><span class="ht-icon">${icon(r)}</span><b>${ROLE_INFO[r].name}</b><span>${ROLE_INFO[r].desc}</span></li>`).join('');
+    const keys = [['Move', 'WASD or arrows', 'Left stick'], ['The Drop', 'Space', 'A'], ['Pick a card', '1 · 2 · 3', 'A'], ['Reroll', 'R', 'X'],
+      ['Banish · Skip', 'X · Q', 'D-pad down, then A'], ['Pause', 'Esc or P', 'Start'], ['Back', '', 'B'], ['Mute', 'M', '']]
+      .map(([act, key, pad]) => `<tr><th>${act}</th><td>${key}</td><td>${pad}</td></tr>`).join('');
     const el = this._mount('howto', `
       <div class="panel panel-wide">
         <h2>How to play</h2>
         <ol class="howto">
-          <li><b>Move.</b> WASD or arrow keys. On a touch screen, drag anywhere. Moving is all you control.</li>
-          <li><b>Your instruments fight for you.</b> They play on the beat by themselves, and every note they play is an attack.</li>
-          <li><b>One instrument per channel.</b> Your mixer has six channels. Each one holds a single sound, so the song never turns to mush. A new sound for a full channel swaps out the old one. Channels open up as the song goes on, so your band grows with it.</li>
-          <li><b>It always sounds right.</b> Every note is tuned to the song's key and locked to the beat. Pick what you like.</li>
-          <li><b>Styles belong together.</b> Instruments are Synth, Live or 8-Bit. Two or more of a style unlock a bonus. Two of every style unlocks Fusion.</li>
-          <li><b>Pedals</b> change your sound and your stats at the same time. You have four slots.</li>
-          <li><b>The Drop.</b> Collected notes fill the Drop meter. Press Space (or tap the meter) when it is full. The music builds for one bar and slams on the downbeat.</li>
+          <li><b>Move.</b> That is all you control. Your instruments play on the beat, and every note is an attack.</li>
+          <li><b>One sound per channel.</b> Your six mixer channels open up as the song goes on. A new sound for a full channel swaps out the old one.</li>
+          <li><b>It always sounds right.</b> Every note is in key, so pick what you like. Two or more sounds of a style (Synth, Live or 8-Bit) unlock a bonus, and two of each unlock Fusion. Pedals change your sound and your stats.</li>
+          <li><b>Level-ups.</b> Pick one of three cards. You can also reroll them, banish one for the rest of the run, or skip the level to charge the Drop.</li>
+          <li><b>The Drop.</b> Notes you collect fill the Drop meter. When it is full, set it off: the music builds for a bar and slams on the downbeat.</li>
           <li><b>Survive the song.</b> Each chorus brings a boss. Silence White Noise in the finale to win.</li>
         </ol>
+        <table class="keys"><thead><tr><th></th><th>Keyboard</th><th>Gamepad</th></tr></thead><tbody>${keys}</tbody></table>
+        <p class="touch-note">On a touch screen, drag anywhere to move and tap the Drop meter. Hold a card to hear it.</p>
         <ul class="roles">${rows}</ul>
         <div class="panel-actions"><button class="btn btn-primary" type="button" data-act="back">Got it</button></div>
       </div>`);
     el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'pause' ? this.h.onShowPause() : this.h.onShowTitle()));
-    el.querySelector('[data-act=back]').focus();
+    el.querySelector('[data-act=back]').focus({ preventScroll: true });   // the screen opens at its top
   }
 
   settings(back) {
@@ -130,7 +173,7 @@ export class Screens {
     });
     el.querySelectorAll('input').forEach((i) => i.addEventListener('input', upd));
     el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'pause' ? this.h.onShowPause() : this.h.onShowTitle()));
-    el.querySelector('[data-act=back]').focus();
+    el.querySelector('[data-act=back]').focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------------------- first sound
@@ -166,11 +209,11 @@ export class Screens {
         <p class="sub">Hover or hold a card to hear it in your mix.</p>
         <div class="cards">${cards}</div>
         <div class="row-actions">
-          <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left · R)</span></button>
+          <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left<span class="k-key"> · R</span><span class="k-pad"> · X</span>)</span></button>
           <button class="btn btn-ghost" type="button" data-act="banish" aria-pressed="false" title="Pick a card to remove its sound or pedal for the rest of the run, upgrades included" ${g.banishes > 0 && offers.some(banKey) ? '' : 'disabled'}>Banish <span class="muted">(${g.banishes} left · X)</span></button>
           <button class="btn btn-ghost" type="button" data-act="skip" title="Pass on this level. Its notes fill the Drop meter instead">Skip <span class="muted">(+Drop · Q)</span></button>
         </div>
-      </div>`);
+      </div>`, ARM_MS);
     // Banish mode: the next card picked is banished instead of taken. Remix, Fader and bonus cards cannot be.
     this.banishing = false;
     el.querySelectorAll('.card').forEach((c, i) => c.classList.toggle('no-ban', !banKey(offers[i])));
@@ -226,9 +269,12 @@ export class Screens {
       });
     });
     this.focus = 0;
+    // A gamepad always sees which card A takes: the first one has focus (and plays) from the start.
+    if (document.body.dataset.input === 'pad') cards[0]?.focus();
   }
 
-  // Keyboard navigation for card screens.
+  // Keyboard and pad navigation for card screens: left and right move along the cards or along the
+  // buttons under them, down and up move between the two.
   cardKey(key) {
     if (!this.cards || !this.cards.length) return false;
     if (key >= '1' && key <= '9') {
@@ -236,13 +282,17 @@ export class Screens {
       if (i < this.cards.length) { this.onPick(i); return true; }
     }
     // Arrow keys only: A and D are movement keys and would move focus while strafing.
-    if (key === 'ArrowLeft' || key === 'ArrowRight') {
-      const focused = this.cards.includes(document.activeElement);
-      if (focused) {
-        const dir = key === 'ArrowLeft' ? -1 : 1;
-        this.focus = (this.focus + dir + this.cards.length) % this.cards.length;
-      } else this.focus = 0;   // first press lands on the first card
-      this.cards[this.focus].focus();
+    if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+      const a = document.activeElement;
+      const row = [...this.root.querySelectorAll('.row-actions button:not([disabled])')];
+      const inRow = row.includes(a);
+      if (!inRow && !this.cards.includes(a)) this.cards[0].focus();   // first press lands on the first card
+      else if (key === 'ArrowDown') { if (!inRow && row.length) row[0].focus(); }
+      else if (key === 'ArrowUp') { if (inRow) this.cards[this.focus].focus(); }
+      else {
+        const list = inRow ? row : this.cards;
+        list[(list.indexOf(a) + (key === 'ArrowLeft' ? -1 : 1) + list.length) % list.length].focus();
+      }
       return true;
     }
     return false;
@@ -254,6 +304,7 @@ export class Screens {
     const el = this._mount('pause', `
       <div class="panel">
         <p class="kicker">Paused · ${esc(g.section.name)} · ${fmtTime(g.time)}</p>
+        ${songMapHtml(g.sectionIndex, [{ at: songFraction(g.seq.bar), cls: 'head' }])}
         <h2>Taking five</h2>
         <p class="sub">${esc(g.genre)} in ${esc(g.key.name)}. ${g.loadout.filled()} of ${g.channelCap()} channels in use.</p>
         <div class="panel-actions col">
@@ -267,12 +318,12 @@ export class Screens {
     el.querySelector('[data-act=howto]').addEventListener('click', () => this.howto('pause'));
     el.querySelector('[data-act=settings]').addEventListener('click', () => this.settings('pause'));
     el.querySelector('[data-act=quit]').addEventListener('click', () => this.h.onQuit());
-    el.querySelector('[data-act=resume]').focus();
+    el.querySelector('[data-act=resume]').focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------------------- end
 
-  end(sum, isBest) {
+  end(sum, isBest, prevBest = null) {
     this.listening = false;
     const maxDmg = Math.max(1, ...sum.instruments.map((i) => i.dmg));
     const rows = sum.instruments.map((i) => `
@@ -293,6 +344,7 @@ export class Screens {
           <div><b>${sum.level}</b><span>level</span></div>
           <div><b>${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}</span></div>
         </div>
+        ${songEndHtml(sum, isBest, prevBest)}
         <p class="end-genre">Your track: <b>${esc(sum.genre)}</b> in ${esc(sum.key)}</p>
         <ul class="end-rows">${rows || '<li>No instruments</li>'}</ul>
         <p class="end-pedals">${pedals}</p>
@@ -311,6 +363,6 @@ export class Screens {
     });
     el.querySelector('[data-act=again]').addEventListener('click', () => this.h.onRestart());
     el.querySelector('[data-act=title]').addEventListener('click', () => this.h.onShowTitle());
-    el.querySelector('[data-act=again]').focus();
+    el.querySelector('[data-act=again]').focus({ preventScroll: true });
   }
 }
