@@ -68,7 +68,10 @@ export class Sequencer {
 
   // Stop-time: on the next downbeat that is not held, every channel plays its step-0 notes and rests
   // until step `len`. home: that bar's chord becomes i (of the lifted key), the song's last chord.
-  stopNext(len, home = false) { this.pendingStop = { len, home }; }
+  // It never shares a bar with the player's Drop: a queued Drop waits out the stop bar (see _step), and a
+  // stop asked for while a Drop builds would land on its impact, the moment itself, so it is dropped. The
+  // song's ending is kept: its silent bar follows the impact.
+  stopNext(len, home = false) { if (home || this.dropState !== 'building') this.pendingStop = { len, home }; }
 
   // Audio time when the pending or latest stop bar is over (0 when there has been none).
   stopEnd() {
@@ -140,7 +143,7 @@ export class Sequencer {
           this.events.push({ type: 'drop', time: t, bar: this.bar });
           this.dropState = null;
         }
-      } else if (this.dropState === 'queued' && !this.hold) {
+      } else if (this.dropState === 'queued' && !this.hold && !landed) {   // a stop bar first: silence, riser, impact
         this.dropState = 'building';
         if (A) { A.buildSweep(t, t + BAR_SEC); A.riser(t, BAR_SEC); A.snareRoll(t, BAR_SEC); }
         this.events.push({ type: 'build', time: t });
