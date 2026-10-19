@@ -209,7 +209,9 @@ function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
   // Space and E are the Drop keys: on menus they must never press a focused button by accident.
   if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
-  // B is Back (or Resume) on every screen that has one. It is never a level-up action.
+  // Escape and B leave banish mode. B is no other level-up action, so it never banishes or skips.
+  if (screens.current === 'levelup' && screens.banishing && (k === 'Escape' || k === 'pad-b')) { screens.toggleBanish(false); return true; }
+  // B is Back (or Resume) on every screen that has one.
   if (screens.current && k === 'pad-b') { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
@@ -217,7 +219,6 @@ function onKey(k) {
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
     if (k === 'x' && screens.current === 'levelup') { screens.toggleBanish(); return true; }
     if (k === 'q' && screens.current === 'levelup') { skipLevel(); return true; }
-    if (k === 'Escape' && screens.current === 'levelup' && screens.banishing) { screens.toggleBanish(false); return true; }
     if (k === 'pad-a') {
       // A presses what has focus: a card or a button under the cards. With nothing focused it only focuses card 1.
       const a = document.activeElement;
