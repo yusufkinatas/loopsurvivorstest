@@ -15,6 +15,8 @@ function prepare(def) {
   for (const lv of def.levels) {
     lv._byStep = [];
     for (const n of lv.pattern) (lv._byStep[n.s] ||= []).push(n);
+    // Beat fills and rolls play the level's first sound that is not a kick (else the kick).
+    if (def.role === 'beat') lv._fillKind = (lv.pattern.find((n) => n.k && n.k !== 'kick') || { k: 'kick' }).k;
   }
 }
 
