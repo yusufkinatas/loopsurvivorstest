@@ -68,12 +68,15 @@ export class Loadout {
     return out;
   }
 
-  // role -> pedal id for every remixed channel: the desk runs that pedal at full on the channel's strip.
-  remixBoost() {
-    const out = {};
-    for (const inst of this.instruments()) if (inst.remix) out[inst.def.role] = inst.def.remix.pedal;
-    return out;
-  }
+  remixBoost() { return remixBoost(this.instruments()); }
+}
+
+// role -> pedal id for every remixed channel: the desk runs that pedal at full on the channel's strip.
+// A played-back track sheet comes from storage, so a remix flag on a sound without a remix is skipped.
+export function remixBoost(insts) {
+  const out = {};
+  for (const inst of insts) if (inst.remix && inst.def.remix) out[inst.def.role] = inst.def.remix.pedal;
+  return out;
 }
 
 export function chemistryTier(style, count) {

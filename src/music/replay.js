@@ -6,7 +6,7 @@
 import { MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
 import { clamp } from '../util.js';
 import { Song, SECTIONS } from './song.js';
-import { makeInst } from '../game/loadout.js';
+import { makeInst, remixBoost } from '../game/loadout.js';
 import { BY_ID } from '../content/instruments/index.js';
 
 // Bars per section in the edit, and the bar each excerpt starts from: the roll and sweep into The Drop,
@@ -44,10 +44,9 @@ export function playSheet({ seq, audio, sheet, keyPc, onSection, onEnd }) {
   let band = [];
   const enter = (i) => {
     band = bands[i];
-    const levels = {}, boost = {};
+    const levels = {};
     for (const [id, lv] of pairs(takes[i].pedals)) levels[id] = clamp(lv | 0, 1, MAX_PEDAL_LEVEL);
-    for (const inst of band) if (inst.remix && inst.def.remix?.pedal) boost[inst.def.role] = inst.def.remix.pedal;   // a remix runs its pedal at full on its strip
-    audio.applyPedals(levels, boost);
+    audio.applyPedals(levels, remixBoost(band));
     audio.setActiveCount(Math.max(1, band.length));
     onSection?.(edit[i].name, band.length);
   };
