@@ -1,12 +1,17 @@
-// Menus and overlays: title, how to play, first-sound select, level-up cards, pause, and the end screen.
+// Menus and overlays: title, how to play, first-sound select, level-up cards, pause, the end screen and
+// the Discography.
 
-import { ROLE_INFO, STYLES, ROLES } from '../config.js';
+import { ROLE_INFO, STYLES, ROLES, GAIN } from '../config.js';
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer, banKey } from '../game/upgrades.js';
 import { SECTIONS } from '../music/song.js';
 import { songMapHtml, songFraction, SONG_BARS } from './hud.js';
+import { GOALS, RECORDS, unlockedStarts } from '../game/progress.js';
+import { INSTRUMENTS, BY_ID } from '../content/instruments/index.js';
+import { PEDAL_BY_ID } from '../content/pedals.js';
 
+const plural = (n, one, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // A level-up ignores picks and button presses this long after it opens, so a Drop press or the second
@@ -66,19 +71,51 @@ function songEndHtml(sum, isBest, prev) {
   return out.length ? `<div class="end-song">${out.join('')}</div>` : '';
 }
 
+// The 13 sleeves (gold ring for a finished song, dashed for a demo, a G tag for its Gain, dimmed with a hint
+// until pressed), then any other genre pressed, as hidden tracks.
+function recordsHtml(meta) {
+  const sleeve = (genre, rec, hint) => (rec
+    ? `<button class="sleeve ${rec.w ? 'gold' : 'demo'}" type="button" data-genre="${esc(genre)}" ${rec.sh.length ? '' : 'disabled'}>
+        <i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>
+        <span>${rec.w ? 'Gold' : 'Demo'} · ${esc(rec.k)}${rec.g ? ` <em>G${rec.g}</em>` : ''}</span></button>`
+    : `<div class="sleeve empty"><i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b><span>${esc(hint)}</span></div>`);
+  const hidden = Object.keys(meta.records).filter((g) => !RECORDS.some((r) => r.genre === g));
+  return `<p class="now-playing" aria-live="polite"></p>
+    <div class="sleeves">${RECORDS.map((r) => sleeve(r.genre, meta.records[r.genre], r.hint)).join('')}</div>
+    ${hidden.length ? `<p class="kicker disco-label">Hidden tracks</p><div class="sleeves">${hidden.map((g) => sleeve(g, meta.records[g])).join('')}</div>` : ''}`;
+}
+
+// The remix crate: channels in rows, styles in columns. Found remixes are gold, the rest show their recipe.
+function remixesHtml(meta) {
+  const styles = Object.keys(STYLES);
+  const tiles = ROLES.map((role) => styles.map((style) => {
+    const def = INSTRUMENTS.find((d) => d.role === role && d.style === style);
+    const found = !!meta.remixes[def.id];
+    return `<div class="rx${found ? ' found' : ''}" style="--c:${ROLE_INFO[role].color}"><b>${found ? esc(def.remix.name) : '? ? ?'}</b><span>${esc(def.name)} + ${esc(PEDAL_BY_ID[def.remix.pedal].name)}</span></div>`;
+  }).join('')).join('');
+  return `<p class="kicker disco-label">Found ${Object.keys(meta.remixes).length} of ${INSTRUMENTS.length}</p>
+    <div class="rx-grid">${styles.map((st) => `<span class="rx-head">${STYLES[st].name}</span>`).join('')}${tiles}</div>`;
+}
+
+function notesHtml(meta) {
+  return `<ol class="notes">${GOALS.map((g) => `<li class="${meta.goals[g.id] ? 'done' : ''}"><i aria-hidden="true">${meta.goals[g.id] ? '✓' : ''}</i>
+    <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(BY_ID[g.unlock].name)}</small></li>`).join('')}</ol>`;
+}
+
 export class Screens {
   constructor(root, h) {
     this.root = root;
     this.h = h;
     this.current = null;
     this.focus = 0;
-    this.listening = false;
     this.lastPointer = -1e9;
   }
 
   // armMs: the screen is 'arming' that long, and clicks on anything in it are dropped until then (keys wait
-  // in main.js onKey). Hover, focus and hold-to-listen keep working.
+  // in main.js onKey). Hover, focus and hold-to-listen keep working. A track playing on the screen that
+  // is left (the end screen's or a sleeve's radio edit) stops.
   _mount(name, html, armMs = 0) {
+    this.h.onStopTrack();
     this.current = name;
     document.body.dataset.screen = name;
     this.root.innerHTML = `<div class="screen screen-${name}" role="dialog" aria-modal="true">${html}</div>`;
@@ -96,6 +133,7 @@ export class Screens {
   armed() { return !this.root.firstElementChild?.classList.contains('arming'); }
 
   hide() {
+    this.h.onStopTrack();
     this.current = null;
     delete document.body.dataset.screen;
     this.root.innerHTML = '';
@@ -104,8 +142,10 @@ export class Screens {
 
   // ---------------------------------------------------------------------------- title
 
-  title(best) {
-    const bestLine = best ? `<p class="best">Best run: ${fmtTime(best.time)} · ${best.kills.toLocaleString('en-US')} silenced · ${best.won ? 'finished the song' : `reached ${esc(best.section)}`}</p>` : '';
+  title(best, meta) {
+    const bestLine = best ? `<p class="best">Best: ${best.won ? 'finished the song' : `reached ${esc(best.section)}`} · ${best.score.toLocaleString('en-US')}${best.gain ? ` · Gain ${best.gain}` : ''}</p>` : '';
+    const records = RECORDS.filter((r) => meta.records[r.genre]).length;
+    const career = meta.runs ? `<p class="best career">Records ${records}/${RECORDS.length} · First sounds ${unlockedStarts(meta).length}/${INSTRUMENTS.length} · Songs finished ${meta.wins}</p>` : '';
     const el = this._mount('title', `
       <div class="title-wrap">
         <div class="logo" aria-label="Loop Survivors">
@@ -115,13 +155,15 @@ export class Screens {
         <p class="tagline">Every attack is a note. Every build is a song.</p>
         <div class="title-actions">
           <button class="btn btn-primary" type="button" data-act="play">Play</button>
+          <button class="btn" type="button" data-act="disco">Discography</button>
           <button class="btn" type="button" data-act="howto">How to play</button>
           <button class="btn" type="button" data-act="settings">Settings</button>
         </div>
-        ${bestLine}
+        ${bestLine}${career}
         <p class="hint">Sound on. Headphones help.</p>
       </div>`);
     el.querySelector('[data-act=play]').addEventListener('click', () => this.h.onPlay());
+    el.querySelector('[data-act=disco]').addEventListener('click', () => this.h.onDiscography('title'));
     el.querySelector('[data-act=howto]').addEventListener('click', () => this.howto('title'));
     el.querySelector('[data-act=settings]').addEventListener('click', () => this.settings('title'));
     el.querySelector('[data-act=play]').focus();
@@ -176,25 +218,91 @@ export class Screens {
     el.querySelector('[data-act=back]').focus({ preventScroll: true });
   }
 
+  // ---------------------------------------------------------------------------- discography
+
+  // The career: records pressed (a pressed sleeve plays its run's radio edit), the remix crate and the liner
+  // notes. back: 'title' or 'end', where Back returns.
+  discography(meta, back) {
+    const h = Math.floor(meta.secs / 3600), min = Math.floor((meta.secs % 3600) / 60);
+    const career = [plural(meta.runs, 'run'), plural(meta.wins, 'song finished', 'songs finished'), `${meta.kills.toLocaleString('en-US')} Noise silenced`, `${h ? `${h} h ` : ''}${min} min on stage`].join(' · ');
+    const tabs = [['records', 'Records'], ['remixes', 'Remixes'], ['notes', 'Liner notes']];
+    const el = this._mount('disco', `
+      <div class="panel panel-wide disco">
+        <h2>Discography</h2>
+        <p class="sub">${career}</p>
+        <div class="tabs" role="tablist">${tabs.map(([id, name]) => `<button class="tab" type="button" role="tab" data-page="${id}">${name}</button>`).join('')}</div>
+        <div class="disco-page"></div>
+        <div class="panel-actions"><button class="btn btn-primary" type="button" data-act="back">Back</button></div>
+      </div>`);
+    const show = (id) => {
+      this.h.onStopTrack();
+      el.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.page === id)));
+      el.querySelector('.disco-page').innerHTML = id === 'records' ? recordsHtml(meta) : id === 'remixes' ? remixesHtml(meta) : notesHtml(meta);
+      const np = el.querySelector('.now-playing');
+      // A pressed sleeve plays its radio edit. Pressed again, or on any way off the page, it stops.
+      el.querySelectorAll('button.sleeve').forEach((sl) => sl.addEventListener('click', () => {
+        if (sl.classList.contains('playing')) { this.h.onStopTrack(); return; }
+        const genre = sl.dataset.genre, rec = meta.records[genre];
+        this.h.onPlayTrack(rec.sh, rec.kp, (name, n) => { np.textContent = `Now playing: ${genre} · ${name} · ${plural(n, 'sound')}`; }, () => { sl.classList.remove('playing'); np.textContent = ''; });
+        sl.classList.add('playing');
+      }));
+    };
+    el.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.page)));
+    el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'end' ? this.h.onShowEnd() : this.h.onShowTitle()));
+    show('records');
+    el.querySelector('[data-page=records]').focus({ preventScroll: true });
+  }
+
   // ---------------------------------------------------------------------------- first sound
 
-  select(defs) {
+  // defs: the three featured first sounds. chips: the other sounds the career has unlocked, picked and
+  // auditioned like the cards. meta: the career when a Gain is open (the stepper), else null.
+  select(defs, chips, meta) {
     const cards = defs.map((def, i) => cardHtml({
       title: def.name, eyebrow: `${ROLE_INFO[def.role].name} channel`, color: ROLE_INFO[def.role].color,
       style: STYLES[def.style], tag: 'Your first sound', level: 1, maxLevel: 5, body: def.blurb, detail: def.levels[0].text,
       cells: def.levels[0].pattern.reduce((cells, n) => { cells[n.s] = { on: true, v: n.v ?? 1 }; return cells; }, Array.from({ length: def.steps || 16 }, () => ({ on: false }))),
       icon: def.role, chem: [],
     }, i, { listen: true })).join('');
+    const chipHtml = chips.map((def, i) => `
+      <button class="card chip" type="button" data-i="${defs.length + i}" style="--c:${ROLE_INFO[def.role].color};--s:${STYLES[def.style].color}" title="${esc(`${def.name} · ${STYLES[def.style].name} · ${ROLE_INFO[def.role].name} channel`)}">
+        <span class="card-icon">${icon(def.role)}</span><span class="chip-name">${esc(def.name)}</span>
+      </button>`).join('');
+    const yours = chips.length
+      ? `<p class="kicker chips-label">Your sounds</p><div class="chips">${chipHtml}</div>`
+      : `<p class="chips-none">Liner-note goals unlock ${INSTRUMENTS.length - defs.length} more first sounds.</p>`;
+    const gain = meta ? `
+      <div class="gain">
+        <button class="btn btn-ghost" type="button" data-gain="-1" aria-label="Less Gain">◂</button>
+        <span class="gain-name" aria-live="polite"></span>
+        <button class="btn btn-ghost" type="button" data-gain="1" aria-label="More Gain">▸</button>
+        <span class="gain-score"></span><span class="muted k-key"> · [ ]</span><span class="muted k-pad"> · LB RB</span>
+      </div>
+      <p class="gain-mods"></p>` : '';
+    const all = [...defs, ...chips];
     const el = this._mount('select', `
       <div class="cards-wrap">
         <p class="kicker">Choose your first sound</p>
         <h2>Every song starts with one sound</h2>
         <p class="sub">Hover or hold a card to hear it. You add the rest of the band as you level up.</p>
         <div class="cards">${cards}</div>
+        ${yours}
+        ${gain}
         <div class="row-actions"><button class="btn btn-ghost" type="button" data-act="back">Back</button></div>
       </div>`);
-    this._wireCards(el, (i) => this.h.onPickStart(defs[i].id), (i) => this.h.onPreviewStart(i === null ? null : defs[i].id));
+    el.querySelectorAll('[data-gain]').forEach((b) => b.addEventListener('click', () => this.h.onGain(Number(b.dataset.gain))));
+    if (meta) this.setGain(meta.gainSel);
+    this._wireCards(el, (i) => this.h.onPickStart(all[i].id), (i) => this.h.onPreviewStart(i === null ? null : all[i].id));
     el.querySelector('[data-act=back]').addEventListener('click', () => { this.h.onPreviewStart(null); this.h.onShowTitle(); });
+  }
+
+  // The Gain stepper: the tier, its name and score multiplier, and every modifier it adds in one muted line.
+  setGain(n) {
+    const el = this.root.querySelector('.gain');
+    if (!el) return;
+    el.querySelector('.gain-name').textContent = `Gain ${n}${n ? ` · ${GAIN[n - 1].name}` : ''}`;
+    el.querySelector('.gain-score').textContent = `· score x${(1 + 0.1 * n).toFixed(1)}`;
+    this.root.querySelector('.gain-mods').textContent = n ? GAIN.slice(0, n).map((t) => t.text).join(' · ') : 'The song as written.';
   }
 
   // ---------------------------------------------------------------------------- level up
@@ -275,8 +383,8 @@ export class Screens {
     if (document.body.dataset.input === 'pad') cards[0]?.focus();
   }
 
-  // Keyboard and pad navigation for card screens: left and right move along the cards or along the
-  // buttons under them, down and up move between the two.
+  // Keyboard and pad navigation for card screens: left and right move along a row (the cards, the chips
+  // or the buttons under them), down and up move between rows.
   cardKey(key) {
     if (!this.cards || !this.cards.length) return false;
     if (key >= '1' && key <= '9') {
@@ -286,14 +394,16 @@ export class Screens {
     // Arrow keys only: A and D are movement keys and would move focus while strafing.
     if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
       const a = document.activeElement;
-      const row = [...this.root.querySelectorAll('.row-actions button:not([disabled])')];
-      const inRow = row.includes(a);
-      if (!inRow && !this.cards.includes(a)) this.cards[0].focus();   // first press lands on the first card
-      else if (key === 'ArrowDown') { if (!inRow && row.length) row[0].focus(); }
-      else if (key === 'ArrowUp') { if (inRow) this.cards[this.focus].focus(); }
-      else {
-        const list = inRow ? row : this.cards;
-        list[(list.indexOf(a) + (key === 'ArrowLeft' ? -1 : 1) + list.length) % list.length].focus();
+      const rows = [...this.root.querySelectorAll('.cards, .chips, .gain, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
+      const r = rows.findIndex((row) => row.includes(a));
+      if (r < 0) this.cards[0].focus();   // first press lands on the first card
+      else if (key === 'ArrowDown' || key === 'ArrowUp') {
+        // Into a row of cards, back to the card last focused there.
+        const to = rows[r + (key === 'ArrowDown' ? 1 : -1)];
+        if (to) (to.includes(this.cards[this.focus]) ? this.cards[this.focus] : to[0]).focus();
+      } else {
+        const row = rows[r];
+        row[(row.indexOf(a) + (key === 'ArrowLeft' ? -1 : 1) + row.length) % row.length].focus();
       }
       return true;
     }
@@ -325,8 +435,9 @@ export class Screens {
 
   // ---------------------------------------------------------------------------- end
 
-  end(sum, isBest, prevBest = null) {
-    this.listening = false;
+  // news: what the run added to the career (applyRun), with saved = false when the device did not keep it,
+  // or null (a sim). New things are only claimed once they are saved.
+  end(sum, isBest, prevBest = null, news = null) {
     const maxDmg = Math.max(1, ...sum.instruments.map((i) => i.dmg));
     const rows = sum.instruments.map((i) => `
       <li style="--c:${ROLE_INFO[i.role].color}" class="${i.active ? '' : 'retired'}">
@@ -336,9 +447,17 @@ export class Screens {
         <span class="er-num">${i.dmg.toLocaleString('en-US')}</span>
       </li>`).join('');
     const pedals = sum.pedals.length ? sum.pedals.map((p) => `${esc(p.name)} ${p.level}`).join(' · ') : 'No pedals';
+    const lines = news?.saved ? [
+      ...(news.record ? [`Record pressed: ${news.record.genre}, ${news.record.gold ? 'gold' : 'demo'}.`] : []),
+      ...(news.gain ? [`Gain ${news.gain} unlocked: ${GAIN[news.gain - 1].name}.`] : []),
+      ...news.goals.map((g) => `New first sound: ${BY_ID[g.unlock].name}.`),
+      ...news.remixes.map((id) => `New remix in your crate: ${BY_ID[id].remix.name}.`),
+    ] : [];
+    const notes = !news ? '' : !news.saved ? '<p class="end-unsaved">Progress could not be saved on this device.</p>'
+      : lines.length ? `<div class="end-notes"><p class="kicker">Liner notes</p><ul>${lines.slice(0, 4).map((l) => `<li>${esc(l)}</li>`).join('')}${lines.length > 4 ? `<li class="more">and ${lines.length - 4} more</li>` : ''}</ul></div>` : '';
     const el = this._mount('end', `
       <div class="panel panel-wide end">
-        <p class="kicker">${sum.won ? 'The song is finished' : `The music stopped in ${esc(sum.section)}`}</p>
+        <p class="kicker">${sum.gain ? `Gain ${sum.gain} · ` : ''}${sum.won ? 'The song is finished' : `The music stopped in ${esc(sum.section)}`}</p>
         <h2>${sum.won ? 'Encore!' : 'Drowned out'}</h2>
         <div class="end-stats">
           <div><b>${fmtTime(sum.time)}</b><span>survived</span></div>
@@ -346,25 +465,31 @@ export class Screens {
           <div><b>${sum.level}</b><span>level</span></div>
           <div><b>${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}</span></div>
         </div>
+        ${notes}
         ${songEndHtml(sum, isBest, prevBest)}
         <p class="end-genre">Your track: <b>${esc(sum.genre)}</b> in ${esc(sum.key)}</p>
+        <p class="now-playing" aria-live="polite"></p>
         <ul class="end-rows">${rows || '<li>No instruments</li>'}</ul>
         <p class="end-pedals">${pedals}</p>
         <div class="panel-actions">
           <button class="btn" type="button" data-act="listen" aria-pressed="false">Listen to your track</button>
           <button class="btn btn-primary" type="button" data-act="again">Play again</button>
-          <button class="btn btn-ghost" type="button" data-act="title">Title</button>
+          <button class="btn" type="button" data-act="disco">Discography</button>
+          <button class="btn btn-ghost" type="button" data-act="back">Title</button>
         </div>
       </div>`);
-    const listen = el.querySelector('[data-act=listen]');
+    // Listen plays the run's radio edit and turns into Stop. Any way off the screen stops it too.
+    const listen = el.querySelector('[data-act=listen]'), np = el.querySelector('.now-playing');
+    const done = () => { listen.setAttribute('aria-pressed', 'false'); listen.textContent = 'Listen to your track'; np.textContent = ''; };
     listen.addEventListener('click', () => {
-      this.listening = !this.listening;
-      listen.setAttribute('aria-pressed', String(this.listening));
-      listen.textContent = this.listening ? 'Stop listening' : 'Listen to your track';
-      this.h.onListen(this.listening);
+      if (listen.getAttribute('aria-pressed') === 'true') { this.h.onStopTrack(); return; }
+      this.h.onPlayTrack(sum.sheet, sum.keyPc, (name, n) => { np.textContent = `Now playing: ${name} · ${plural(n, 'sound')}`; }, done);
+      listen.setAttribute('aria-pressed', 'true');
+      listen.textContent = 'Stop';
     });
     el.querySelector('[data-act=again]').addEventListener('click', () => this.h.onRestart());
-    el.querySelector('[data-act=title]').addEventListener('click', () => this.h.onShowTitle());
+    el.querySelector('[data-act=disco]').addEventListener('click', () => this.h.onDiscography('end'));
+    el.querySelector('[data-act=back]').addEventListener('click', () => this.h.onShowTitle());
     el.querySelector('[data-act=again]').focus({ preventScroll: true });
   }
 }

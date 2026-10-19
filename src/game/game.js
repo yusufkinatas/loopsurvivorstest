@@ -1,7 +1,7 @@
 // The run. Owns the world, turns sequencer note events into attacks, and exposes the small API
 // that instrument fire() functions use (see docs/INSTRUMENTS.md).
 
-import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS } from '../config.js';
+import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
@@ -41,8 +41,13 @@ export class Game {
 
   // ------------------------------------------------------------------ run lifecycle
 
-  newRun({ start, keyIndex, seed } = {}) {
+  newRun({ start, keyIndex, seed, gain = 0 } = {}) {
     if (seed !== undefined) seedRng(seed);
+    // Gain: every tier up to this one multiplies its combat numbers. Set before the director resets and
+    // anything spawns.
+    this.gain = clamp(gain | 0, 0, GAIN.length);
+    this.mods = { hp: 1, drop: 1, dmgIn: 1, xp: 1, density: 1, bossHp: 1, shotSpeed: 1, wnPhase: 1, elite: 1 };
+    for (const t of GAIN.slice(0, this.gain)) Object.assign(this.mods, t.mods);
     this.key = KEYS[keyIndex ?? Math.floor(rng() * KEYS.length)];
     this.song = new Song(this.key.pc);
     this.seq.reset(this.song);
@@ -52,7 +57,7 @@ export class Game {
     this.seq.getBossCues = (bar, beat) => {
       cues.length = 0;
       if (this.state === 'playing') for (const e of this.enemies) {
-        const c = e.boss && !e.dead ? bossCue(e, bar, beat) : null;
+        const c = e.boss && !e.dead ? bossCue(e, bar, beat, this.mods.wnPhase) : null;
         if (c && !cues.includes(c)) cues.push(c);
       }
       return cues;
@@ -90,7 +95,7 @@ export class Game {
     this.deadScreens = 0;
     this.dropCharge = 0;
     this.dropReady = false;
-    this.dropMax = DROP.charge;
+    this.dropMax = DROP.charge * this.mods.drop;
     this.dropState = null;
     this.drops = 0;
     this.bonusScore = 0;
@@ -102,6 +107,11 @@ export class Game {
     this.boss = null;
     this.bossesBeaten = 0;
     this.bossesSpawned = [];
+    this.bossKills = [];         // boss types silenced, in order
+    this.staggers = 0;           // Drops that knocked a boss off the beat
+    // The career's goals read the band at its peak, not only at the end (src/game/progress.js).
+    this.peak = { synth: 0, organic: 0, chip: 0 };
+    this.fullBand = this.fused = this.maxedAll = false;
     this.chanPulse = Object.fromEntries(ROLES.map((r) => [r, 0]));
     this.sectionIndex = 0;
     this.section = SECTIONS[0];
@@ -134,7 +144,7 @@ export class Game {
     this.banner(this.section.name, `${this.key.name} · ${Math.round(60 / (STEP_SEC * 4))} BPM`);
   }
 
-  xpFor(level) { return Math.round(Math.min(176, 5 + level * 0.34 + level * level * 0.44)); }
+  xpFor(level) { return Math.round(Math.min(176, 5 + level * 0.34 + level * level * 0.44) * this.mods.xp); }
 
   // ------------------------------------------------------------------ loadout
 
@@ -213,6 +223,12 @@ export class Game {
       this.audio.setActiveCount(this.loadout.filled());
     }
     this.genre = genreName(this.loadout);
+    const counts = this.loadout.styleCounts();
+    for (const st in counts) this.peak[st] = Math.max(this.peak[st], counts[st]);
+    const full = this.loadout.filled() === ROLES.length;
+    this.fullBand ||= full;
+    this.fused ||= this.genre === 'Fusion';
+    this.maxedAll ||= full && this.loadout.instruments().every((i) => i.level >= MAX_INSTRUMENT_LEVEL);
     this.hooks.onLoadout?.();
   }
 
@@ -382,7 +398,7 @@ export class Game {
   hurt(dmg, from, shotFrom) {
     const p = this.player;
     if (this.state !== 'playing' || this.won || p.iframes > 0 || this.opts.god) return;
-    const taken = Math.max(1, dmg - this.stats.armor);
+    const taken = Math.max(1, dmg * this.mods.dmgIn - this.stats.armor);
     p.hp -= taken;
     const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
     this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
@@ -543,6 +559,7 @@ export class Game {
 
   onBossDeath(e) {
     this.bossesBeaten++;
+    this.bossKills.push(e.type);
     this._logBossEnd(e, 'silenced');
     if (this.boss === e) {
       this.boss = null;
@@ -862,7 +879,7 @@ export class Game {
   }
 
   score() {
-    return Math.round(this.kills * 10 + this.time * 5 + this.level * 100 + this.bossesBeaten * 2000 + this.bonusScore + (this.state === 'victory' || (this.won && this.state === 'playing') ? 10000 : 0));
+    return Math.round((this.kills * 10 + this.time * 5 + this.level * 100 + this.bossesBeaten * 2000 + this.bonusScore + (this.state === 'victory' || (this.won && this.state === 'playing') ? 10000 : 0)) * (1 + 0.1 * this.gain));
   }
 
   summary(won) {
@@ -877,14 +894,18 @@ export class Game {
       byId.set(i.def.id, r);
     }
     const rows = [...byId.values()];
+    const snap = this._snapshot();
     return {
       won, time: this.time, kills: this.kills, level: this.level, score: this.score(),
-      genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,
+      genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten, gain: this.gain,
       bar: this.seq.bar, damageBy: this.damageBy, lastHitBy: this.lastHitBy,
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),
       remixes: this.remixed.map((id) => ({ id, name: BY_ID[id].name, remix: BY_ID[id].remix.name })),
-      sheet: [...this.sheet, this._snapshot()], keyPc: this.key.pc,
+      sheet: [...this.sheet, snap], keyPc: this.key.pc,
+      // What the career's goals read (src/game/progress.js).
+      drops: this.drops, sectionIndex: this.sectionIndex, bossKills: this.bossKills, staggers: this.staggers, peak: this.peak,
+      fullBand: this.fullBand, fused: this.fused, maxedAll: this.maxedAll, band: snap.band, pedalLv: snap.pedals,
     };
   }
 

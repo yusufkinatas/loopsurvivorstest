@@ -58,6 +58,20 @@ export const WORLD = {
   maxGems: 420,
 };
 
+// Gain: opt-in difficulty tiers. A win at the highest tier open unlocks the next. Tiers stack, add 10% score
+// each and only touch combat numbers, never the tempo, the channels, the patterns or the desk. The mods
+// multiply where those numbers live (Game.mods, all 1 at Gain 0). wnPhase is the phase White Noise starts in.
+export const GAIN = [
+  { name: 'Hot signal',   text: 'Noise +15% health',     mods: { hp: 1.15 } },
+  { name: 'Slow build',   text: 'Drop +25% notes',       mods: { drop: 1.25 } },
+  { name: 'Loud room',    text: 'Hits +20% damage',      mods: { dmgIn: 1.2 } },
+  { name: 'Low budget',   text: 'Level-ups +10% notes',  mods: { xp: 1.1 } },
+  { name: 'Packed house', text: 'Crowd +15%',            mods: { density: 1.15 } },
+  { name: 'Headliners',   text: 'Bosses +25% health',    mods: { bossHp: 1.25 } },
+  { name: 'Feedback',     text: 'Shots +15% speed',      mods: { shotSpeed: 1.15 } },
+  { name: 'Brickwall',    text: 'White Noise starts loud · Elites +30%', mods: { wnPhase: 2, elite: 1.3 } },
+];
+
 // Drop ability: fills from collected notes, fires on the next downbeat after a one-bar build.
 export const DROP = {
   charge: 640,           // xp-equivalent needed to fill the meter

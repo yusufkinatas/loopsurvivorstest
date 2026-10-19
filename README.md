@@ -22,6 +22,18 @@ server below. Sound on, headphones help.
   one bar, then slams on the downbeat and blasts everything on screen.
 - **Survive the song.** About eight minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
   Bridge, Build-Up, The Drop, Finale), a boss at every chorus, and White Noise in the finale.
+- **Keep your songs.** The end screen plays your run back as a one-minute radio edit. The Discography
+  keeps what you have done across runs:
+  - **Liner notes.** 15 goals (silence The Drone, fill all six channels, make your first remix, finish the
+    song...). Each one unlocks another first sound, so all 18 can open a run.
+  - **Records.** A run that reaches the Finale presses its genre as a record: gold if you finished the
+    song, a demo if not. 13 sleeves to fill, and pressing one plays that run's radio edit.
+  - **Remixes.** The crate of all 18 remix recipes, gold once you have made one.
+- **Gain.** Finishing the song opens Gain 1, and a win at the highest Gain open opens the next, up to 8.
+  Each tier adds its modifier on top of the ones below (more Noise health, a slower Drop, harder hits,
+  costlier level-ups, a bigger crowd, tougher bosses, faster shots, then White Noise starting loud and
+  more elites) and 10% score. Gain only changes combat numbers, never the music. Step it on the first-sound screen with
+  the arrows, `[` and `]`, or LB and RB.
 
 ## The mechanic that keeps the music clean
 
@@ -79,6 +91,8 @@ src/game/bosscues.js          the sound cue a boss plays on the beat it attacks
 src/game/director.js          spawns on the beat, section by section
 src/game/loadout.js           channels, pedals, stats, style chemistry
 src/game/upgrades.js          level-up offers
+src/game/progress.js          the career between runs: goals, records, remixes, Gain (pure, runs in Node)
+src/storage.js                settings, best run and career in localStorage, guarded so the game runs without it
 src/content/instruments/*.js  the 18 instruments, one file per channel
 src/content/pedals.js         the 7 effect pedals
 src/render, src/ui            canvas renderer, HUD, menus
@@ -97,6 +111,7 @@ node tools/check.mjs --mixall --remix                         # the same bands r
 node tools/check.mjs --audit                                  # every note of the song in every key: in key, on the grid
 node tools/check.mjs --replay "speed=12&bot=1&minutes=10"     # play a sim run's track sheet back as a radio edit
 node tools/shots.mjs shots/ [--mobile]                        # drive the real UI and save screenshots
+node tools/progress-check.mjs                                 # the career rules in Node (no browser)
 ```
 
 `sim.mjs --runs N` plays seeds 1 to N, `--parallel N` runs that many pages at once, and `--summary` also
@@ -109,6 +124,6 @@ The balance targets (pacing, boss fight lengths, instrument parity) and how they
 the commit history of the balance pass.
 
 Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god`, `solo` (no level-ups),
-`seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `remix=id,...`, `minutes`, `key`, `density`,
-`realpick` (level-ups through the real pause path) and `chaos` (random pauses, and with `realpick` also
-rerolls, banishes and skips).
+`seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `remix=id,...`, `gain=N`, `minutes`, `key`,
+`density`, `realpick` (level-ups through the real pause path) and `chaos` (random pauses, and with `realpick`
+also rerolls, banishes and skips). Sims never read or write the career.

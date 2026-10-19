@@ -226,6 +226,7 @@ body[data-input=pad] #screens :is(.btn, input):focus { outline: 2px solid var(--
 .tagline { margin: 0; font-size: clamp(16px, 2.2vw, 20px); color: var(--text); max-width: 34ch; text-wrap: balance; }
 .title-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
 .best { margin: 0; font-family: var(--f-mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+.title-wrap .career { margin-top: -12px; color: var(--dim); text-wrap: balance; }
 .hint { margin: 0; font-family: var(--f-mono); font-size: 11px; color: var(--dim); letter-spacing: 0.14em; text-transform: uppercase; }
 
 /* Panels */
@@ -308,6 +309,21 @@ body[data-input=pad] .card:not(.focused) .card-key { display: none; }
 body[data-input=pad] .card-key { font-size: 0; }
 body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
 
+/* Your sounds: first sounds the career has unlocked, as chips under the featured cards. They pick, focus and
+   audition like cards (the class), in the channel color with a stripe in the style color. */
+.chips-label { margin: 22px 0 0; }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; max-width: 940px; }
+.card.chip { flex-direction: row; align-items: center; gap: 9px; min-height: 44px; padding: 5px 14px 5px 5px; border-left: 3px solid var(--s); }
+.card.chip::before, .card.chip::after { display: none; }
+.chip .card-icon { flex-basis: 32px; width: 32px; height: 32px; padding: 6px; }
+.chip-name { font-size: 14px; font-weight: 600; }
+.chips-none { margin: 18px 0 0; font-size: 13.5px; color: var(--dim); }
+/* The Gain stepper under the chips (shown once a win has opened Gain 1). */
+.gain { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 6px; margin-top: 18px; font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
+.gain [data-gain] { min-width: 44px; padding: 0; font-size: 22px; color: var(--text); }
+.gain-name { min-width: 15ch; font-weight: 700; color: var(--text); }
+.gain-mods { margin: 4px 0 0; max-width: 64ch; font-size: 12.5px; line-height: 1.45; color: var(--dim); }
+
 /* Remix cards are gold modules. Recipe lines on other cards are gold too. */
 .card-remix { border-color: color-mix(in srgb, var(--gold) 70%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 12%, var(--panel)), var(--panel) 62%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent), 0 16px 40px -22px var(--gold); }
 .card-remix:hover, .card-remix:focus-visible, .card-remix.focused, .card-remix.listening { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 18px 44px -18px var(--gold); }
@@ -345,6 +361,59 @@ body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
 .er-bar i { display: block; height: 100%; background: var(--c); transform-origin: left center; }
 .er-num { text-align: right; font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
 .end-pedals { margin: 12px 0 0; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.end-notes { margin-top: 16px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line)); border-radius: 4px; background: color-mix(in srgb, var(--gold) 7%, var(--panel-2)); }
+.end-notes .kicker { margin: 0 0 4px; color: var(--gold); }
+.end-notes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 14px; line-height: 1.4; }
+.end-notes .more { color: var(--muted); }
+.end-unsaved { margin: 16px 0 0; font-size: 13.5px; color: var(--dim); }
+.end .now-playing:empty { display: none; }
+.end [data-act=listen] { min-width: 12em; }   /* Listen and Stop keep one width, so the buttons stay put */
+
+/* Discography: record sleeves, the remix crate and the liner notes, one page at a time. */
+#screens:has(.screen-disco) { background: rgba(11, 8, 20, 0.84); }
+.screen-disco { animation: screenIn 0.18s ease-out; }
+.tabs { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--line); }
+.tab { min-height: 44px; padding: 10px 14px; font: 600 14.5px/1 var(--f-body); color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--gold); }
+.tab:focus-visible, body[data-input=pad] #screens .tab:focus { outline: 2px solid var(--text); outline-offset: -2px; }
+.now-playing { min-height: 18px; margin: 10px 0 0; font-family: var(--f-mono); font-size: 12px; color: var(--gold); }
+.disco-label { margin: 16px 0 6px; }
+.sleeves { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 8px; margin-top: 4px; }
+.sleeve {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 10px; align-items: center; min-height: 60px; padding: 8px 10px;
+  text-align: left; color: var(--text); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px;
+}
+button.sleeve { font: inherit; cursor: pointer; }
+button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens .sleeve:focus { border-color: var(--text); outline: none; }
+.sleeve b { font-size: 13.5px; line-height: 1.2; overflow-wrap: break-word; }
+.sleeve span { grid-column: 2; font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
+.sleeve em { font-style: normal; color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent); border-radius: 3px; padding: 0 4px; }
+.sleeve.demo { border-style: dashed; }
+.sleeve.empty { opacity: 0.42; }
+.sleeve.playing { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.disc {
+  grid-row: span 2; width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--line-2);
+  background: radial-gradient(circle, var(--line-2) 0 16%, #0b0814 17% 100%), conic-gradient(transparent 0 15%, rgba(255, 255, 255, 0.14) 20%, transparent 25% 65%, rgba(255, 255, 255, 0.14) 70%, transparent 75%);
+  background-blend-mode: screen;
+}
+.sleeve.gold .disc { border-color: var(--gold); box-shadow: 0 0 12px -3px var(--gold); }
+.sleeve.playing .disc { animation: spin 1.8s linear infinite; }
+@keyframes spin { to { transform: rotate(1turn); } }
+.rx-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.rx-head { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); text-align: center; }
+.rx { display: grid; align-content: start; gap: 2px; min-width: 0; padding: 7px 9px; background: var(--panel-2); border: 1px dashed var(--line-2); border-left: 3px solid var(--c); border-radius: 4px; }
+.rx b { font-family: var(--f-display); font-size: 12.5px; color: var(--dim); overflow-wrap: break-word; }
+.rx span { font-size: 11.5px; line-height: 1.3; color: var(--muted); overflow-wrap: break-word; }
+.rx.found { border-style: solid; border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); border-left-color: var(--c); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 12%, var(--panel-2)), var(--panel-2)); }
+.rx.found b { color: var(--gold); }
+.notes { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 6px; }
+.notes li { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 9px; align-items: center; padding: 7px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; font-size: 13px; line-height: 1.35; color: var(--muted); }
+.notes i { grid-row: span 2; display: grid; place-items: center; width: 20px; height: 20px; font-style: normal; font-size: 12px; font-weight: 700; color: var(--ink); border: 1.5px solid var(--line-2); border-radius: 50%; }
+.notes li.done { color: var(--text); }
+.notes li.done i { background: var(--good); border-color: var(--good); }
+.notes b { color: var(--text); }
+.notes small { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
 
 /* ------------------------------------------------------------------ small screens */
 
@@ -394,6 +463,16 @@ body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
   .roles li { grid-template-columns: 18px 1fr; column-gap: 8px; padding: 5px 8px; font-size: 11.5px; line-height: 1.3; }
   .roles li b { font-size: 11px; }
   .ht-icon { width: 18px; height: 18px; }
+  .title-actions { display: grid; grid-template-columns: 1fr 1fr; width: min(100%, 340px); }
+  .disco.panel { padding: 20px 14px; }
+  .tab { padding: 10px; }
+  .sleeves { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sleeve { grid-template-columns: 32px minmax(0, 1fr); column-gap: 8px; padding: 7px 8px; }
+  .disc { width: 32px; height: 32px; }
+  .rx { padding: 6px 7px; }
+  .rx b { font-size: 11.5px; }
+  .rx span { font-size: 10.5px; }
+  .notes { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Phones either way up: strips show icon and pips only, since a name would be cut to its first letters. */
@@ -419,12 +498,28 @@ body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
   .steps i { height: 6px; }
   .row-actions { margin-top: 8px; }
   .row-actions .btn { min-height: 36px; padding: 8px 14px; }
+  .chips-label { margin-top: 12px; }
   .hud-side .chem, .hud-side .seqgrid { display: none; }
   .panel-actions.col { display: grid; grid-template-columns: 1fr 1fr; }
   /* The section banner is one line under the boss bar and the fight note, so all three fit above you. */
   .banner { top: calc(var(--safe-t) + 150px); }
   .banner-title { display: inline; font-size: 24px; }
   .banner-sub { display: inline; margin-left: 12px; }
+  .end.panel { padding: 16px 20px; }
+  .end-stats { margin-top: 12px; }
+  .end-stats div { padding: 8px 10px; }
+  .end-stats b { font-size: 17px; }
+  .end-notes, .end-song, .end-genre { margin-top: 12px; }
+  .end-song .songmap { margin: 28px 0 14px; }
+  .end-rows { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+  .end .panel-actions { margin-top: 14px; }
+  .disco.panel { padding: 16px 18px; }
+  .disco h2 { font-size: 20px; }
+  .tabs { margin-top: 8px; }
+  .sleeves { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .sleeve { min-height: 48px; padding: 5px 8px; }
+  .notes { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 8px; }
+  .notes li { padding: 5px 8px; font-size: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -432,4 +527,5 @@ body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
   .dropmeter.ready, .hp.low { animation: none; }
   .banner.show { animation-duration: 2.2s; }
   .card, .btn { transition: none; }
+  .sleeve.playing .disc { animation: none; }
 }

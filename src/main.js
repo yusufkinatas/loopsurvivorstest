@@ -3,11 +3,12 @@
 // Test hooks (query string, local only): ?sim=1 runs without audio on a simulated clock.
 // Also: speed=N (sim steps per frame), bot=1, autopick=smart|random|first, god=1, seed=N,
 // start=<instrumentId>, give=id:level,id:level, pedals=id:level, remix=id,id (remix given instruments),
-// minutes=N (stop the sim), render=0, key=N.
+// gain=N (Gain tier), minutes=N (stop the sim), render=0, key=N.
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
-import { Song } from './music/song.js';
+import { Song, SECTIONS } from './music/song.js';
+import { playSheet } from './music/replay.js';
 import { KEYS } from './music/theory.js';
 import { Game } from './game/game.js';
 import { makeInst } from './game/loadout.js';
@@ -16,8 +17,10 @@ import { Hud } from './ui/hud.js';
 import { Screens } from './ui/screens.js';
 import { Input } from './input.js';
 import { botMove, autopick } from './bot.js';
-import { loadSettings, saveSettings, loadBest, saveBest } from './storage.js';
-import { BY_ID, byRole } from './content/instruments/index.js';
+import { loadSettings, saveSettings, loadBest, saveBest, loadMeta, saveMeta } from './storage.js';
+import { applyRun, unlockedStarts } from './game/progress.js';
+import { BY_ID, byRole, INSTRUMENTS } from './content/instruments/index.js';
+import { clamp } from './util.js';
 
 function parseOpts() {
   let q;
@@ -36,6 +39,7 @@ function parseOpts() {
     give: list(get('give')),
     givePedals: list(get('pedals')),
     remix: (get('remix') || '').split(',').filter(Boolean),
+    gain: Number(get('gain')) || 0,
     minutes: Number(get('minutes')) || 0,
     render: get('render') !== '0',
     key: get('key') !== null ? Number(get('key')) : undefined,
@@ -64,7 +68,8 @@ const stickEl = document.getElementById('stick');
 let mode = 'title';        // title | lobby | run
 let lobbyKey = 0;
 let lastStart = null;
-let listening = false;
+let lastEnd = null;        // the end screen's arguments, for Back from the Discography
+let lobbyGain = 0;         // the Gain the next run plays at (meta.gainSel)
 
 const hooks = {
   onLevelUp: (offers) => { hud.hideBanner(); screens.levelUp(game, offers); },
@@ -101,8 +106,12 @@ const screens = new Screens(screensRoot, {
   onBanish: (i) => { const o = game.banish(i); if (o) screens.levelUp(game, o); },
   onSkip: () => skipLevel(),
   onResume: () => { game.unpause(); screens.hide(); },
-  onQuit: () => showTitle(),
-  onListen: (on) => { listening = on; audio.setMuffle(!on); },
+  onQuit: () => { recordRun(game.summary(false)); showTitle(); },
+  onDiscography: (back) => screens.discography(loadMeta(), back),
+  onShowEnd: () => screens.end(...lastEnd),
+  onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
+  onStopTrack: () => stopTrack(),
+  onGain: (d) => stepGain(d),
   onRestart: () => enterLobby(),
   onSettings: (s) => applySettings(s),
   getSettings: () => settings,
@@ -135,9 +144,30 @@ function showTitle() {
   seq.stop();
   game.state = 'idle';
   hudRoot.hidden = true;
-  listening = false;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
-  screens.title(loadBest());
+  screens.title(loadBest(), loadMeta());
+}
+
+// The radio edit of a track sheet (src/music/replay.js), from the end screen or a Discography sleeve. One plays
+// at a time. Screens stop it whenever they change, and so does hiding the page. onEnd runs however it stops.
+let track = null;
+let trackId = 0;
+async function playTrack(sheet, keyPc, onSection, onEnd) {
+  stopTrack();
+  const id = trackId;
+  audio.init();
+  await audio.resume();
+  if (id !== trackId) { onEnd(); return; }   // stopped while the audio woke up
+  audio.setVolume(settings.volume);
+  if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
+  track = { player: playSheet({ seq, audio, sheet, keyPc, onSection, onEnd: () => stopTrack() }), onEnd };
+}
+
+function stopTrack() {
+  trackId++;
+  const t = track;
+  track = null;
+  if (t) { t.player.stop(); t.onEnd(); }
 }
 
 async function enterLobby() {
@@ -152,7 +182,21 @@ async function enterLobby() {
   seq.getInstruments = () => [];
   if (audio.ready) { audio.applyPedals({}); audio.setActiveCount(1); audio.setMuffle(false); audio.setPreviewRole(null); }
   seq.start(clock.now() + 0.08);
-  screens.select(startOptions());
+  const featured = startOptions();
+  const meta = loadMeta();
+  const open = unlockedStarts(meta);
+  lobbyGain = meta.gainSel;
+  screens.select(featured, INSTRUMENTS.filter((d) => open.includes(d.id) && !featured.includes(d)), meta.gainMax ? meta : null);
+}
+
+// The select screen's Gain stepper ([ and ], pad LB and RB, or its buttons). The choice is kept in the career.
+function stepGain(d) {
+  const meta = loadMeta();
+  const sel = clamp(lobbyGain + d, 0, meta.gainMax);
+  if (sel === lobbyGain) return;
+  lobbyGain = meta.gainSel = sel;
+  saveMeta(meta);
+  screens.setGain(sel);
 }
 
 function previewStart(id) {
@@ -164,8 +208,7 @@ function startRun(id) {
   mode = 'run';
   screens.hide();
   hudRoot.hidden = false;
-  listening = false;
-  game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed });
+  game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain });
   hud.refreshLoadout(game);
   hud.setBoss(null);
   dropTipShown = false;
@@ -191,8 +234,25 @@ function endRun(sum) {
   const prevBest = loadBest();
   const best = saveBest(sum);
   hud.setBoss(null);
-  screens.end(sum, best, prevBest);
+  const news = recordRun(sum);
+  lastEnd = [sum, best, prevBest, news];
+  screens.end(...lastEnd);
+  // Something new for the career: the level-up chime in the key the run ended in.
+  if (news?.saved && (news.goals.length || news.record || news.remixes.length || news.gain) && audio.ready) {
+    const root = 72 + ((sum.keyPc + (SECTIONS[sum.sectionIndex]?.lift || 0)) % 12);
+    audio.levelUpChime([root, root + 3, root + 7, root + 12]);
+  }
   if (opts.sim) window.__LS.done = true;
+}
+
+// Fold a finished (or quit) run into the career: goals, records, the remix crate and Gain. Returns what is
+// new, with saved = false when the device did not keep it. Sims never read or write the career.
+function recordRun(sum) {
+  if (opts.sim) return null;
+  const meta = loadMeta();
+  const news = applyRun(meta, sum, { now: Date.now() });
+  news.saved = saveMeta(meta);
+  return news;
 }
 
 // Skip a level-up: a lower blip (the chord's root) than a pick, and the notes go to the Drop meter.
@@ -211,14 +271,15 @@ function onKey(k) {
   if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
   // Escape and B leave banish mode. B is no other level-up action, so it never banishes or skips.
   if (screens.current === 'levelup' && screens.banishing && (k === 'Escape' || k === 'pad-b')) { screens.toggleBanish(false); return true; }
-  // B is Back (or Resume) on every screen that has one.
-  if (screens.current && k === 'pad-b') { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
+  // B is Back (or Resume) on every screen that has one. Escape too on the Discography.
+  if (screens.current && (k === 'pad-b' || (k === 'Escape' && screens.current === 'disco'))) { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
     if (!screens.armed() && !NAV_KEYS.has(k)) return true;
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
     if (k === 'x' && screens.current === 'levelup') { screens.toggleBanish(); return true; }
     if (k === 'q' && screens.current === 'levelup') { skipLevel(); return true; }
+    if (screens.current === 'select' && (k === '[' || k === ']' || k === 'gain-down' || k === 'gain-up')) { stepGain(k === '[' || k === 'gain-down' ? -1 : 1); return true; }
     if (k === 'pad-a') {
       // A presses what has focus: a card or a button under the cards. With nothing focused it only focuses card 1.
       const a = document.activeElement;
@@ -260,6 +321,7 @@ document.addEventListener('visibilitychange', () => {
   if (opts.sim) return;
   if (document.hidden) {
     if (mode === 'run' && game.state === 'playing') pauseRun();
+    stopTrack();
     audio.suspend();
   } else if (mode !== 'title') {
     audio.resume();
@@ -379,9 +441,11 @@ window.__LS = {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
       damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
       damageBy: game.damageBy, lastHitBy: game.lastHitBy, bossLog: game.bossLog,
+      // What the career's goals read.
+      bossKills: game.bossKills, staggers: game.staggers, peak: game.peak, fullBand: game.fullBand, fused: game.fused, maxedAll: game.maxedAll,
       bossesSpawned: game.bossesSpawned, sectionIndex: game.sectionIndex, cap: game.channelCap(), dropState: game.dropState,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
-      genre: game.genre, key: game.key?.name,
+      genre: game.genre, key: game.key?.name, gain: game.gain,
       // Remixes taken (ids, in order) and card screens with no real choice (only bonus cards).
       remixes: game.remixed || [], deadScreens: game.deadScreens || 0, cardScreens: game.cardScreens || 0,
       loadout: game.loadout ? game.loadout.instruments().map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg), kills: i.kills, notes: i.notes })) : [],
@@ -398,7 +462,7 @@ if (opts.sim) {
   mode = 'run';
   hudRoot.hidden = false;
   screens.hide();
-  game.newRun({ start: opts.start || 'kick808', keyIndex: opts.key, seed: opts.seed ?? 1 });
+  game.newRun({ start: opts.start || 'kick808', keyIndex: opts.key, seed: opts.seed ?? 1, gain: opts.gain });
   hud.refreshLoadout(game);
 } else {
   showTitle();
