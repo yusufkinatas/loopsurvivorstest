@@ -58,6 +58,18 @@ const subBass = {
       kb: st.kb, slow: st.slow, stun: long ? st.stun || 0 : 0, color, fill: long ? 0.26 : 0.16, flashLife: long ? 0.3 : 0.2 });
     g.shake = Math.max(g.shake, (long ? 2 : 1) * note.v);
   },
+
+  remix: {
+    id: 'wobblebass', name: 'Wobble Bass', pedal: 'wah',
+    text: 'Every note wobbles: a wave sweeps out past your pulse and back while the note plays, hitting and slowing on the way out and on the way back.',
+    stats: { wobble: 0.4, wobbleReach: 1.3, wobbleSlow: 0.6 },
+    fire(g, note, st, inst) {
+      this.fire(g, note, st, inst);
+      const p = g.player;
+      g.fx.ring({ x: p.x, y: p.y, follow: true, yoyo: true, r0: 24, r1: g.area(st.radius) * st.wobbleReach, dur: Math.max(2 * STEP_SEC, note.dur),
+        damage: g.dmg(st.damage) * note.v * st.wobble, kb: 20, slow: st.wobbleSlow, color: g.color('bass'), width: 8 });
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------- Upright Bass (Live)
@@ -105,8 +117,20 @@ const upright = {
     const color = g.color('bass');
     const target = g.nearest(p.x, p.y, 520);
     const a = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
+    // Slap Bass (remix, st.pop): the slug pops on the first enemy it hits.
+    const onHit = st.pop ? (b, e, gg) => {
+      if (b.popped) return;
+      b.popped = true;
+      gg.fx.pulse({ x: e.x, y: e.y, r: gg.area(st.popRadius), damage: b.damage * st.pop, kb: 160, color, fill: 0.32 });
+    } : null;
     g.fx.bullet({ x: p.x, y: p.y, angle: a, rot: a, speed: g.speed(st.speed), r: st.size * (0.8 + 0.2 * note.v), life: 1.5,
-      damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: st.kb, color, shape: 'seed', trail: true });
+      damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: st.kb, color, shape: 'seed', trail: true, onHit });
+  },
+
+  remix: {
+    id: 'slapbass', name: 'Slap Bass', pedal: 'overdrive',
+    text: 'Slugs pop on the first enemy they hit, blasting everything around it, then bowl on through five enemies.',
+    stats: { pierce: 5, pop: 0.5, popRadius: 60 },
   },
 };
 
@@ -150,8 +174,9 @@ const triBass = {
     const p = g.player;
     const color = g.color('bass');
     const id = inst.def.id;
-    // Mines already lying in a crowd go off on the beat; the rest keep waiting.
-    g.fx.detonateMines(id, 1, { armed: true });
+    // Mines already lying in a crowd go off on the beat; the rest keep waiting. Blown Speaker (remix,
+    // st.chain): every blast also sets off the mines inside it.
+    g.fx.detonateMines(id, 1, { armed: true, chain: !!st.chain });
     // Then toss fresh ones: the first into the thickest crowd nearby, extras onto other enemies.
     // With nobody around they land at your feet.
     const n = Math.max(1, g.amount(st.count));
@@ -163,6 +188,12 @@ const triBass = {
         kb: st.kb, color, life: 5, max: n + 6, size: 6 + note.v * 2 });
       g.fx.particles(x, y, color, 3, 60, 0.25, 2);
     }
+  },
+
+  remix: {
+    id: 'blownspeaker', name: 'Blown Speaker', pedal: 'overdrive',
+    text: 'Bigger, harder blasts, and every blast sets off the other mines inside it in a chain reaction.',
+    stats: { radius: 100, damage: 17, chain: 1 },
   },
 };
 

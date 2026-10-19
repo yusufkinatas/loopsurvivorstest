@@ -214,6 +214,8 @@ export class Game {
     return amt;
   }
   speed(v) { return v * this.stats.projSpeed; }
+  // Pay into the Drop meter (a skipped level, Soul Keys, Jackpot).
+  chargeDrop(n) { if (n > 0) this.dropCharge = Math.min(this.dropMax, this.dropCharge + n); }
   color(roleOrInst) {
     const role = typeof roleOrInst === 'string' ? roleOrInst : roleOrInst?.def?.role;
     return ROLE_INFO[role]?.color || '#ffffff';
@@ -630,7 +632,7 @@ export class Game {
   // Pass on this level: its notes go to the Drop meter instead.
   skip() {
     if (this.state !== 'levelup' || !this.offers) return;
-    this.dropCharge = Math.min(this.dropMax, this.dropCharge + DROP.charge * DROP.skip);
+    this.chargeDrop(DROP.charge * DROP.skip);
     this.choose(-1);
   }
 

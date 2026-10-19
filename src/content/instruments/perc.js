@@ -2,6 +2,7 @@
 // off-beat 8ths first, then 16ths and ghost notes. Step 0 belongs to the kick, so low levels stay off it.
 
 import { rand } from '../../util.js';
+import { STEP_SEC, BEAT_SEC, ECHO_STEPS } from '../../config.js';
 
 // Pattern helpers: step s, velocity v, kind k.
 const H = (s, v = 1) => ({ s, v, k: 'hat' });
@@ -86,7 +87,46 @@ const hats909 = {
       }
     }
   },
+
+  remix: {
+    id: 'pingponghats', name: 'Ping-Pong Hats', pedal: 'delay',
+    text: 'Every needle bounces back on the delay: a dotted eighth later, a second needle flies at the nearest enemy behind you.',
+    stats: { pong: 0.7 },
+    fire(g, note, st, inst) {
+      this.fire(g, note, st, inst);
+      if (g.dmgScale !== 1) return;   // an echo does not bounce again
+      const ahead = aimAt(g, st.range);
+      g.later.push({ at: g.time + ECHO_STEPS * STEP_SEC, fn: () => {
+        if (!g.loadout.has(inst)) return;
+        const prev = g.src; g.src = inst;
+        pong(g, note, st, ahead);
+        g.src = prev;
+      } });
+    },
+  },
 };
+
+// Ping-Pong Hats: the bounce flies at the nearest enemy behind you (away from where the first needle
+// went), or at the nearest enemy anywhere when nobody is behind you.
+function pong(g, note, st, ahead) {
+  const p = g.player;
+  const open = note.k === 'open';
+  const ax = Math.cos(ahead), ay = Math.sin(ahead), r2 = st.range * st.range;
+  let behind = null, bd = r2;
+  g.grid.query(p.x, p.y, st.range, (e) => {
+    if (e.dead || e.spawnT > 0.2) return;
+    const dx = e.x - p.x, dy = e.y - p.y, d = dx * dx + dy * dy;
+    if (d < bd && dx * ax + dy * ay < 0) { bd = d; behind = e; }
+  });
+  const e = behind || g.nearest(p.x, p.y, st.range);
+  const a = e ? Math.atan2(e.y - p.y, e.x - p.x) : ahead + Math.PI;
+  const n = g.amount(open ? 3 : 1);
+  for (let i = 0; i < n; i++) {
+    g.fx.bullet({ x: p.x, y: p.y, angle: a + (i - (n - 1) / 2) * (open ? 0.2 : 0.14), speed: g.speed(st.speed) * (open ? 0.9 : 1), r: open ? 4 : 3,
+      life: open ? 0.5 : 0.42, damage: g.dmg(open ? st.openDamage : st.damage) * note.v * st.pong, pierce: open ? st.openPierce : st.pierce,
+      kb: open ? 30 : 12, color: g.color('perc'), shape: 'shard', trail: open });
+  }
+}
 
 // ---------------------------------------------------------------------------- Shaker (Live)
 
@@ -155,6 +195,28 @@ const shaker = {
       grp.pulse({ damage: g.dmg(st.damage) * note.v, r: g.area(st.radius), kb: 8, color, index: inst.state.i });
     }
   },
+
+  remix: {
+    id: 'rainstick', name: 'Rainstick', pedal: 'reverb',
+    text: 'Tambourine hits swing the seeds out to twice their orbit and back over one beat. While they swing, every shake flashes them all.',
+    stats: { swing: 1.1 },
+    // The swing runs on game time from the tambourine note, so it lands back on the next beat.
+    update(g, dt, st, inst) {
+      const S = inst.state;
+      if (!(S.swingT > 0) || !S.orbit) return;
+      S.swingT = Math.max(0, S.swingT - dt);
+      S.orbit.radius = st.orbit * (1 + st.swing * Math.sin(Math.PI * (1 - S.swingT / BEAT_SEC)));
+    },
+    fire(g, note, st, inst) {
+      const S = inst.state;
+      if (note.k === 'tamb') S.swingT = BEAT_SEC;
+      else if (S.swingT > 0 && S.orbit?.items.length) {
+        S.orbit.pulse({ damage: g.dmg(st.damage) * note.v, r: g.area(st.radius), kb: 20, color: g.color(inst) });
+        return;
+      }
+      this.fire(g, note, st, inst);
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------- Noise Hats (8-Bit)
@@ -203,18 +265,46 @@ const chiphat = {
     }
   },
 
-  fire(g, note, st) {
-    const p = g.player;
-    const color = g.color('perc');
-    if (note.k === 'crash') {
-      g.fx.zap({ x: p.x, y: p.y, range: st.range * 1.3, chain: g.amount(st.chain + st.crashChain), chainRange: g.area(st.chainRange) * 1.2,
-        damage: g.dmg(st.crashDamage) * note.v, falloff: 0.92, color, width: 4, stun: 0.2 });
-      g.fx.flash(p.x, p.y, 40, color, 0.2, 0.25);
-    } else {
-      g.fx.zap({ x: p.x, y: p.y, range: st.range, chain: g.amount(st.chain), chainRange: g.area(st.chainRange),
-        damage: g.dmg(st.damage) * note.v, falloff: 0.85, color });
-    }
+  fire(g, note, st) { bolt(g, note, st, null); },
+
+  remix: {
+    id: 'shortcircuit', name: 'Short Circuit', pedal: 'bitcrusher',
+    text: 'Bolts fork: every enemy a bolt strikes arcs a spark to its nearest neighbor.',
+    stats: { fork: 0.5, forkReach: 0.8 },
+    fire(g, note, st) {
+      struck.length = 0;
+      bolt(g, note, st, strike);
+      const dmg = g.dmg(note.k === 'crash' ? st.crashDamage : st.damage) * note.v * st.fork;
+      const reach = g.area(st.chainRange) * st.forkReach;
+      seen.clear();
+      for (const e of struck) seen.add(e);
+      for (const e of struck) {
+        const t = g.nearest(e.x, e.y, reach, seen);
+        if (!t) continue;
+        seen.add(t);
+        g.fx.zap({ x: e.x, y: e.y, target: t, chain: 1, damage: dmg, color: g.color('perc'), width: 1.5, life: 0.14 });
+      }
+    },
   },
 };
+
+// One tick's bolt (a crash's is bigger and stuns). onHit(enemy) sees every enemy it strikes.
+function bolt(g, note, st, onHit) {
+  const p = g.player;
+  const color = g.color('perc');
+  if (note.k === 'crash') {
+    g.fx.zap({ x: p.x, y: p.y, range: st.range * 1.3, chain: g.amount(st.chain + st.crashChain), chainRange: g.area(st.chainRange) * 1.2,
+      damage: g.dmg(st.crashDamage) * note.v, falloff: 0.92, color, width: 4, stun: 0.2, onHit });
+    g.fx.flash(p.x, p.y, 40, color, 0.2, 0.25);
+  } else {
+    g.fx.zap({ x: p.x, y: p.y, range: st.range, chain: g.amount(st.chain), chainRange: g.area(st.chainRange),
+      damage: g.dmg(st.damage) * note.v, falloff: 0.85, color, onHit });
+  }
+}
+
+// Short Circuit scratch, reused so a note allocates nothing: who the bolt struck, and who is hit already.
+const struck = [];
+const seen = new Set();
+const strike = (e) => { struck.push(e); };
 
 export default [hats909, shaker, chiphat];

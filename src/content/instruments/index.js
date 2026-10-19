@@ -38,7 +38,8 @@ export function validate(def) {
   });
   // A remix with a wrong pedal id could never be offered.
   const rm = def.remix;
-  if (rm) {
+  if (!rm) errs.push('missing remix');
+  else {
     if (!rm.id || !rm.name || !rm.text) errs.push('remix needs id, name and text');
     if (!PEDAL_BY_ID[rm.pedal]) errs.push(`remix pedal ${rm.pedal} unknown`);
     for (const fn of ['fire', 'setup', 'update']) if (rm[fn] && typeof rm[fn] !== 'function') errs.push(`remix ${fn} is not a function`);

@@ -63,9 +63,16 @@ const arpSynth = {
     const base = note.s * TAU / 16 + g.time * 0.4;
     const speed = g.speed(st.speed) * (0.85 + 0.35 * lift(note, inst));
     for (let i = 0; i < n; i++) {
-      g.fx.bullet({ x: p.x, y: p.y, angle: base + (i / n) * TAU, speed, r: st.size, life: st.life,
+      // Galaxy (remix, st.curve): sparks curve off into spiral arms.
+      g.fx.bullet({ x: p.x, y: p.y, angle: base + (i / n) * TAU, speed, r: st.size, life: st.life, curve: st.curve,
         damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 25, color, shape: 'star', spin: 9 });
     }
+  },
+
+  remix: {
+    id: 'galaxy', name: 'Galaxy', pedal: 'reverb',
+    text: 'Sparks curve into spiral arms, drift almost twice as long and punch through five enemies.',
+    stats: { curve: 1.6, life: 2.1, pierce: 5 },
   },
 };
 
@@ -119,14 +126,22 @@ const musicBox = {
     const p = g.player;
     const color = g.color(inst);
     const n = g.amount(st.stars);
+    // Lullaby (remix, st.vuln): what a star lands on is marked, and takes more damage from every source (game.hit).
+    const onLand = st.vuln ? (s, gg) => { for (const e of gg.inRadius(s.x, s.y, s.r)) { e.vulnUntil = gg.time + st.vulnTime; e.vuln = st.vuln; } } : null;
     for (let i = 0; i < n; i++) {
       const e = g.randomEnemy(p.x, p.y, 450);
       // Nobody around: the star still falls just ahead of you, so every chime shows up on screen.
       const a = g.aim() + (i - (n - 1) / 2) * 0.6;
       const x = e ? e.x : p.x + Math.cos(a) * 110, y = e ? e.y : p.y + Math.sin(a) * 110;
       g.fx.strike({ x, y, target: e, delay: FALL, r: g.area(st.radius) * (0.8 + 0.2 * note.v),
-        damage: g.dmg(st.damage) * note.v, kb: 60, stun: st.stun || 0, color, style: 'star' });
+        damage: g.dmg(st.damage) * note.v, kb: 60, stun: st.stun || 0, color, style: 'star', onLand });
     }
+  },
+
+  remix: {
+    id: 'lullaby', name: 'Lullaby', pedal: 'reverb',
+    text: 'Stars sing the Noise to sleep: what they land on stays frozen longer and takes 35% more damage from your whole band for 2 seconds.',
+    stats: { stun: 0.8, vuln: 0.35, vulnTime: 2 },
   },
 };
 
@@ -181,12 +196,37 @@ const chipArp = {
     // Pitch picks the angle: low notes veer one way, high notes the other, so a run fans coins across the target.
     const off = (lift(note, inst) - 0.5) * 0.8;
     const n = g.amount(st.coins);
+    // Jackpot (remix, st.bank): coins that hit something pay into the Drop meter when they get home.
+    const onReturn = st.bank ? (b, gg) => homeCoin(b, gg, st) : null;
     for (let i = 0; i < n; i++) {
       const a = base + off + (i - (n - 1) / 2) * 0.55;
       g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r: st.size, life: st.throw,
-        damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 30, color, shape: 'coin', spin: 14, boomerang: true });
+        damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 30, color, shape: 'coin', spin: 14, boomerang: true,
+        onHit: st.bank ? paid : null, onReturn });
     }
   },
+
+  remix: {
+    id: 'jackpot', name: 'Jackpot', pedal: 'delay',
+    text: 'Coins make the trip twice, and every coin that comes home after hitting something pays into the Drop meter.',
+    stats: { trip: 0.35, bank: 1 },
+  },
 };
+
+// Jackpot: a coin home from a trip where it hit something banks Drop charge. After its first trip it
+// flies once more, at `trip` of its damage, aimed at the nearest enemy.
+const paid = (b) => { b.paid = true; };
+function homeCoin(b, g, st) {
+  if (b.paid) g.chargeDrop(st.bank);
+  if (b.trip) return false;
+  const p = g.player;
+  const e = g.nearest(p.x, p.y, 480);
+  const a = e ? Math.atan2(e.y - p.y, e.x - p.x) : Math.atan2(b.vy, b.vx) + Math.PI;
+  const sp = g.speed(st.speed);
+  b.trip = true; b.paid = false; b.returning = false; b.age = 0; b.damage *= st.trip;
+  b.hit.clear();
+  b.vx = Math.cos(a) * sp; b.vy = Math.sin(a) * sp;
+  return true;
+}
 
 export default [arpSynth, musicBox, chipArp];

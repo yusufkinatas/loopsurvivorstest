@@ -97,8 +97,9 @@ export class Effects {
     hits.sort((a, b) => dist2(a.x, a.y, o.x, o.y) - dist2(b.x, b.y, o.x, o.y));
     const max = o.pierce ?? Infinity;
     for (let i = 0; i < hits.length && i < max; i++) {
+      const alive = !hits[i].dead;   // an earlier hit's onHit may have killed it already
       g.hit(hits[i], o.damage, { kb: o.kb ?? 60, fx: o.x, fy: o.y, stun: o.stun, slow: o.slow });
-      if (o.onHit) o.onHit(hits[i]);
+      if (o.onHit && alive) o.onHit(hits[i]);
     }
     this.beams.push({ x1: o.x, y1: o.y, x2, y2, width: w, color: o.color ?? '#fff', life: o.life ?? 0.16, age: 0 });
     return hits.length;

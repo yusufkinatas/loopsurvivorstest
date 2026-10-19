@@ -2,7 +2,7 @@
 // tones on the strong beats and scale steps in between, so it is sweet over every chord. Precise,
 // long-range shots, and the pitch of each note steers its shot so you can see the tune.
 
-import { STEP_SEC } from '../../config.js';
+import { STEP_SEC, ECHO_STEPS } from '../../config.js';
 
 // Pattern helpers: step s (0..31), duration d in steps, velocity v.
 const C = (s, ct, d = 1, v = 1) => ({ s, ct, d, v });   // chord tone: 0 root, 1 third, 2 fifth, 3 octave
@@ -61,27 +61,52 @@ const sawLead = {
     });
   },
 
-  fire(g, note, st) {
-    const p = g.player;
-    const color = g.color('lead');
-    const long = note.dur >= LONG;
-    const len = st.length;
-    const targets = g.nearestN(p.x, p.y, 2, len + 40);
-    const beam = (target, scale) => {
-      const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
-      // The pitch moves where the laser starts: high notes fire from one shoulder, low from the other.
-      // It still passes through the target, so the tune sweeps the beam without costing hits.
-      const side = (note.midi - MID) * 2.4;
-      const x = p.x - Math.sin(base) * side, y = p.y + Math.cos(base) * side;
-      const angle = target ? Math.atan2(target.y - y, target.x - x) : base;
-      g.fx.beam({ x, y, angle, length: len, width: g.area(long ? st.wide : st.width),
-        damage: g.dmg(st.damage * (long ? st.longMul : 1)) * note.v * scale, kb: long ? 90 : 40, color,
-        life: long ? 0.3 : 0.16 });
-    };
-    beam(targets[0], 1);
-    if (long && st.twin && targets[1]) beam(targets[1], 1);
+  fire(g, note, st) { lasers(g, note, st, null); },
+
+  remix: {
+    id: 'screamer', name: 'Screamer', pedal: 'overdrive',
+    text: 'Lasers reach across the screen, held notes keep firing on every 16th, and anything a laser kills bursts.',
+    stats: { length: 760, burst: 0.6, burstRadius: 60 },
+    fire(g, note, st, inst) {
+      const r = g.area(st.burstRadius), color = g.color('lead');
+      const dmg = g.dmg(st.damage * (note.dur >= LONG ? st.longMul : 1)) * note.v * st.burst;
+      const burst = (e) => { if (e.dead) g.fx.pulse({ x: e.x, y: e.y, r, damage: dmg, kb: 120, color, fill: 0.3 }); };
+      lasers(g, note, st, burst);
+      // Held notes keep screaming: the laser fires again on every 16th while the note sounds. Echoes do not.
+      if (note.dur < LONG || g.dmgScale !== 1) return;
+      for (let k = 1; k < Math.round(note.dur / STEP_SEC); k++) {
+        g.later.push({ at: g.time + k * STEP_SEC, fn: () => {
+          if (!g.loadout.has(inst)) return;
+          const prev = g.src; g.src = inst;
+          lasers(g, note, st, burst);
+          g.src = prev;
+        } });
+      }
+    },
   },
 };
+
+// One note's lasers through the nearest enemy (plus a second enemy on held notes once the level has twin).
+function lasers(g, note, st, onHit) {
+  const p = g.player;
+  const color = g.color('lead');
+  const long = note.dur >= LONG;
+  const len = st.length;
+  const targets = g.nearestN(p.x, p.y, 2, len + 40);
+  const beam = (target) => {
+    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
+    // The pitch moves where the laser starts: high notes fire from one shoulder, low from the other.
+    // It still passes through the target, so the tune sweeps the beam without costing hits.
+    const side = (note.midi - MID) * 2.4;
+    const x = p.x - Math.sin(base) * side, y = p.y + Math.cos(base) * side;
+    const angle = target ? Math.atan2(target.y - y, target.x - x) : base;
+    g.fx.beam({ x, y, angle, length: len, width: g.area(long ? st.wide : st.width),
+      damage: g.dmg(st.damage * (long ? st.longMul : 1)) * note.v, kb: long ? 90 : 40, color,
+      life: long ? 0.3 : 0.16, onHit });
+  };
+  beam(targets[0]);
+  if (long && st.twin && targets[1]) beam(targets[1]);
+}
 
 // ---------------------------------------------------------------------------- Wooden Flute (Live)
 
@@ -148,6 +173,19 @@ const flute = {
         shape: 'dot', trail: true });
     }
   },
+
+  remix: {
+    id: 'canon', name: 'Canon', pedal: 'delay',
+    text: 'The flute plays a round: the delay sings every wisp again, a dotted eighth and then a quarter later.',
+    stats: { canon: 0.6, canon2: 0.35 },
+    fire(g, note, st, inst) {
+      this.fire(g, note, st, inst);
+      if (g.dmgScale !== 1) return;   // the round's own voices do not start new rounds
+      // Through fireNote, like a Tape Delay echo: on whole 16ths of game time, so a pause holds them too.
+      g.later.push({ at: g.time + ECHO_STEPS * STEP_SEC, fn: () => g.fireNote(inst, note, st.canon) });
+      g.later.push({ at: g.time + 2 * ECHO_STEPS * STEP_SEC, fn: () => g.fireNote(inst, note, st.canon2) });
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------- Square Lead (8-Bit)
@@ -205,6 +243,25 @@ const squareLead = {
       g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r: 5, life: 1.1,
         damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 45, color, shape: 'diamond' });
     }
+  },
+
+  remix: {
+    id: 'twinlead', name: 'Twin Lead', pedal: 'chorus',
+    text: 'A harmony line joins the tune: every note fires a second fan at another enemy, swinging the other way.',
+    stats: { twin: 0.7 },
+    fire(g, note, st, inst) {
+      this.fire(g, note, st, inst);
+      const p = g.player;
+      const near = g.nearestN(p.x, p.y, 2, 560);
+      const t = near[1] || near[0];   // alone, the harmony doubles onto the same enemy
+      const base = t ? Math.atan2(t.y - p.y, t.x - p.x) : g.aim() + Math.PI;
+      const swing = -(note.midi - MID) * st.swing;
+      const n = g.amount(st.count);
+      for (let i = 0; i < n; i++) {
+        g.fx.bullet({ x: p.x, y: p.y, angle: base + swing + (i - (n - 1) / 2) * st.spread, speed: g.speed(st.speed), r: 5, life: 1.1,
+          damage: g.dmg(st.damage) * note.v * st.twin, pierce: st.pierce, kb: 45, color: g.color('lead'), shape: 'diamond' });
+      }
+    },
   },
 };
 
