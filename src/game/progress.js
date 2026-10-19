@@ -119,7 +119,7 @@ export function applyRun(meta, sum, { now }) {
   for (const g of GOALS) {
     if (meta.goals[g.id]) continue;
     let ok = false;
-    try { ok = !!g.test(sum, meta); } catch (e) { ok = false; }
+    try { ok = !!g.test(sum, meta); } catch (e) { /* a missing summary field leaves the goal open */ }
     if (ok) { meta.goals[g.id] = now; out.goals.push(g); }
   }
   return out;
