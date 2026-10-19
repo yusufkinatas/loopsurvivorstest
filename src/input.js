@@ -112,14 +112,12 @@ export class Input {
     const push = Math.hypot(ax, ay) > 0.5;
     if (push && !this.padPrev.push) this.setDevice('pad');
     this.padPrev.push = push;
-    // The stick also steps through menus, with hysteresis so a resting stick does not repeat.
-    this._stickStep('x', ax, 'pad-left', 'pad-right');
-    this._stickStep('y', ay, 'pad-up', 'pad-down');
-  }
-
-  _stickStep(axis, v, neg, pos) {
-    const dir = this.padPrev[axis] || 0;
-    if (dir === 0 && Math.abs(v) > 0.6) { this.padPrev[axis] = Math.sign(v); this.onKey(v > 0 ? pos : neg, null); }
-    else if (dir !== 0 && Math.abs(v) < 0.3) this.padPrev[axis] = 0;
+    // The stick also steps through menus: one step per push, along the axis pushed furthest, with hysteresis
+    // so a resting stick does not repeat.
+    const m = Math.max(Math.abs(ax), Math.abs(ay));
+    if (!this.padPrev.step && m > 0.6) {
+      this.padPrev.step = true;
+      this.onKey(Math.abs(ax) >= Math.abs(ay) ? (ax > 0 ? 'pad-right' : 'pad-left') : ay > 0 ? 'pad-down' : 'pad-up', null);
+    } else if (this.padPrev.step && m < 0.3) this.padPrev.step = false;
   }
 }
