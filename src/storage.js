@@ -5,10 +5,12 @@ import { normalizeMeta } from './game/progress.js';
 
 const KEY = 'loop-survivors:v1';
 
+// Always a plain object: a stored null, number or array (data the game never writes) reads as empty.
 function read() {
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : {};
+    const d = raw ? JSON.parse(raw) : {};
+    return d && typeof d === 'object' && !Array.isArray(d) ? d : {};
   } catch (e) {
     return {};
   }
