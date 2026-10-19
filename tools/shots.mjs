@@ -22,19 +22,23 @@ page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
 const tag = mobile ? 'm' : 'd';
 const snap = (name) => page.screenshot({ path: `${outDir}/${tag}-${name}.png` });
 const wait = (ms) => page.waitForTimeout(ms);
+const press = (sel) => (mobile ? page.tap(sel) : page.click(sel));   // a phone taps, so prompts follow touch
 
 await page.goto(`${url}/index.html?bot=1&seed=5`);
 await wait(900);
 await snap('1-title');
-await page.click('[data-act=play]');
+await press('[data-act=play]');
 await wait(700);
 await snap('2-select');
-await page.click('.card[data-i="0"]');
+await press('.card[data-i="0"]');
 await wait(6000);
 await snap('3-play-early');
-// Fast-forward: give a full band and some pedals so the HUD and arena are busy.
+// Fast-forward: give a full band and some pedals so the HUD and arena are busy. XP opens no level-ups from
+// here on, so the full-band shot shows play (the level-up shot opens one itself).
 await page.evaluate(async () => {
   const { game } = window.__LS;
+  game.opts.solo = true;
+  for (let i = 0; i < 20 && game.state === 'levelup'; i++) game.choose(0);
   const mod = await import('/src/content/instruments/index.js');
   const ped = await import('/src/content/pedals.js');
   for (const def of mod.INSTRUMENTS) {
@@ -51,17 +55,22 @@ await snap('5-levelup');
 await page.hover('.card[data-i="1"]').catch(() => {});
 await wait(1200);
 await snap('6-levelup-hover');
-await page.keyboard.press('1');
+if (mobile) await press('.card[data-i="0"]');
+else await page.keyboard.press('1');
 await wait(500);
 await page.evaluate(() => document.querySelector('.pausebtn')?.click());
 await wait(500);
 await snap('7-pause');
-await page.click('[data-act=resume]').catch(() => {});
+await press('[data-act=resume]').catch(() => {});
 await wait(400);
 await page.evaluate(() => { const g = window.__LS.game; g.opts.god = false; g.player.iframes = 0; g.player.hp = 1; g.hurt(50, null); });
-await wait(900);
+await wait(2500);   // the death beat (0.9 s) and the screen fade, so the end screen is settled
 await snap('8-end');
-await page.click('[data-act=howto]').catch(() => {});
+await press('[data-act=title]');
+await wait(500);
+await press('[data-act=howto]');
+await wait(500);
+await snap('9-howto');
 console.log(JSON.stringify({ logs: logs.filter((l) => !/Failed to load resource/.test(l)).slice(0, 20) }, null, 2));
 await browser.close();
 server.close();
