@@ -189,9 +189,10 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
       if (a > peak) peak = a;
       if (a >= 0.999) clip++;
     }
+    const own = notes.filter((e) => e.note.bar === bar);
     perBar.push({
-      bar, section: pos.section.id, barInSection: pos.barInSection, chord: pos.chord.name,
-      notes: notes.filter((e) => e.note.bar === bar).length,
+      bar, section: pos.section.id, barInSection: pos.barInSection, chord: (own[0]?.note.chord || pos.chord).name,   // the chord played (the ending's is i)
+      notes: own.length,
       rmsDb: +(10 * Math.log10(sum / len + 1e-12)).toFixed(1), peak: +peak.toFixed(3), clip,
       brightHz: sum ? Math.round((Math.sqrt(d / sum) * SR) / (2 * Math.PI)) : 0,   // RMS-frequency estimate
     });

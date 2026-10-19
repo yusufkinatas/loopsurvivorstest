@@ -62,7 +62,7 @@ const ARRANGE = {
 };
 
 // Every section is a multiple of 8 bars, so the fill on each 8th bar also ends every section.
-export function arrangement(section, b) {
+function arrangement(section, b) {
   if (section.end) return b ? SILENT : LAST_HIT;
   return ARRANGE[section.id]?.(b) || (b % 8 === 7 ? FILL : PLAIN);
 }
