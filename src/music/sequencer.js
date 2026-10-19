@@ -169,7 +169,8 @@ export class Sequencer {
 
     if (emit && sib % 4 === 0) {
       this.events.push({ type: 'beat', time: t, beat: sib / 4, bar: this.bar, sib });
-      if (A) for (const c of this.getBossCues(this.bar, sib / 4)) A.bossCue(c, t, chord);
+      // The impact is the downbeat's one hit, and a player's Drop may knock the boss off this beat.
+      if (A && impactAt === null) for (const c of this.getBossCues(this.bar, sib / 4)) A.bossCue(c, t, chord);
     }
     this.stepLog.push({ time: t, sib, bar: this.bar, rest: arr ? arr.rest : null });
     if (this.stepLog.length > 24) this.stepLog.shift();
