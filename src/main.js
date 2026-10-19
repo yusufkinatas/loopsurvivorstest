@@ -17,8 +17,8 @@ import { Screens } from './ui/screens.js';
 import { Input } from './input.js';
 import { botMove, autopick } from './bot.js';
 import { loadSettings, saveSettings, loadBest, saveBest, loadMeta, saveMeta } from './storage.js';
-import { applyRun } from './game/progress.js';
-import { BY_ID, byRole } from './content/instruments/index.js';
+import { applyRun, unlockedStarts } from './game/progress.js';
+import { BY_ID, byRole, INSTRUMENTS } from './content/instruments/index.js';
 
 function parseOpts() {
   let q;
@@ -153,7 +153,9 @@ async function enterLobby() {
   seq.getInstruments = () => [];
   if (audio.ready) { audio.applyPedals({}); audio.setActiveCount(1); audio.setMuffle(false); audio.setPreviewRole(null); }
   seq.start(clock.now() + 0.08);
-  screens.select(startOptions());
+  const featured = startOptions();
+  const open = unlockedStarts(loadMeta());
+  screens.select(featured, INSTRUMENTS.filter((d) => open.includes(d.id) && !featured.includes(d)));
 }
 
 function previewStart(id) {

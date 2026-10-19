@@ -182,22 +182,33 @@ export class Screens {
 
   // ---------------------------------------------------------------------------- first sound
 
-  select(defs) {
+  // defs: the three featured first sounds. chips: the other sounds the career has unlocked, picked and
+  // auditioned like the cards.
+  select(defs, chips) {
     const cards = defs.map((def, i) => cardHtml({
       title: def.name, eyebrow: `${ROLE_INFO[def.role].name} channel`, color: ROLE_INFO[def.role].color,
       style: STYLES[def.style], tag: 'Your first sound', level: 1, maxLevel: 5, body: def.blurb, detail: def.levels[0].text,
       cells: def.levels[0].pattern.reduce((cells, n) => { cells[n.s] = { on: true, v: n.v ?? 1 }; return cells; }, Array.from({ length: def.steps || 16 }, () => ({ on: false }))),
       icon: def.role, chem: [],
     }, i, { listen: true })).join('');
+    const chipHtml = chips.map((def, i) => `
+      <button class="card chip" type="button" data-i="${defs.length + i}" style="--c:${ROLE_INFO[def.role].color};--s:${STYLES[def.style].color}" title="${esc(`${def.name} · ${STYLES[def.style].name} · ${ROLE_INFO[def.role].name} channel`)}">
+        <span class="card-icon">${icon(def.role)}</span><span class="chip-name">${esc(def.name)}</span>
+      </button>`).join('');
+    const yours = chips.length
+      ? `<p class="kicker chips-label">Your sounds</p><div class="chips">${chipHtml}</div>`
+      : `<p class="chips-none">Liner-note goals unlock ${INSTRUMENTS.length - defs.length} more first sounds.</p>`;
+    const all = [...defs, ...chips];
     const el = this._mount('select', `
       <div class="cards-wrap">
         <p class="kicker">Choose your first sound</p>
         <h2>Every song starts with one sound</h2>
         <p class="sub">Hover or hold a card to hear it. You add the rest of the band as you level up.</p>
         <div class="cards">${cards}</div>
+        ${yours}
         <div class="row-actions"><button class="btn btn-ghost" type="button" data-act="back">Back</button></div>
       </div>`);
-    this._wireCards(el, (i) => this.h.onPickStart(defs[i].id), (i) => this.h.onPreviewStart(i === null ? null : defs[i].id));
+    this._wireCards(el, (i) => this.h.onPickStart(all[i].id), (i) => this.h.onPreviewStart(i === null ? null : all[i].id));
     el.querySelector('[data-act=back]').addEventListener('click', () => { this.h.onPreviewStart(null); this.h.onShowTitle(); });
   }
 
@@ -277,8 +288,8 @@ export class Screens {
     if (document.body.dataset.input === 'pad') cards[0]?.focus();
   }
 
-  // Keyboard and pad navigation for card screens: left and right move along the cards or along the
-  // buttons under them, down and up move between the two.
+  // Keyboard and pad navigation for card screens: left and right move along a row (the cards, the chips
+  // or the buttons under them), down and up move between rows.
   cardKey(key) {
     if (!this.cards || !this.cards.length) return false;
     if (key >= '1' && key <= '9') {
@@ -288,14 +299,16 @@ export class Screens {
     // Arrow keys only: A and D are movement keys and would move focus while strafing.
     if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
       const a = document.activeElement;
-      const row = [...this.root.querySelectorAll('.row-actions button:not([disabled])')];
-      const inRow = row.includes(a);
-      if (!inRow && !this.cards.includes(a)) this.cards[0].focus();   // first press lands on the first card
-      else if (key === 'ArrowDown') { if (!inRow && row.length) row[0].focus(); }
-      else if (key === 'ArrowUp') { if (inRow) this.cards[this.focus].focus(); }
-      else {
-        const list = inRow ? row : this.cards;
-        list[(list.indexOf(a) + (key === 'ArrowLeft' ? -1 : 1) + list.length) % list.length].focus();
+      const rows = [...this.root.querySelectorAll('.cards, .chips, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
+      const r = rows.findIndex((row) => row.includes(a));
+      if (r < 0) this.cards[0].focus();   // first press lands on the first card
+      else if (key === 'ArrowDown' || key === 'ArrowUp') {
+        // Into a row of cards, back to the card last focused there.
+        const to = rows[r + (key === 'ArrowDown' ? 1 : -1)];
+        if (to) (to.includes(this.cards[this.focus]) ? this.cards[this.focus] : to[0]).focus();
+      } else {
+        const row = rows[r];
+        row[(row.indexOf(a) + (key === 'ArrowLeft' ? -1 : 1) + row.length) % row.length].focus();
       }
       return true;
     }

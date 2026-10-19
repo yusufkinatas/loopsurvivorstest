@@ -309,6 +309,16 @@ body[data-input=pad] .card:not(.focused) .card-key { display: none; }
 body[data-input=pad] .card-key { font-size: 0; }
 body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
 
+/* Your sounds: first sounds the career has unlocked, as chips under the featured cards. They pick, focus and
+   audition like cards (the class), in the channel color with a stripe in the style color. */
+.chips-label { margin: 22px 0 0; }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; max-width: 940px; }
+.card.chip { flex-direction: row; align-items: center; gap: 9px; min-height: 44px; padding: 5px 14px 5px 5px; border-left: 3px solid var(--s); }
+.card.chip::before, .card.chip::after { display: none; }
+.chip .card-icon { flex-basis: 32px; width: 32px; height: 32px; padding: 6px; }
+.chip-name { font-size: 14px; font-weight: 600; }
+.chips-none { margin: 18px 0 0; font-size: 13.5px; color: var(--dim); }
+
 /* Remix cards are gold modules. Recipe lines on other cards are gold too. */
 .card-remix { border-color: color-mix(in srgb, var(--gold) 70%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 12%, var(--panel)), var(--panel) 62%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent), 0 16px 40px -22px var(--gold); }
 .card-remix:hover, .card-remix:focus-visible, .card-remix.focused, .card-remix.listening { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 18px 44px -18px var(--gold); }
@@ -416,6 +426,7 @@ body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
   .steps i { height: 6px; }
   .row-actions { margin-top: 8px; }
   .row-actions .btn { min-height: 36px; padding: 8px 14px; }
+  .chips-label { margin-top: 12px; }
   .hud-side .chem, .hud-side .seqgrid { display: none; }
   .panel-actions.col { display: grid; grid-template-columns: 1fr 1fr; }
   /* The section banner is one line under the boss bar and the fight note, so all three fit above you. */
