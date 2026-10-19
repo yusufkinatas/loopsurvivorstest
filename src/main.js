@@ -184,9 +184,10 @@ function pauseRun() {
 }
 
 function endRun(sum) {
+  const prevBest = loadBest();
   const best = saveBest(sum);
   hud.setBoss(null);
-  screens.end(sum, best);
+  screens.end(sum, best, prevBest);
   if (opts.sim) window.__LS.done = true;
 }
 

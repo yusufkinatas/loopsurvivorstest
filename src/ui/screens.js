@@ -4,6 +4,8 @@ import { ROLE_INFO, STYLES, ROLES } from '../config.js';
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer } from '../game/upgrades.js';
+import { SECTIONS } from '../music/song.js';
+import { songMapHtml, songFraction, SONG_BARS } from './hud.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -39,6 +41,29 @@ export function cardHtml(d, index, opts = {}) {
     ${chem ? `<ul class="chem-list">${chem}</ul>` : ''}
     ${opts.listen ? '<span class="card-listen" role="presentation">Tap and hold to listen</span>' : ''}
   </button>`;
+}
+
+// End screen: where the song stopped on the song map (your previous best as a dashed marker) and what took
+// you out. bar, damageBy ({ name: damage }) and lastHitBy (a name) can be missing; their parts are left out.
+function songEndHtml(sum, isBest, prev) {
+  const idx = SECTIONS.findIndex((s) => s.name === sum.section);
+  const out = [];
+  if (sum.won || typeof sum.bar === 'number') {
+    const at = sum.won ? 1 : songFraction(sum.bar);
+    const marks = [{ at, cls: 'you', label: isBest ? 'New best' : 'You' }];
+    const prevAt = prev?.won ? 1 : typeof prev?.bar === 'number' ? songFraction(prev.bar) : null;
+    if (prevAt !== null && Math.round(prevAt * SONG_BARS) !== Math.round(at * SONG_BARS)) marks.push({ at: prevAt, cls: 'best', label: isBest ? 'Old best' : 'Best' });
+    out.push(songMapHtml(sum.won ? SECTIONS.length : Math.max(0, idx), marks));
+    const ahead = idx >= 0 ? SECTIONS.slice(idx + 1).map((s) => esc(s.name)) : [];
+    out.push(`<p>${sum.won ? 'You played the whole song.' : `You made it <b>${Math.min(99, Math.round(at * 100))}%</b> through the song.${ahead.length ? ` Still ahead: ${ahead.join(' · ')}.` : ''}`}</p>`);
+  }
+  const by = Object.entries(sum.damageBy && typeof sum.damageBy === 'object' ? sum.damageBy : {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const top = by[0];
+  const p = top ? Math.round((100 * top[1]) / by.reduce((s, [, v]) => s + v, 0)) : 0;
+  const last = !sum.won && typeof sum.lastHitBy === 'string' ? sum.lastHitBy : null;
+  if (last && top && top[0] === last) out.push(`<p>Taken out by <b>${esc(last)}</b> (${p}% of your damage).</p>`);
+  else if (last || top) out.push(`<p>${[last && `Taken out by <b>${esc(last)}</b>.`, top && `Most damage: <b>${esc(top[0])}</b> (${p}%).`].filter(Boolean).join(' ')}</p>`);
+  return out.length ? `<div class="end-song">${out.join('')}</div>` : '';
 }
 
 export class Screens {
@@ -257,6 +282,7 @@ export class Screens {
     const el = this._mount('pause', `
       <div class="panel">
         <p class="kicker">Paused · ${esc(g.section.name)} · ${fmtTime(g.time)}</p>
+        ${songMapHtml(g.sectionIndex, [{ at: songFraction(g.seq.bar), cls: 'head' }])}
         <h2>Taking five</h2>
         <p class="sub">${esc(g.genre)} in ${esc(g.key.name)}. ${g.loadout.filled()} of ${g.channelCap()} channels in use.</p>
         <div class="panel-actions col">
@@ -275,7 +301,7 @@ export class Screens {
 
   // ---------------------------------------------------------------------------- end
 
-  end(sum, isBest) {
+  end(sum, isBest, prevBest = null) {
     this.listening = false;
     const maxDmg = Math.max(1, ...sum.instruments.map((i) => i.dmg));
     const rows = sum.instruments.map((i) => `
@@ -296,6 +322,7 @@ export class Screens {
           <div><b>${sum.level}</b><span>level</span></div>
           <div><b>${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}</span></div>
         </div>
+        ${songEndHtml(sum, isBest, prevBest)}
         <p class="end-genre">Your track: <b>${esc(sum.genre)}</b> in ${esc(sum.key)}</p>
         <ul class="end-rows">${rows || '<li>No instruments</li>'}</ul>
         <p class="end-pedals">${pedals}</p>

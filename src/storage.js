@@ -33,7 +33,7 @@ export function saveBest(sum) {
   const d = read();
   const prev = d.best;
   if (prev && prev.score >= sum.score) return false;
-  d.best = { score: sum.score, time: sum.time, kills: sum.kills, level: sum.level, won: sum.won, section: sum.section, genre: sum.genre };
+  d.best = { score: sum.score, time: sum.time, kills: sum.kills, level: sum.level, won: sum.won, section: sum.section, bar: sum.bar, genre: sum.genre };
   write(d);
   return true;
 }
