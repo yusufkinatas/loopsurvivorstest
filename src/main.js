@@ -7,7 +7,7 @@
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
-import { Song } from './music/song.js';
+import { Song, SECTIONS } from './music/song.js';
 import { playSheet } from './music/replay.js';
 import { KEYS } from './music/theory.js';
 import { Game } from './game/game.js';
@@ -104,7 +104,6 @@ const screens = new Screens(screensRoot, {
   onSkip: () => skipLevel(),
   onResume: () => { game.unpause(); screens.hide(); },
   onQuit: () => { recordRun(game.summary(false)); showTitle(); },
-  onListen: (on) => { audio.setMuffle(!on); },
   onDiscography: (back) => screens.discography(loadMeta(), back),
   onShowEnd: () => screens.end(...lastEnd),
   onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
@@ -219,8 +218,14 @@ function endRun(sum) {
   const prevBest = loadBest();
   const best = saveBest(sum);
   hud.setBoss(null);
-  lastEnd = [sum, best, prevBest, recordRun(sum)];
+  const news = recordRun(sum);
+  lastEnd = [sum, best, prevBest, news];
   screens.end(...lastEnd);
+  // Something new for the career: the level-up chime in the key the run ended in.
+  if (news?.saved && (news.goals.length || news.record || news.remixes.length) && audio.ready) {
+    const root = 72 + ((sum.keyPc + (SECTIONS[sum.sectionIndex]?.lift || 0)) % 12);
+    audio.levelUpChime([root, root + 3, root + 7, root + 12]);
+  }
   if (opts.sim) window.__LS.done = true;
 }
 

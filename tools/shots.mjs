@@ -66,7 +66,7 @@ await wait(400);
 await page.evaluate(() => { const g = window.__LS.game; g.opts.god = false; g.player.iframes = 0; g.player.hp = 1; g.hurt(50, null); });
 await wait(2500);   // the death beat (0.9 s) and the screen fade, so the end screen is settled
 await snap('8-end');
-await press('[data-act=title]');
+await press('[data-act=back]');   // the end screen's Title button
 await wait(500);
 await press('[data-act=howto]');
 await wait(500);

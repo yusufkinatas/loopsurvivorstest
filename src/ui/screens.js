@@ -108,7 +108,6 @@ export class Screens {
     this.h = h;
     this.current = null;
     this.focus = 0;
-    this.listening = false;
     this.lastPointer = -1e9;
   }
 
@@ -414,8 +413,9 @@ export class Screens {
 
   // ---------------------------------------------------------------------------- end
 
-  end(sum, isBest, prevBest = null) {
-    this.listening = false;
+  // news: what the run added to the career (applyRun), with saved = false when the device did not keep it,
+  // or null (a sim). New things are only claimed once they are saved.
+  end(sum, isBest, prevBest = null, news = null) {
     const maxDmg = Math.max(1, ...sum.instruments.map((i) => i.dmg));
     const rows = sum.instruments.map((i) => `
       <li style="--c:${ROLE_INFO[i.role].color}" class="${i.active ? '' : 'retired'}">
@@ -425,6 +425,13 @@ export class Screens {
         <span class="er-num">${i.dmg.toLocaleString('en-US')}</span>
       </li>`).join('');
     const pedals = sum.pedals.length ? sum.pedals.map((p) => `${esc(p.name)} ${p.level}`).join(' · ') : 'No pedals';
+    const lines = news?.saved ? [
+      ...(news.record ? [`Record pressed: ${news.record.genre}, ${news.record.gold ? 'gold' : 'demo'}.`] : []),
+      ...news.goals.map((g) => `New first sound: ${BY_ID[g.unlock].name}.`),
+      ...news.remixes.map((id) => `New remix in your crate: ${BY_ID[id].remix.name}.`),
+    ] : [];
+    const notes = !news ? '' : !news.saved ? '<p class="end-unsaved">Progress could not be saved on this device.</p>'
+      : lines.length ? `<div class="end-notes"><p class="kicker">Liner notes</p><ul>${lines.slice(0, 4).map((l) => `<li>${esc(l)}</li>`).join('')}${lines.length > 4 ? `<li class="more">and ${lines.length - 4} more</li>` : ''}</ul></div>` : '';
     const el = this._mount('end', `
       <div class="panel panel-wide end">
         <p class="kicker">${sum.won ? 'The song is finished' : `The music stopped in ${esc(sum.section)}`}</p>
@@ -435,25 +442,31 @@ export class Screens {
           <div><b>${sum.level}</b><span>level</span></div>
           <div><b>${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}</span></div>
         </div>
+        ${notes}
         ${songEndHtml(sum, isBest, prevBest)}
         <p class="end-genre">Your track: <b>${esc(sum.genre)}</b> in ${esc(sum.key)}</p>
+        <p class="now-playing" aria-live="polite"></p>
         <ul class="end-rows">${rows || '<li>No instruments</li>'}</ul>
         <p class="end-pedals">${pedals}</p>
         <div class="panel-actions">
           <button class="btn" type="button" data-act="listen" aria-pressed="false">Listen to your track</button>
           <button class="btn btn-primary" type="button" data-act="again">Play again</button>
-          <button class="btn btn-ghost" type="button" data-act="title">Title</button>
+          <button class="btn" type="button" data-act="disco">Discography</button>
+          <button class="btn btn-ghost" type="button" data-act="back">Title</button>
         </div>
       </div>`);
-    const listen = el.querySelector('[data-act=listen]');
+    // Listen plays the run's radio edit and turns into Stop. Any way off the screen stops it too.
+    const listen = el.querySelector('[data-act=listen]'), np = el.querySelector('.now-playing');
+    const done = () => { listen.setAttribute('aria-pressed', 'false'); listen.textContent = 'Listen to your track'; np.textContent = ''; };
     listen.addEventListener('click', () => {
-      this.listening = !this.listening;
-      listen.setAttribute('aria-pressed', String(this.listening));
-      listen.textContent = this.listening ? 'Stop listening' : 'Listen to your track';
-      this.h.onListen(this.listening);
+      if (listen.getAttribute('aria-pressed') === 'true') { this.h.onStopTrack(); return; }
+      this.h.onPlayTrack(sum.sheet, sum.keyPc, (name, n) => { np.textContent = `Now playing: ${name} · ${plural(n, 'sound')}`; }, done);
+      listen.setAttribute('aria-pressed', 'true');
+      listen.textContent = 'Stop';
     });
     el.querySelector('[data-act=again]').addEventListener('click', () => this.h.onRestart());
-    el.querySelector('[data-act=title]').addEventListener('click', () => this.h.onShowTitle());
+    el.querySelector('[data-act=disco]').addEventListener('click', () => this.h.onDiscography('end'));
+    el.querySelector('[data-act=back]').addEventListener('click', () => this.h.onShowTitle());
     el.querySelector('[data-act=again]').focus({ preventScroll: true });
   }
 }
