@@ -165,15 +165,16 @@ function startRun(id) {
   hud.refreshLoadout(game);
   hud.setBoss(null);
   dropTipShown = false;
-  hud.tip(isTouch() ? 'Drag anywhere to move. Your sounds attack on their own.' : 'Move with WASD or the arrow keys. Your sounds attack on their own.', 7);
+  hud.tip(`${byDevice('Drag anywhere to move.', 'Move with the left stick.', 'Move with WASD or the arrow keys.')} Your sounds attack on their own.`, 7);
 }
 
 let dropTipShown = false;
-const isTouch = () => input.touchUsed || (typeof matchMedia === 'function' && matchMedia('(hover: none)').matches);
+// Prompts in the words of the device used last (touch, gamepad, or keyboard and mouse).
+const byDevice = (touch, pad, keys) => (input.device === 'touch' ? touch : input.device === 'pad' ? pad : keys);
 function tips() {
   if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState) {
     dropTipShown = true;
-    hud.tip(isTouch() ? 'The Drop is ready. Tap the Drop meter.' : 'The Drop is ready. Press Space.', 6);
+    hud.tip(`The Drop is ready. ${byDevice('Tap the Drop meter.', 'Press A.', 'Press Space.')}`, 6);
   }
 }
 
@@ -189,28 +190,45 @@ function endRun(sum) {
   if (opts.sim) window.__LS.done = true;
 }
 
+// Keys that only move focus: they work on a level-up before it arms, everything else waits.
+const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'pad-left', 'pad-right', 'pad-up', 'pad-down']);
+
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
   // Space and E are the Drop keys: on menus they must never press a focused button by accident.
   if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
+  // B is Back (or Resume) on every screen that has one. It is never a level-up action.
+  if (screens.current && k === 'pad-b') { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
+    if (!screens.armed() && !NAV_KEYS.has(k)) return true;
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
     if (k === 'pad-a') {
-      const card = document.activeElement?.classList?.contains('card') ? document.activeElement : screens.cards?.[screens.focus];
-      if (card) { screens.onPick(Number(card.dataset.i)); return true; }
+      // A presses what has focus: a card or a button under the cards. With nothing focused it only focuses card 1.
+      const a = document.activeElement;
+      if (a && a !== document.body && screensRoot.contains(a)) a.click(); else screens.cards?.[0]?.focus();
+      return true;
     }
     if (k === 'pad-left') return screens.cardKey('ArrowLeft');
     if (k === 'pad-right') return screens.cardKey('ArrowRight');
+    if (k === 'pad-up') return screens.cardKey('ArrowUp');
+    if (k === 'pad-down') return screens.cardKey('ArrowDown');
     return screens.cardKey(k);
   }
-  // Other menus (title, pause, end): the pad moves between buttons and A presses the focused one.
-  if (screens.current && (k === 'pad-left' || k === 'pad-right' || k === 'pad-a')) {
-    const btns = [...screensRoot.querySelectorAll('button:not([disabled])')];
-    const i = btns.indexOf(document.activeElement);
-    if (k === 'pad-a') { (i >= 0 ? btns[i] : btns[0])?.click(); return true; }
-    const n = btns.length;
-    if (n) btns[(i + (k === 'pad-right' ? 1 : -1) + n) % n].focus();
+  // Other menus (title, pause, settings, end): the pad steps through buttons and inputs, A presses the focused
+  // one (a checkbox toggles), and left and right move a focused slider in steps of 5.
+  if (screens.current && (k === 'pad-left' || k === 'pad-right' || k === 'pad-up' || k === 'pad-down' || k === 'pad-a')) {
+    const els = [...screensRoot.querySelectorAll('button:not([disabled]), input')];
+    const a = document.activeElement;
+    const i = els.indexOf(a);
+    if (k === 'pad-a') { (i >= 0 ? a : els[0])?.click(); return true; }
+    if (i >= 0 && a.type === 'range' && (k === 'pad-left' || k === 'pad-right')) {
+      a.value = Number(a.value) + (k === 'pad-right' ? 5 : -5);
+      a.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    const n = els.length;
+    if (n) els[i < 0 ? 0 : (i + (k === 'pad-right' || k === 'pad-down' ? 1 : -1) + n) % n].focus();
     return true;
   }
   if (mode === 'run' && game.state === 'playing') {

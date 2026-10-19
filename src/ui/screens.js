@@ -7,6 +7,10 @@ import { describeOffer } from '../game/upgrades.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// A level-up ignores picks and button presses this long after it opens, so a Drop press or the second
+// half of a double tap never takes a card blind.
+const ARM_MS = 350;
+
 function stepsHtml(cells) {
   if (!cells) return '';
   const rows = [];
@@ -47,13 +51,24 @@ export class Screens {
     this.lastPointer = -1e9;
   }
 
-  _mount(name, html) {
+  // armMs: the screen is 'arming' that long, and clicks on anything in it are dropped until then (keys wait
+  // in main.js onKey). Hover, focus and hold-to-listen keep working.
+  _mount(name, html, armMs = 0) {
     this.current = name;
     document.body.dataset.screen = name;
     this.root.innerHTML = `<div class="screen screen-${name}" role="dialog" aria-modal="true">${html}</div>`;
     this.root.hidden = false;
-    return this.root.firstElementChild;
+    this.root.scrollTop = 0;
+    const el = this.root.firstElementChild;
+    if (armMs) {
+      el.classList.add('arming');
+      el.addEventListener('click', (e) => { if (el.classList.contains('arming')) { e.stopPropagation(); e.preventDefault(); } }, true);
+      setTimeout(() => el.classList.remove('arming'), armMs);
+    }
+    return el;
   }
+
+  armed() { return !this.root.firstElementChild?.classList.contains('arming'); }
 
   hide() {
     this.current = null;
@@ -106,7 +121,7 @@ export class Screens {
         <div class="panel-actions"><button class="btn btn-primary" type="button" data-act="back">Got it</button></div>
       </div>`);
     el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'pause' ? this.h.onShowPause() : this.h.onShowTitle()));
-    el.querySelector('[data-act=back]').focus();
+    el.querySelector('[data-act=back]').focus({ preventScroll: true });   // the screen opens at its top
   }
 
   settings(back) {
@@ -128,7 +143,7 @@ export class Screens {
     });
     el.querySelectorAll('input').forEach((i) => i.addEventListener('input', upd));
     el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'pause' ? this.h.onShowPause() : this.h.onShowTitle()));
-    el.querySelector('[data-act=back]').focus();
+    el.querySelector('[data-act=back]').focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------------------- first sound
@@ -164,9 +179,9 @@ export class Screens {
         <p class="sub">Hover or hold a card to hear it in your mix.</p>
         <div class="cards">${cards}</div>
         <div class="row-actions">
-          <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left · R)</span></button>
+          <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left<span class="k-key"> · R</span><span class="k-pad"> · X</span>)</span></button>
         </div>
-      </div>`);
+      </div>`, ARM_MS);
     this._wireCards(el, (i) => this.h.onChoose(i), (i) => this.h.onPreview(i));
     el.querySelector('[data-act=reroll]').addEventListener('click', () => this.h.onReroll());
   }
@@ -207,9 +222,12 @@ export class Screens {
       });
     });
     this.focus = 0;
+    // A gamepad always sees which card A takes: the first one has focus (and plays) from the start.
+    if (document.body.dataset.input === 'pad') cards[0]?.focus();
   }
 
-  // Keyboard navigation for card screens.
+  // Keyboard and pad navigation for card screens: left and right move along the cards or along the
+  // buttons under them, down and up move between the two.
   cardKey(key) {
     if (!this.cards || !this.cards.length) return false;
     if (key >= '1' && key <= '9') {
@@ -217,13 +235,17 @@ export class Screens {
       if (i < this.cards.length) { this.onPick(i); return true; }
     }
     // Arrow keys only: A and D are movement keys and would move focus while strafing.
-    if (key === 'ArrowLeft' || key === 'ArrowRight') {
-      const focused = this.cards.includes(document.activeElement);
-      if (focused) {
-        const dir = key === 'ArrowLeft' ? -1 : 1;
-        this.focus = (this.focus + dir + this.cards.length) % this.cards.length;
-      } else this.focus = 0;   // first press lands on the first card
-      this.cards[this.focus].focus();
+    if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+      const a = document.activeElement;
+      const row = [...this.root.querySelectorAll('.row-actions button:not([disabled])')];
+      const inRow = row.includes(a);
+      if (!inRow && !this.cards.includes(a)) this.cards[0].focus();   // first press lands on the first card
+      else if (key === 'ArrowDown') { if (!inRow && row.length) row[0].focus(); }
+      else if (key === 'ArrowUp') { if (inRow) this.cards[this.focus].focus(); }
+      else {
+        const list = inRow ? row : this.cards;
+        list[(list.indexOf(a) + (key === 'ArrowLeft' ? -1 : 1) + list.length) % list.length].focus();
+      }
       return true;
     }
     return false;
@@ -248,7 +270,7 @@ export class Screens {
     el.querySelector('[data-act=howto]').addEventListener('click', () => this.howto('pause'));
     el.querySelector('[data-act=settings]').addEventListener('click', () => this.settings('pause'));
     el.querySelector('[data-act=quit]').addEventListener('click', () => this.h.onQuit());
-    el.querySelector('[data-act=resume]').focus();
+    el.querySelector('[data-act=resume]').focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------------------- end
@@ -292,6 +314,6 @@ export class Screens {
     });
     el.querySelector('[data-act=again]').addEventListener('click', () => this.h.onRestart());
     el.querySelector('[data-act=title]').addEventListener('click', () => this.h.onShowTitle());
-    el.querySelector('[data-act=again]').focus();
+    el.querySelector('[data-act=again]').focus({ preventScroll: true });
   }
 }

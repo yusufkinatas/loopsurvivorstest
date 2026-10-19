@@ -180,7 +180,7 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .btn {
   min-height: 44px; padding: 12px 20px; font: 600 15px/1 var(--f-body); color: var(--text);
   background: rgba(22, 17, 37, 0.8); border: 1px solid var(--line-2); border-radius: 4px; cursor: pointer;
-  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s, opacity 0.15s;
 }
 .btn:hover { border-color: var(--muted); }
 .btn:active { transform: translateY(1px); }
@@ -191,6 +191,7 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .btn-ghost:hover { color: var(--text); border-color: var(--line); }
 .btn[disabled] { opacity: 0.4; cursor: default; }
 .muted { color: var(--dim); font-weight: 400; }
+body[data-input=pad] #screens :is(.btn, input):focus { outline: 2px solid var(--text); outline-offset: 2px; }
 
 /* Title: the logo is a step sequencer. A playhead lights each letter in turn, one 16th note apart. */
 .title-wrap { display: grid; justify-items: center; text-align: center; gap: 18px; }
@@ -238,8 +239,10 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .card {
   position: relative; display: flex; flex-direction: column; gap: 9px; padding: 18px 16px 16px; min-width: 0;
   color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; text-align: left;
-  transition: transform 0.12s ease-out, border-color 0.12s, box-shadow 0.12s;
+  transition: transform 0.12s ease-out, border-color 0.12s, box-shadow 0.12s, opacity 0.15s;
 }
+/* A level-up arms after a moment (screens.js ARM_MS): until then its cards and buttons are dimmed and ignore presses. */
+.arming .card, .arming .row-actions .btn:not([disabled]) { opacity: 0.6; }
 .card::before, .card::after { content: ""; position: absolute; top: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--line-2); }
 .card::before { left: 7px; }
 .card::after { right: 7px; top: auto; bottom: 7px; }
@@ -272,7 +275,13 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .chem-list li.bad { color: var(--bad); }
 .chem-list li.bad::before { content: "- "; }
 .card-listen { display: none; font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
-@media (hover: none) { .card-listen { display: block; } .card-key, .dropmeter kbd { display: none; } }
+/* Prompts follow the device used last (input.js sets body[data-input] to key, mouse, touch or pad). On a pad
+   only the focused card keeps its badge, and it reads A. */
+body[data-input=touch] .card-listen { display: block; }
+body[data-input=touch] .card-key, body[data-input=touch] .k-key, body[data-input=pad] .k-key, body:not([data-input=pad]) .k-pad { display: none; }
+body[data-input=pad] .card:not(.focused) .card-key { display: none; }
+body[data-input=pad] .card-key { font-size: 0; }
+body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
 
 /* End screen */
 .end .kicker { margin-bottom: 6px; }
@@ -339,6 +348,24 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
   .end-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .end-rows li { grid-template-columns: 22px minmax(0, 1fr) 64px; }
   .er-bar { display: none; }
+}
+
+/* Landscape phones: compact cards, so a whole card screen fits without scrolling. */
+@media (max-height: 520px) {
+  .cards-wrap .sub, .card-detail, .card-listen { display: none !important; }
+  .cards-wrap h2 { font-size: 19px; }
+  .cards-wrap .kicker { margin-bottom: 2px; }
+  .cards { margin-top: 8px; gap: 10px; }
+  .card { padding: 9px 12px; gap: 5px; }
+  .card-icon { flex-basis: 28px; width: 28px; height: 28px; padding: 5px; }
+  .card-title { font-size: 15px; }
+  .card-body { font-size: 12.5px; line-height: 1.35; }
+  .chem-list { font-size: 10.5px; }
+  .steps i { height: 6px; }
+  .row-actions { margin-top: 8px; }
+  .row-actions .btn { min-height: 36px; padding: 8px 14px; }
+  .hud-side .chem, .hud-side .seqgrid { display: none; }
+  .panel-actions.col { display: grid; grid-template-columns: 1fr 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

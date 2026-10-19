@@ -50,13 +50,14 @@ export class Hud {
     this.pedalSlots = [];
     for (let i = 0; i < PEDAL_SLOTS; i++) { const p = el('div', 'pedal empty'); this.pedalSlots.push(p); this.pedals.append(p); }
 
-    this.drop = el('button', 'dropmeter', '<div class="dropmeter-fill"></div><span class="dropmeter-label">Drop</span><kbd>Space</kbd>');
+    this.drop = el('button', 'dropmeter', '<div class="dropmeter-fill"></div><span class="dropmeter-label">Drop</span><kbd class="k-key">Space</kbd><kbd class="k-pad">A</kbd>');
     this.drop.type = 'button';
     this.drop.setAttribute('aria-label', 'Trigger the Drop');
     this.drop.addEventListener('click', (e) => { e.stopPropagation(); onDrop(); });
     this.pauseBtn = el('button', 'pausebtn', icon('pause'));
     this.pauseBtn.type = 'button';
     this.pauseBtn.setAttribute('aria-label', 'Pause');
+    this.pauseBtn.title = 'Pause (Esc or Start)';
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); onPause(); });
 
     const mixWrap = el('div', 'mixwrap');
