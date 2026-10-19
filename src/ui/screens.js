@@ -255,8 +255,8 @@ export class Screens {
       });
       card.addEventListener('pointerdown', (e) => {
         this.lastPointer = performance.now();
-        if (e.pointerType === 'mouse') return;
         held = false;
+        if (e.pointerType === 'mouse') return;
         holdTimer = setTimeout(() => { held = true; onPreview(i); card.classList.add('listening'); }, 260);
       });
       const endHold = () => { this.lastPointer = performance.now(); clearTimeout(holdTimer); if (held) { onPreview(null); card.classList.remove('listening'); } };
@@ -264,7 +264,8 @@ export class Screens {
       card.addEventListener('pointercancel', endHold);
       card.addEventListener('contextmenu', (e) => e.preventDefault());
       card.addEventListener('click', (e) => {
-        if (held) { held = false; e.preventDefault(); return; }
+        // A hold eats its own release's click, never a pad A or key press (detail 0): a release while arming leaves held set.
+        if (held && e.detail) { held = false; e.preventDefault(); return; }
         onPick(i);
       });
     });
