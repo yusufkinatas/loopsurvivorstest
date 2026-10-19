@@ -1,7 +1,7 @@
 // Canvas renderer. The arena is a dark stage floor whose grid pulses with the beat and whose
 // color follows the song section. Music is color: every attack wears its channel's color.
 
-import { TAU, clamp, lerp, rand, rgba, hexToRgb } from '../util.js';
+import { TAU, clamp, lerp, rgba, hexToRgb } from '../util.js';
 import { BEAT_SEC } from '../config.js';
 import { ROLE_INFO, ROLES } from '../config.js';
 import { ITEM_INFO } from '../game/pickups.js';
@@ -132,7 +132,8 @@ export class Renderer {
     this.cam.x = lerp(this.cam.x, p.x, Math.min(1, dt * 8));
     this.cam.y = lerp(this.cam.y, p.y, Math.min(1, dt * 8));
     const shakeAmt = g.settings.shake ? g.shake : g.shake * 0.2;
-    const sx = rand(-1, 1) * shakeAmt, sy = rand(-1, 1) * shakeAmt;
+    // Cosmetic randomness never draws from the seeded rng, so a seed plays the same run at any frame rate.
+    const sx = (Math.random() * 2 - 1) * shakeAmt, sy = (Math.random() * 2 - 1) * shakeAmt;
 
     this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy);
 

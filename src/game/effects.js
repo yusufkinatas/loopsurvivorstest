@@ -2,7 +2,7 @@
 // projectile, shockwave and zap on screen was launched by a note you can hear.
 // Every spawn records the instrument that made it (game.src) for damage attribution.
 
-import { TAU, rand, rng, dist2, segDist2, clamp, swapRemove } from '../util.js';
+import { TAU, rand, dist2, segDist2, clamp, swapRemove } from '../util.js';
 
 const MAX_PARTICLES = 900;
 const MAX_TEXTS = 30;
@@ -42,7 +42,7 @@ export class Effects {
       r: o.r ?? 5, damage: o.damage ?? 5, pierce: o.pierce ?? 0, life: o.life ?? 1.6, age: 0,
       color: o.color ?? '#fff', shape: o.shape ?? 'dot', homing: o.homing ?? 0, bounce: o.bounce ?? 0,
       kb: o.kb ?? 40, stun: o.stun ?? 0, slow: o.slow ?? 0, drag: o.drag ?? 0, trail: o.trail ?? false,
-      spin: o.spin ?? 0, rot: o.rot ?? rand(0, TAU), hit: new Set(), target: null, retarget: 0, src: this.g.src,
+      spin: o.spin ?? 0, rot: o.rot ?? Math.random() * TAU, hit: new Set(), target: null, retarget: 0, src: this.g.src,
       range: o.range ?? 420, onHit: o.onHit ?? null, dead: false,
       boomerang: !!o.boomerang, returning: false,
     };
@@ -219,6 +219,7 @@ export class Effects {
   }
 
   // ---------------------------------------------------------------- cosmetics
+  // Cosmetics use Math.random, never the seeded rng, so juice can change without changing a seeded run.
 
   flash(x, y, r, color, life = 0.22, fill = 0.18) {
     this.flashes.push({ x, y, r, color, life, age: 0, fill });
@@ -230,15 +231,15 @@ export class Effects {
     if (g.opts.sim) return;
     for (let i = 0; i < n; i++) {
       if (this.parts.length >= MAX_PARTICLES) this.parts.shift();
-      const a = rand(0, TAU), s = speed * (0.3 + rng() * 0.7);
-      this.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: life * (0.6 + rng() * 0.6), age: 0, color, size: size * (0.6 + rng() * 0.8) });
+      const a = Math.random() * TAU, s = speed * (0.3 + Math.random() * 0.7);
+      this.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: life * (0.6 + Math.random() * 0.6), age: 0, color, size: size * (0.6 + Math.random() * 0.8) });
     }
   }
 
   text(x, y, str, color = '#fff', size = 12) {
     if (this.g.opts.sim || !this.g.settings.damageNumbers) return;
     if (this.texts.length >= MAX_TEXTS) this.texts.shift();
-    this.texts.push({ x: x + rand(-6, 6), y, str, color, size, life: 0.6, age: 0 });
+    this.texts.push({ x: x + Math.random() * 12 - 6, y, str, color, size, life: 0.6, age: 0 });
   }
 
   // ---------------------------------------------------------------- update
@@ -280,7 +281,7 @@ export class Effects {
       if (b.drag) { const k = Math.max(0, 1 - b.drag * dt); b.vx *= k; b.vy *= k; }
       b.x += b.vx * dt; b.y += b.vy * dt;
       b.rot += b.spin * dt;
-      if (b.trail && !g.opts.sim && rng() < 0.5) this.parts.push({ x: b.x, y: b.y, vx: 0, vy: 0, life: 0.22, age: 0, color: b.color, size: b.r * 0.55 });
+      if (b.trail && !g.opts.sim && Math.random() < 0.5) this.parts.push({ x: b.x, y: b.y, vx: 0, vy: 0, life: 0.22, age: 0, color: b.color, size: b.r * 0.55 });
       // Collision
       let hitOne = null;
       g.grid.query(b.x, b.y, b.r, (e) => {
@@ -323,7 +324,8 @@ export class Effects {
         g.hit(e, r.damage, { kb: r.kb, fx: r.x, fy: r.y, stun: r.stun, slow: r.slow });
       }
       g.src = prev;
-      if (r.t >= r.dur + 0.12) swapRemove(this.rings, i);
+      // splice keeps the order, so a cosmetic ring leaving never reorders the rings that hit (their order decides crits).
+      if (r.t >= r.dur + 0.12) this.rings.splice(i, 1);
     }
 
     // Strikes

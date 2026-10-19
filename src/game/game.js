@@ -509,10 +509,10 @@ export class Game {
     this.grid.clear();
     for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
 
-    // Delayed actions (echoes)
+    // Delayed actions (echoes). splice keeps the queue in order, so a cosmetic entry never reorders the echoes.
     for (let i = this.later.length - 1; i >= 0; i--) {
       const l = this.later[i];
-      if (l.at <= this.time) { swapRemove(this.later, i); l.fn(); }
+      if (l.at <= this.time) { this.later.splice(i, 1); l.fn(); }
     }
 
     for (const inst of this.loadout.instruments()) {
