@@ -149,9 +149,10 @@ export class Renderer {
     const building = g.dropState === 'building';
     const cur = building ? g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0)) : null;
     const prog = cur ? cur.sib / 16 : 0;
-    if (g.drops !== this._drops) { if (g.drops > this._drops) this.zoom = 0.94; this._drops = g.drops; }
+    if (g.drops > this._drops) this.zoom = 0.94;
+    this._drops = g.drops;
     if (!g.settings.shake) this.zoom = 1;
-    else if (g.state === 'playing') this.zoom += ((building ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
+    else this.zoom += ((building && g.state === 'playing' ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
     const s = this.scale * this.zoom;
 
     this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy, s);
@@ -201,8 +202,8 @@ export class Renderer {
     this._particles(c, g, inView);
     c.globalCompositeOperation = 'source-over';
     // The player and everything that can hurt them go on top of the band's effects, so they stay readable.
-    if (g.state === 'dying' || g.state === 'gameover') this._shatter(c, g);
-    else this._player(c, g);
+    if (g.state === 'dying') this._shatter(c, g);
+    else if (g.state !== 'gameover') this._player(c, g);   // after the death beat the speaker is gone
     this._telegraphs(c, g);
     this._shots(c, g, inView);
     this._texts(c, g, inView);
@@ -615,7 +616,7 @@ export class Renderer {
   // wedges that drift apart. Cracks show from the first frame, so no intact speaker appears after the lethal hit.
   _shatter(c, g) {
     const p = g.player;
-    const k = g.state === 'dying' ? clamp(1 - g.dyingT / 0.9, 0, 1) : 1;
+    const k = clamp(1 - g.dyingT / 0.9, 0, 1);
     const e = 1 - (1 - k) * (1 - k);
     let i = 0;
     c.globalAlpha = 1 - k;
