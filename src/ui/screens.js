@@ -115,6 +115,7 @@ export class Screens {
       <div class="panel">
         <h2>Settings</h2>
         <label class="field"><span>Volume</span><input id="set-volume" type="range" min="0" max="100" value="${Math.round(s.volume * 100)}"></label>
+        <label class="toggle"><input id="set-chimes" type="checkbox" ${s.chimes ? 'checked' : ''}><span>Note chimes</span></label>
         <label class="toggle"><input id="set-dmg" type="checkbox" ${s.damageNumbers ? 'checked' : ''}><span>Damage numbers</span></label>
         <label class="toggle"><input id="set-shake" type="checkbox" ${s.shake ? 'checked' : ''}><span>Screen shake</span></label>
         <label class="toggle"><input id="set-flash" type="checkbox" ${s.flashes ? 'checked' : ''}><span>Screen flashes</span></label>
@@ -122,6 +123,7 @@ export class Screens {
       </div>`);
     const upd = () => this.h.onSettings({
       volume: el.querySelector('#set-volume').value / 100,
+      chimes: el.querySelector('#set-chimes').checked,
       damageNumbers: el.querySelector('#set-dmg').checked,
       shake: el.querySelector('#set-shake').checked,
       flashes: el.querySelector('#set-flash').checked,

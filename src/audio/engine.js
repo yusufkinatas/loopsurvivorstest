@@ -3,7 +3,8 @@
 // compresses and limits. This is the "auto mixer" half of the clean-music rule: however many
 // instruments play, each sits in its own lane and the bus keeps the total level in check.
 
-import { ROLES, STEP_SEC, ECHO_STEPS } from '../config.js';
+import { ROLES, STEP_SEC, BEAT_SEC, BAR_SEC, ECHO_STEPS } from '../config.js';
+import { mtof, noteAtOrAbove } from '../music/theory.js';
 import * as V from './voices.js';
 
 const CHANNEL_LEVEL = { beat: 0.95, perc: 0.42, bass: 0.72, chords: 0.36, lead: 0.6, arp: 0.32 };
@@ -129,6 +130,9 @@ export class AudioEngine {
 
     this.sys = G(0.8);
     this.sys.connect(this.mix);
+    // Boss cues ride the system bus through their own gain, so the last boss's sounds can be cut at once.
+    this.bossBus = G(1);
+    this.bossBus.connect(this.sys);
     this.ui = G(0.5);
     this.ui.connect(this.limiter);
 
@@ -335,10 +339,12 @@ export class AudioEngine {
     f.setValueAtTime(10, t1);
   }
 
-  impact(t) {
+  // The sub sweeps down onto the chord root, so the hit stays in key.
+  impact(t, rootPc) {
     if (!this.ctx) return;
     const ctx = this.ctx;
-    V.kick(ctx, this.sys, t, { f0: 110, f1: 32, pitchDecay: 0.35, decay: 1.4, gain: 1, click: 0.5 });
+    const f1 = mtof(noteAtOrAbove(rootPc, 28));
+    V.kick(ctx, this.sys, t, { f0: 3 * f1, f1, pitchDecay: 0.35, decay: 1.4, gain: 1, click: 0.5 });
     V.noise(ctx, this.sys, t, { dur: 0.02, d: 0.6, gain: 0.35, filter: { type: 'lowpass', freq: 1800 } });
     this.crash(t, 0.32);
     this.duck(t, 0.7, 0.6);
@@ -356,6 +362,54 @@ export class AudioEngine {
       t += step; i++;
       if (i > 64) break;
     }
+  }
+
+  // Stop-time when a boss goes down: one crash and a sub kick that falls onto the chord root.
+  silenced(t, rootPc) {
+    if (!this.ctx) return;
+    this.crash(t, 0.3);
+    V.kick(this.ctx, this.sys, t, { f0: 90, f1: mtof(noteAtOrAbove(rootPc, 28)), pitchDecay: 0.3, decay: 1.1, gain: 0.7, click: 0.3 });
+  }
+
+  // A pickup chime: a soft FM bell, kept under the Sparkle channel.
+  ping(t, midi, gain) {
+    if (!this.ctx) return;
+    V.fm(this.ctx, this.sys, t, { freq: mtof(midi), ratio: 4, index: 0.6, indexDecay: 0.08, a: 0.002, d: 0.22, s: 0, r: 0.06, dur: 0.01, gain, pan: 0.18 });
+  }
+
+  // ---- Boss cues: each boss sounds on the beats it attacks on (src/game/bosscues.js). Pitched cues use
+  // the chord root or fifth; the rest are unpitched.
+
+  bossCue(name, t, chord) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, out = this.bossBus;
+    const at = (pc, low) => mtof(noteAtOrAbove(pc, low));
+    switch (name) {
+      case 'swell':   // The Drone winds up for a beat on the root; its charge on the downbeat cuts it off
+        V.tone(ctx, out, t, { freq: at(chord.rootPc, 40), wave: 'sawtooth', unison: 3, spread: 14, dur: BEAT_SEC, a: BEAT_SEC * 0.9, d: 0.05, s: 1, r: 0.03, gain: 0.16,
+          filter: { type: 'lowpass', freq: 220, to: 1600, time: BEAT_SEC, q: 2 } });
+        break;
+      case 'bark':    // The Clipper clips: a short hard square on the fifth
+        V.tone(ctx, out, t, { freq: at((chord.rootPc + chord.intervals[2]) % 12, 55), duty: 0.5, dur: 0.06, a: 0.001, d: 0.08, s: 0, r: 0.02, gain: 0.1, filter: { type: 'lowpass', freq: 2400, q: 6 } });
+        break;
+      case 'glitch':  // The Glitch King counts in its blink: four stuttering 16ths of console noise
+        for (let i = 0; i < 4; i++) V.noise(ctx, out, t + i * STEP_SEC, { dur: 0.02, d: 0.05, gain: 0.05 + 0.03 * i, chip: 3, filter: { type: 'bandpass', freq: 1200 * (1 + i), q: 2 } });
+        break;
+      case 'blink':   // ...and blinks: a zap that drops two octaves onto the root
+        V.tone(ctx, out, t, { freq: at(chord.rootPc, 52), duty: 0.25, dur: 0.12, d: 0.15, s: 0, gain: 0.12, pitchEnv: { from: 4, time: 0.12 } });
+        break;
+      default:        // White Noise: a bar of hiss on each downbeat, louder each phase (noise1..3)
+        V.noise(ctx, out, t, { a: 0.4, dur: BAR_SEC, d: 0.1, s: 1, r: 0.3, gain: [0.03, 0.05, 0.08][name.slice(5) - 1] || 0.03,
+          filter: { type: 'bandpass', freq: 1500, to: 5000, time: BAR_SEC, q: 0.7 } });
+    }
+  }
+
+  // Silence the boss bus (the final boss is down) or open it again (a boss arrives).
+  bossQuiet(on) {
+    if (!this.ctx) return;
+    const g = this.bossBus.gain, t = this.ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(on ? 0 : 1, t, 0.015);
   }
 
   // ---- UI sounds (not muffled; kept in key by the caller) ----

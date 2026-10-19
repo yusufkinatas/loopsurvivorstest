@@ -1,11 +1,17 @@
 // Browser-side audio checker. Renders instruments offline through the real sequencer and (for mix
 // checks) the real mixing desk, then measures level, clipping and where the energy sits in the spectrum.
+// The note audit and the replay check need no audio and also run in Node.
 // Loaded by tools/check.mjs; can also be imported from the dev console.
 
 import { BY_ID, INSTRUMENTS } from '../src/content/instruments/index.js';
 import * as V from '../src/audio/voices.js';
-import { Song } from '../src/music/song.js';
-import { Sequencer } from '../src/music/sequencer.js';
+import { Song, SECTIONS } from '../src/music/song.js';
+import { Sequencer, chimeMidi } from '../src/music/sequencer.js';
+import { radioEdit, playSheet } from '../src/music/replay.js';
+import { KEYS, NATURAL_MINOR, HARMONIC_MINOR } from '../src/music/theory.js';
+import { STEP_SEC, BAR_SEC, ROLE_HIGH } from '../src/config.js';
+import { rng, seedRng } from '../src/util.js';
+import { bossCue } from '../src/game/bosscues.js';
 import { makeInst } from '../src/game/loadout.js';
 import { AudioEngine } from '../src/audio/engine.js';
 
@@ -79,10 +85,19 @@ function analyze(buf) {
 }
 
 // Schedule `bars` bars of the given instruments through a Sequencer into an offline context.
-function scheduleBars(seq, clock, bars) {
-  const end = bars * 2;
-  for (let t = 0; t <= end; t += 0.05) { clock.t = t; seq.tick(); }
+// each(t, dt) runs on every tick (simulated pickups).
+function scheduleBars(seq, clock, bars, each) {
+  const end = bars * BAR_SEC;
+  for (let t = 0; t <= end; t += 0.05) { clock.t = t; each?.(t, 0.05); seq.tick(); }
 }
+
+// A note is in key when its pitch class is in its section's (lifted) minor key: harmonic minor on a V chord.
+function inKey(song, n, m) {
+  const kp = song.keyPc + (song.position(n.bar).section.lift || 0);
+  return (n.chord.harm ? HARMONIC_MINOR : NATURAL_MINOR).includes((((m - kp) % 12) + 12) % 12);
+}
+const onGrid = (time, t0) => { const k = (time - t0) / STEP_SEC; return Math.abs(k - Math.round(k)) < 1e-6; };
+const pitches = (n) => n.midis || (n.midi != null ? [n.midi] : []);
 
 // One instrument at one level, raw (before the channel fader), as it arrives at its channel input.
 export async function checkInstrument(id, level, { bars = 4, keyPc = 9 } = {}) {
@@ -116,9 +131,20 @@ export async function checkInstrument(id, level, { bars = 4, keyPc = 9 } = {}) {
   };
 }
 
-// Full band through the real mixing desk (faders, pan, ducking, returns, compressor, limiter).
-export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {} } = {}) {
-  const ctx = new OfflineAudioContext(2, Math.floor(SR * (bars * 2 + 2)), SR);
+// Full band through the real mixing desk (faders, pan, ducking, returns, compressor, limiter), with the
+// song's arrangement. Options:
+//   start    song bar to begin at; a lead-in bar is rendered first so a section's first bar gets its
+//            crash and riser (perBar lists the lead-in too)
+//   boss     play that boss's cues (drone | clipper | glitchking | whitenoise) as if alive at frac health
+//   stopAt   a boss goes down so bar stopAt is stop-time; ending: the final boss, so it is the song's ending
+//   pickups  collected notes per second, chiming through seq.ping, plus a 3-note run every 4 bars
+// Returns the whole render's analysis, per-bar RMS and peak, and the scheduled notes' key and grid counts.
+export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {}, start = 0, boss = null, frac = 1, stopAt = null, ending = false, pickups = 0 } = {}) {
+  // Seeded noise (this page only checks), so two renders differ only by what an option adds.
+  seedRng(7);
+  Math.random = rng;
+  const lead = start > 0 ? 1 : 0;
+  const ctx = new OfflineAudioContext(2, Math.floor(SR * ((bars + lead) * BAR_SEC + 2)), SR);
   const eng = new AudioEngine();
   eng.attach(ctx);
   eng.applyPedals(pedals);
@@ -127,13 +153,159 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
   const clock = { sim: false, t: 0, now() { return this.t; } };
   const seq = new Sequencer(clock, eng);
   seq._report = (w, e) => errors.push(`${w}: ${e && e.message}`);
-  seq.reset(new Song(keyPc));
+  const song = new Song(keyPc);
+  seq.reset(song);
+  seq.bar = start - lead;
   const insts = ids.map((id) => makeInst(BY_ID[id], typeof level === 'number' ? level : level[id] || 1)).filter((i) => i.def);
   seq.getInstruments = () => insts;
+  if (boss) {
+    const e = { type: boss, hp: frac, maxHp: 1, spawnT: 0, ai: { blinkTo: {} } };
+    seq.getBossCues = (bar, beat) => { const c = bossCue(e, bar, beat); return c ? [c] : []; };
+  }
+  if (stopAt !== null) seq.onBar = (bar) => { if (bar === stopAt) seq.stopNext(ending ? 16 : 8, ending); };
+  let due = 0, runs = 0;
+  const each = pickups ? (t, dt) => {
+    for (due += pickups * dt; due >= 1; due--) seq.ping('note');
+    if (t >= runs * 4 * BAR_SEC) { runs++; seq.ping('run'); }
+  } : null;
   seq.start(0.02);
-  scheduleBars(seq, clock, bars);
+  scheduleBars(seq, clock, bars + lead, each);
+  const notes = seq.events.filter((e) => e.type === 'note');
+  let offGrid = 0, outOfKey = 0;
+  for (const { note } of notes) {
+    if (!onGrid(note.time, 0.02)) offGrid++;
+    for (const m of pitches(note)) if (!inKey(song, note, m)) outOfKey++;
+  }
   const buf = await ctx.startRendering();
-  return { ids, level, errors, ...analyze(buf) };
+  const perBar = [];
+  const L = buf.getChannelData(0), R = buf.getChannelData(1), len = Math.floor(BAR_SEC * SR);
+  for (let b = 0; b < bars + lead; b++) {
+    const bar = start - lead + b, pos = song.position(bar), off = Math.floor((0.02 + b * BAR_SEC) * SR);
+    let sum = 0, peak = 0, clip = 0, d = 0, prev = 0;
+    for (let i = off; i < off + len && i < L.length; i++) {
+      const m = (L[i] + R[i]) * 0.5;
+      const a = Math.max(Math.abs(L[i]), Math.abs(R[i]));
+      sum += m * m; d += (m - prev) * (m - prev); prev = m;
+      if (a > peak) peak = a;
+      if (a >= 0.999) clip++;
+    }
+    const own = notes.filter((e) => e.note.bar === bar);
+    perBar.push({
+      bar, section: pos.section.id, barInSection: pos.barInSection, chord: (own[0]?.note.chord || pos.chord).name,   // the chord played (the ending's is i)
+      notes: own.length,
+      rmsDb: +(10 * Math.log10(sum / len + 1e-12)).toFixed(1), peak: +peak.toFixed(3), clip,
+      brightHz: sum ? Math.round((Math.sqrt(d / sum) * SR) / (2 * Math.PI)) : 0,   // RMS-frequency estimate
+    });
+  }
+  return { ids, level, errors, ...analyze(buf), notes: notes.length, offGrid, outOfKey, perBar };
+}
+
+// Whole-song note audit, no audio. Every key x instrument x level through the song's first `bars` bars
+// (fills, the breakdown, the roll, the lifted Finale, a stop-time bar and the ending), then through a
+// radio edit of every section; plus every pickup chime pitch. Counts what must stay 0: notes out of key,
+// off the 16th grid, above the channel's ceiling (ROLE_HIGH), Beat fills and rolls on a sound the level
+// does not play (foreignKind), and notes in a bar or step the arrangement or a stop silences (leaks).
+export function auditSong({ bars = 240 } = {}) {
+  const r = { runs: 0, notes: 0, chimes: 0, outOfKey: 0, offGrid: 0, aboveCeiling: 0, foreignKind: 0, leaks: 0, fillNotes: 0, rollNotes: 0, restBars: 0, stopBars: 0 };
+  const edit = radioEdit(SECTIONS.map((s, index) => ({ index })));
+  const editBars = edit.slice(0, -1).reduce((n, s) => n + s.bars, 0) + 2;   // and two bars of outro
+  const stops = { [bars >> 1]: [8, false], [bars - 1]: [16, true] };
+  for (const key of KEYS) {
+    const song = new Song(key.pc);
+    for (const def of INSTRUMENTS) {
+      for (let lv = 1; lv <= def.levels.length; lv++) {
+        auditRun(r, song, def, lv, bars, stops);
+        auditRun(r, new Song(key.pc, edit), def, lv, editBars, {});
+      }
+    }
+    for (let b = 0; b < bars; b++) {
+      const chord = song.position(b).chord;
+      for (let idx = 0; idx < 6; idx++) {
+        const m = chimeMidi(chord, idx);
+        r.chimes++;
+        if (!inKey(song, { bar: b, chord }, m)) r.outOfKey++;
+        if (m > ROLE_HIGH.arp) r.aboveCeiling++;
+      }
+    }
+  }
+  return r;
+}
+
+function auditRun(r, song, def, lv, bars, stops) {
+  const clock = { sim: true, t: 0, now() { return this.t; } };
+  const seq = new Sequencer(clock, null);
+  seq.reset(song);
+  const inst = makeInst(def, lv);
+  seq.getInstruments = () => [inst];
+  seq.onBar = (bar) => {
+    if (stops[bar]) { seq.stopNext(...stops[bar]); r.stopBars++; }
+    if (song.position(bar).arr.rest.includes(def.role)) r.restBars++;
+  };
+  seq.start(0);
+  r.runs++;
+  const own = new Set(def.levels[lv - 1].pattern.map((n) => n.k || null));
+  const high = ROLE_HIGH[def.role];
+  for (let t = 0; t < bars * BAR_SEC; t += 0.1) {
+    clock.t = t;
+    seq.tick();
+    for (const ev of seq.events) {
+      if (ev.type !== 'note') continue;
+      const n = ev.note, pos = song.position(n.bar), sib = Math.round(n.time / STEP_SEC) % 16;
+      r.notes++;
+      if (!onGrid(n.time, 0)) r.offGrid++;
+      for (const m of pitches(n)) {
+        if (!inKey(song, n, m)) r.outOfKey++;
+        if (high && m > high) r.aboveCeiling++;
+      }
+      if (pos.arr.rest.includes(def.role) || (sib > 0 && sib < (stops[n.bar]?.[0] || pos.arr.cut))) r.leaks++;
+      if (def.role === 'beat') {
+        if (!own.has(n.k)) r.foreignKind++;
+        if (pos.arr.roll) r.rollNotes++;
+        else if (pos.arr.fill && sib >= 12) r.fillNotes++;
+      }
+    }
+    seq.events.length = 0;
+  }
+}
+
+// Plays a track sheet (Game.summary().sheet) through playSheet on a simulated clock with a stub desk.
+// Checks that every section starts in order with its own band, every note is in key and on the grid,
+// the outro plays one downbeat and the edit then ends by itself, and that stop() (at the end, and when
+// pressed part way through) leaves the sequencer clean.
+export function checkReplay(sheet, keyPc) {
+  const errors = [];
+  const run = (stopAfter) => {
+    const clock = { sim: true, t: 0, now() { return this.t; } };
+    const seq = new Sequencer(clock, null);
+    seq._report = (w, e) => errors.push(`${w}: ${e && e.message}`);
+    const desk = { pedalSets: 0, applyPedals() { this.pedalSets++; }, setActiveCount() {} };
+    const sections = [];
+    let ended = 0, notes = 0, outOfKey = 0, offGrid = 0, wrongBand = 0, outroNotes = 0, outroLeaks = 0;
+    const player = playSheet({ seq, audio: desk, sheet, keyPc, onSection: (name, size) => sections.push(`${name}:${size}`), onEnd: () => ended++ });
+    const song = seq.song, t0 = seq.nextTime;
+    let t = 0;
+    for (; t < 200 && t < stopAfter && seq.running; t += 0.05) {
+      clock.t = t;
+      seq.tick();
+      for (const ev of seq.events) {
+        if (ev.type !== 'note') continue;
+        const n = ev.note, pos = song.position(n.bar);
+        notes++;
+        if (!onGrid(n.time, t0)) offGrid++;
+        for (const m of pitches(n)) if (!inKey(song, n, m)) outOfKey++;
+        if (pos.section.end) {
+          outroNotes++;
+          if (pos.barInSection > 0 || Math.round((n.time - t0) / STEP_SEC) % 16) outroLeaks++;   // only the outro's first downbeat sounds
+        }
+        if (!sheet[pos.section.end ? sheet.length - 1 : pos.index].band.some(([id]) => id === ev.inst.def.id)) wrongBand++;
+      }
+      seq.events.length = 0;
+    }
+    if (seq.running) player.stop();
+    const clean = !seq.running && seq.onBar === null && seq.getInstruments().length === 0 && seq.events.length === 0;
+    return { seconds: +t.toFixed(2), bars: seq.bar, sections: sections.length, playing: sections.join(' · '), pedalSets: desk.pedalSets, notes, outroNotes, outroLeaks, outOfKey, offGrid, wrongBand, ended, clean };
+  };
+  return { full: run(Infinity), stoppedEarly: run(9), errors };
 }
 
 export async function checkAll({ roles = null, bars = 4 } = {}) {

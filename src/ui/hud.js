@@ -210,7 +210,7 @@ export class Hud {
       const inst = g.loadout.channels[role];
       const color = ROLE_INFO[role].color;
       let byStep = null, P = 16;
-      if (inst) { byStep = inst.def.levels[inst.level - 1]._byStep; P = inst.def.steps || 16; }
+      if (inst && !cur?.rest?.includes(role)) { byStep = inst.def.levels[inst.level - 1]._byStep; P = inst.def.steps || 16; }   // resting channels draw empty
       const off = ((bar * 16) % P);
       for (let s = 0; s < cols; s++) {
         const x = s * (cw + gap), y = r * (ch + gap);

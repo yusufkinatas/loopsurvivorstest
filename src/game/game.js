@@ -9,6 +9,7 @@ import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
 import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat, BOSS_TYPES } from './enemies.js';
+import { bossCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
 import { buildOffers, applyOffer } from './upgrades.js';
@@ -24,7 +25,7 @@ export class Game {
     this.clock = clock;
     this.seq = seq;
     this.opts = opts;
-    this.settings = { damageNumbers: true, shake: true, flashes: true, ...settings };
+    this.settings = { damageNumbers: true, shake: true, flashes: true, chimes: true, ...settings };
     this.hooks = hooks;
     this.fx = new Effects(this);
     this.grid = new SpatialHash(72);
@@ -46,6 +47,17 @@ export class Game {
     this.song = new Song(this.key.pc);
     this.seq.reset(this.song);
     this.seq.getInstruments = () => (this.loadout ? this.loadout.instruments() : []);
+    // The sequencer asks a beat ahead which boss cues to play on it (sound only, while playing).
+    const cues = [];
+    this.seq.getBossCues = (bar, beat) => {
+      cues.length = 0;
+      if (this.state === 'playing') for (const e of this.enemies) {
+        const c = e.boss && !e.dead ? bossCue(e, bar, beat) : null;
+        if (c && !cues.includes(c)) cues.push(c);
+      }
+      return cues;
+    };
+    this.sheet = [];   // the track sheet: one snapshot per finished section (src/music/replay.js)
     this.retired = [];
     this.player = {
       x: 0, y: 0, r: PLAYER_BASE.radius, hp: PLAYER_BASE.maxHp, maxHp: PLAYER_BASE.maxHp,
@@ -71,6 +83,7 @@ export class Game {
     this.pendingLevels = 0;
     this.rerolls = REROLLS_PER_RUN;
     this.dropCharge = 0;
+    this.dropReady = false;
     this.dropMax = DROP.charge;
     this.dropState = null;
     this.drops = 0;
@@ -372,7 +385,11 @@ export class Game {
       if (!this.opts.solo) this.pendingLevels++;
       this.fx.text(this.player.x, this.player.y - 26, 'Vinyl!', '#ffd166', 14);
     }
+    this._ping(gm.kind === 'xp' ? 'note' : 'run');
   }
+
+  // Pickup chimes (Note chimes setting): sound only, on the beat grid and in key (Sequencer.ping).
+  _ping(kind) { if (this.settings.chimes) this.seq.ping(kind); }
 
   // ------------------------------------------------------------------ the Drop
 
@@ -460,11 +477,12 @@ export class Game {
   channelCap(index = this.sectionIndex) { return CHANNEL_UNLOCKS[Math.min(index, CHANNEL_UNLOCKS.length - 1)]; }
 
   onSection(ev) {
+    this.sheet.push(this._snapshot());
     const before = this.channelCap();
     this.sectionIndex = ev.index;
     this.section = ev.section;
     const opened = this.channelCap() > before;
-    this.banner(ev.section.name, ev.section.boss ? `${BOSS_TYPES[ev.section.boss]?.name || 'A boss'} is here` : opened ? 'A new channel opens on the mixer' : '');
+    this.banner(ev.section.name, ev.section.boss ? `${BOSS_TYPES[ev.section.boss]?.name || 'A boss'} is here` : opened ? 'A new channel opens on the mixer' : ev.section.note || '');
     if (opened) this.hooks.onLoadout?.();
     // A boss belongs to its chorus. One still alive when the section ends fades out unbeaten (no notes,
     // no credit, no stop), so the next boss always arrives alone.
@@ -481,6 +499,7 @@ export class Game {
   }
 
   onBossSpawn(e) {
+    if (this.audio?.ready) this.audio.bossQuiet(false);
     this.boss = e;
     (this.bossesSpawned ||= []).push(e.type);
     this.bossLog.push({ type: e.type, spawn: this.time, end: null, how: null });
@@ -507,7 +526,10 @@ export class Game {
     this.hooks.onBoss?.(this.boss);
     if (e.def.final) {
       this.won = true;
-      this.victoryT = 2.2;
+      // The song's ending: stop-time on i on the next downbeat, and the win lands as that bar ends.
+      this.seq.stopNext(16, true);
+      this.victoryT = this._stopLeft();
+      if (this.audio?.ready) this.audio.bossQuiet(true);
       this.banner('Encore!', 'White Noise is silenced');
       // The silence wave grows from where it fell and silences the arena (see step()).
       this.silence = { x: e.x, y: e.y, r: 0 };
@@ -517,6 +539,8 @@ export class Game {
       // The boss implodes, then bursts outward in its color (cosmetic).
       this.fx.ring({ x: e.x, y: e.y, r0: e.r * 3.2, r1: 6, dur: 0.22, damage: 0, kb: 0, width: 12, color: e.color });
       this.later.push({ at: this.time + 2 * STEP_SEC, fn: () => this.fx.ring({ x: e.x, y: e.y, r0: 10, r1: 640, dur: 0.7, damage: 0, kb: 0, width: 16, color: e.color }) });
+      // Stop-time on the next downbeat.
+      this.seq.stopNext(8);
     }
   }
 
@@ -543,6 +567,7 @@ export class Game {
     this.seq.hold = true;
     this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat' && ev.type !== 'build' && ev.type !== 'drop');
     this.seq.dropState = null;
+    this.seq.pendingStop = null;
     this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     for (const inst of this.loadout.instruments()) this.fx.particles(p.x, p.y, this.color(inst), 16, 340, 1.1, 3.5);
@@ -639,8 +664,17 @@ export class Game {
       if (this.victoryT <= 0) { this.victory(); return; }
     }
 
-    if (this.pendingLevels > 0 && this.state === 'playing' && !this.won) this.openLevelUp();
+    // A full Drop meter rings a run, whatever filled it.
+    const ready = this.dropCharge >= this.dropMax;
+    if (ready && !this.dropReady) this._ping('run');
+    this.dropReady = ready;
+
+    // Card screens wait until a pending or playing stop bar is over (two bars at most).
+    if (this.pendingLevels > 0 && this.state === 'playing' && !this.won && this._stopLeft() <= 0) this.openLevelUp();
   }
+
+  // Seconds until the pending or playing stop bar has been heard to its end (negative when there is none).
+  _stopLeft() { return this.seq.stopEnd() - this.clock.now() + (this.audio?.latency || 0); }
 
   // ------------------------------------------------------------------ level up
 
@@ -723,6 +757,7 @@ export class Game {
   _resume() {
     this.state = 'playing';
     this.seq.hold = false;
+    if (this.won) this.victoryT = this._stopLeft();   // the ending waited out the pause
     this.seq.preview = null;
     this.preview = null;
     if (this.audio?.ready) { this.audio.setPreviewRole(null); this.audio.applyPedals(this.loadout.pedalLevels()); this.audio.setMuffle(false); }
@@ -771,6 +806,16 @@ export class Game {
       bar: this.seq.bar, damageBy: this.damageBy, lastHitBy: this.lastHitBy,
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),
+      sheet: [...this.sheet, this._snapshot()], keyPc: this.key.pc,
+    };
+  }
+
+  // The band and pedals as they stand: one track sheet entry.
+  _snapshot() {
+    return {
+      index: this.sectionIndex,
+      band: this.loadout.instruments().map((i) => [i.def.id, i.level, i.remix ? 1 : 0]),
+      pedals: this.loadout.pedals.map((p) => [p.def.id, p.level]),
     };
   }
 
