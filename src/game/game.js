@@ -805,8 +805,7 @@ export class Game {
     } else if (o.pedal) {
       A.applyPedals({ ...this.loadout.pedalLevels(), [o.pedal.id]: o.level }, boost);
     } else if (o.kind === 'fader') {
-      // A Fader card lifts its channel out of the dimmed mix.
-      this.seq.preview = { inst: o.inst };
+      // A Fader card lifts its channel out of the dimmed mix (the channel already plays in the vamp).
       A.setPreviewRole(o.role);
     }
   }
