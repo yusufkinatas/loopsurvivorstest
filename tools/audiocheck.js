@@ -117,11 +117,13 @@ export async function checkInstrument(id, level, { bars = 4, keyPc = 9 } = {}) {
 }
 
 // Full band through the real mixing desk (faders, pan, ducking, returns, compressor, limiter).
-export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {} } = {}) {
+// remix: true plays every instrument remixed, with its remix pedal at full on its own strip.
+export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {}, remix = false } = {}) {
   const ctx = new OfflineAudioContext(2, Math.floor(SR * (bars * 2 + 2)), SR);
   const eng = new AudioEngine();
   eng.attach(ctx);
-  eng.applyPedals(pedals);
+  const boost = remix ? Object.fromEntries(ids.map((id) => BY_ID[id]).filter((d) => d?.remix).map((d) => [d.role, d.remix.pedal])) : {};
+  eng.applyPedals(pedals, boost);
   eng.setActiveCount(ids.length);
   const errors = [];
   const clock = { sim: false, t: 0, now() { return this.t; } };
@@ -129,11 +131,12 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
   seq._report = (w, e) => errors.push(`${w}: ${e && e.message}`);
   seq.reset(new Song(keyPc));
   const insts = ids.map((id) => makeInst(BY_ID[id], typeof level === 'number' ? level : level[id] || 1)).filter((i) => i.def);
+  for (const i of insts) i.remix = !!(remix && i.def.remix);
   seq.getInstruments = () => insts;
   seq.start(0.02);
   scheduleBars(seq, clock, bars);
   const buf = await ctx.startRendering();
-  return { ids, level, errors, ...analyze(buf) };
+  return { ids, level, remix, errors, ...analyze(buf) };
 }
 
 export async function checkAll({ roles = null, bars = 4 } = {}) {

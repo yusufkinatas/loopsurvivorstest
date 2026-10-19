@@ -134,6 +134,9 @@ button { font: inherit; }
 .strip-pips { grid-column: 3; display: flex; gap: 3px; }
 .strip-pips i { width: 9px; height: 3px; border-radius: 1px; background: rgba(255, 255, 255, 0.14); }
 .strip-pips i.on { background: var(--c); }
+.strip.remix { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); }
+.strip.remix .strip-name { color: var(--gold); }
+.strip.remix .strip-pips i.on { background: var(--gold); box-shadow: 0 0 5px var(--gold); }
 .strip.empty { opacity: 0.55; }
 .strip.empty:not(.locked) .strip-sub { color: var(--c); }
 .strip.locked { opacity: 0.32; border-style: dashed; }
@@ -273,6 +276,20 @@ h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: clam
 .chem-list li.bad::before { content: "- "; }
 .card-listen { display: none; font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
 @media (hover: none) { .card-listen { display: block; } .card-key, .dropmeter kbd { display: none; } }
+
+/* Remix cards are gold modules. Recipe lines on other cards are gold too. */
+.card-remix { border-color: color-mix(in srgb, var(--gold) 70%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 12%, var(--panel)), var(--panel) 62%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent), 0 16px 40px -22px var(--gold); }
+.card-remix:hover, .card-remix:focus-visible, .card-remix.focused, .card-remix.listening { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 18px 44px -18px var(--gold); }
+.card-remix .eyebrow, .card-remix .card-tag { color: var(--gold); }
+.card-remix .pips i.on { background: var(--gold); }
+.chem-list li.remix { color: var(--gold); }
+/* Banish mode: the cards that can go get a red outline, the rest step back. */
+.cards.banishing .card:not(.no-ban) { border-color: var(--bad); }
+.cards.banishing .card:not(.no-ban):hover, .cards.banishing .card:not(.no-ban):focus-visible, .cards.banishing .card:not(.no-ban).focused { box-shadow: 0 0 0 1px var(--bad), 0 18px 44px -20px var(--bad); }
+.cards.banishing .card.no-ban { opacity: 0.4; }
+.row-actions .btn[aria-pressed="true"] { color: var(--bad); border-color: var(--bad); }
+/* Reroll, Banish and Skip stay on one line on a phone. */
+@media (max-width: 760px) { .row-actions { gap: 6px; } .row-actions .btn { padding: 12px 14px; } .row-actions .muted { display: none; } }
 
 /* End screen */
 .end .kicker { margin-bottom: 6px; }

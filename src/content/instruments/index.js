@@ -7,6 +7,7 @@ import chords from './chords.js';
 import lead from './lead.js';
 import arp from './arp.js';
 import { ROLES, STYLES, MAX_INSTRUMENT_LEVEL, STEPS_PER_BAR } from '../../config.js';
+import { PEDAL_BY_ID } from '../pedals.js';
 
 export const INSTRUMENTS = [...beat, ...perc, ...bass, ...chords, ...lead, ...arp];
 
@@ -35,6 +36,13 @@ export function validate(def) {
     if (!Array.isArray(lv.pattern) || !lv.pattern.length) errs.push(`level ${i + 1} empty pattern`);
     for (const n of lv.pattern || []) if (!(n.s >= 0 && n.s < steps)) errs.push(`level ${i + 1} note step ${n.s} out of range`);
   });
+  // A remix with a wrong pedal id could never be offered.
+  const rm = def.remix;
+  if (rm) {
+    if (!rm.id || !rm.name || !rm.text) errs.push('remix needs id, name and text');
+    if (!PEDAL_BY_ID[rm.pedal]) errs.push(`remix pedal ${rm.pedal} unknown`);
+    for (const fn of ['fire', 'setup', 'update']) if (rm[fn] && typeof rm[fn] !== 'function') errs.push(`remix ${fn} is not a function`);
+  }
   return errs;
 }
 
@@ -42,6 +50,8 @@ for (const def of INSTRUMENTS) {
   const errs = validate(def);
   if (errs.length) console.error(`[instruments] ${def.id}: ${errs.join('; ')}`);
   prepare(def);
+  // A remix plays the level 5 part, so its stats are level 5's with its own on top.
+  if (def.remix) def.remix.stats = { ...def.levels[MAX_INSTRUMENT_LEVEL - 1]?.stats, ...def.remix.stats };
 }
 
 export const BY_ID = Object.fromEntries(INSTRUMENTS.map((d) => [d.id, d]));

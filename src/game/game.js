@@ -1,7 +1,7 @@
 // The run. Owns the world, turns sequencer note events into attacks, and exposes the small API
 // that instrument fire() functions use (see docs/INSTRUMENTS.md).
 
-import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS } from '../config.js';
+import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
@@ -11,7 +11,7 @@ import { Director } from './director.js';
 import { updateEnemies, enemiesOnBeat, spawnEnemy, BOSS_TYPES } from './enemies.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
-import { buildOffers, applyOffer } from './upgrades.js';
+import { buildOffers, applyOffer, banKey, deadScreen } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
@@ -67,6 +67,11 @@ export class Game {
     this.xpNeed = this.xpFor(1);
     this.pendingLevels = 0;
     this.rerolls = REROLLS_PER_RUN;
+    this.banishes = BANISHES_PER_RUN;
+    this.banished = new Set();   // ids of the sounds and pedals banished from the cards
+    this.remixed = [];           // ids of the instruments remixed this run, in order
+    this.cardScreens = 0;
+    this.deadScreens = 0;
     this.dropCharge = 0;
     this.dropMax = DROP.charge;
     this.dropState = null;
@@ -93,6 +98,11 @@ export class Game {
     for (const g of this.opts.give || []) {
       const def = BY_ID[g.id];
       if (def) this.addInstrument(def, clamp(g.level || 1, 1, MAX_INSTRUMENT_LEVEL));
+    }
+    // Sims: remix=id,id remixes instruments already in the band (at level 5).
+    for (const id of this.opts.remix || []) {
+      const inst = this.loadout.channels[BY_ID[id]?.role];
+      if (inst?.def.id === id && inst.def.remix) { inst.level = MAX_INSTRUMENT_LEVEL; inst.remix = true; this.remixed.push(id); }
     }
     for (const p of this.opts.givePedals || []) {
       const pd = PEDAL_BY_ID[p.id];
@@ -127,11 +137,31 @@ export class Game {
     this.onLoadoutChanged();
   }
 
+  // Remix: the level 5 part keeps playing, its notes become the remix's attack, and the remix pedal opens up
+  // on that channel's strip so the change is heard. Taken from a card, the banner waits until play resumes.
+  remixInstrument(inst) {
+    if (!inst.def.remix || inst.remix) return;
+    inst.level = MAX_INSTRUMENT_LEVEL;
+    inst.remix = true;
+    this.remixed.push(inst.def.id);
+    this.onLoadoutChanged();
+    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 300, dur: 0.6, damage: 0, kb: 0, width: 12, color: '#ffd166' });
+    if (this.state === 'levelup') (this._remixNames ||= []).push(inst.def.remix.name);
+    else this.banner('Remix!', inst.def.remix.name);
+    this.hooks.onRemix?.(inst.def);
+  }
+
+  // A remixed instrument plays with its remix's stats, and its remix's fire/setup/update where it has them.
+  // They run with `this` = the definition, so a remix can call this.fire() for the level 5 attack.
+  _st(inst) { return inst.remix ? inst.def.remix.stats : inst.def.levels[inst.level - 1].stats; }
+  _fn(inst, name) { return (inst.remix && inst.def.remix[name]) || inst.def[name]; }
+
   _setupInst(inst) {
-    if (!inst.def.setup) return;
+    const setup = this._fn(inst, 'setup');
+    if (!setup) return;
     const prev = this.src; this.src = inst;
     this._stableAmount = true;
-    try { inst.def.setup(this, inst.def.levels[inst.level - 1].stats, inst); } catch (e) { this._report(inst.def.id + '.setup', e); }
+    try { setup.call(inst.def, this, this._st(inst), inst); } catch (e) { this._report(inst.def.id + '.setup', e); }
     this._stableAmount = false;
     this.src = prev;
   }
@@ -153,7 +183,7 @@ export class Game {
     // Instruments that depend on stats (orbiter counts, etc.) re-read them.
     for (const inst of this.loadout.instruments()) this._setupInst(inst);
     if (this.audio?.ready) {
-      this.audio.applyPedals(this.loadout.pedalLevels());
+      this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost());
       this.audio.setActiveCount(this.loadout.filled());
     }
     this.genre = genreName(this.loadout);
@@ -162,8 +192,8 @@ export class Game {
 
   // ------------------------------------------------------------------ API for instruments
 
-  // Scaled damage: base x global damage multiplier x echo scale.
-  dmg(base) { return base * this.stats.damage * this.dmgScale; }
+  // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards).
+  dmg(base) { return base * this.stats.damage * this.dmgScale * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
   area(r) { return r * this.stats.area; }
   // Counts scale by a percentage (Chorus pedal, 8-Bit chemistry), so a one-shot weapon and a
   // six-shot weapon gain the same share. Fractions round by chance per note, and deterministically
@@ -249,6 +279,7 @@ export class Game {
     if (!e || e.dead || !(dmg > 0) || this.state !== 'playing') return;
     let crit = false;
     if (rng() < this.stats.crit) { dmg *= this.stats.critMult; crit = true; }
+    if (e.vulnUntil > this.time) dmg *= 1 + e.vuln;   // marked by Lullaby: takes more from every source
     const src = o.src || this.src;
     if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
@@ -330,7 +361,7 @@ export class Game {
       }
     } else if (gm.kind === 'heal') {
       this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player.maxHp * 0.3);
-      this.fx.text(this.player.x, this.player.y - 26, 'Encore!', '#ff8fa3', 14);
+      this.fx.text(this.player.x, this.player.y - 26, 'Breather!', '#ff8fa3', 14);
     } else if (gm.kind === 'magnet') {
       magnetAll(this);
     } else if (gm.kind === 'vinyl') {
@@ -388,10 +419,9 @@ export class Game {
 
   fireNote(inst, note, scale) {
     if (!this.loadout.has(inst)) return;
-    const lv = inst.def.levels[inst.level - 1];
     this.src = inst;
     this.dmgScale = scale;
-    try { inst.def.fire(this, note, lv.stats, inst); } catch (e) { this._report(inst.def.id + '.fire', e); }
+    try { this._fn(inst, 'fire').call(inst.def, this, note, this._st(inst), inst); } catch (e) { this._report(inst.def.id + '.fire', e); }
     this.src = null;
     this.dmgScale = 1;
     inst.notes++;
@@ -516,9 +546,10 @@ export class Game {
     }
 
     for (const inst of this.loadout.instruments()) {
-      if (inst.def.update) {
+      const update = this._fn(inst, 'update');
+      if (update) {
         this.src = inst;
-        try { inst.def.update(this, dt, inst.def.levels[inst.level - 1].stats, inst); } catch (e) { this._report(inst.def.id + '.update', e); }
+        try { update.call(inst.def, this, dt, this._st(inst), inst); } catch (e) { this._report(inst.def.id + '.update', e); }
         this.src = null;
       }
     }
@@ -552,7 +583,7 @@ export class Game {
   // ------------------------------------------------------------------ level up
 
   openLevelUp() {
-    this.offers = buildOffers(this, 3);
+    this._deal();
     if (this.opts.autopick) {
       const i = this.hooks.autopick ? this.hooks.autopick(this.offers) : 0;
       this.pendingLevels--;
@@ -570,25 +601,50 @@ export class Game {
     this.hooks.onLevelUp?.(this.offers);
   }
 
+  // Deal a new set of cards. Screens with no real choice are counted for the sim metrics.
+  _deal() {
+    this.offers = buildOffers(this, 3);
+    this.cardScreens++;
+    if (deadScreen(this.offers)) this.deadScreens++;
+    return this.offers;
+  }
+
   reroll() {
     if (this.state !== 'levelup' || this.rerolls <= 0) return null;
     this.rerolls--;
     this.previewOffer(null);
-    this.offers = buildOffers(this, 3);
-    return this.offers;
+    return this._deal();
   }
 
+  // Banish card i: its sound or pedal never comes back this run (Remix, Fader and bonus cards cannot go).
+  // The cards are dealt again, like a reroll.
+  banish(i) {
+    const key = this.state === 'levelup' && this.banishes > 0 && this.offers?.[i] ? banKey(this.offers[i]) : null;
+    if (!key) return null;
+    this.banished.add(key);
+    this.banishes--;
+    this.previewOffer(null);
+    return this._deal();
+  }
+
+  // Pass on this level: its notes go to the Drop meter instead.
+  skip() {
+    if (this.state !== 'levelup' || !this.offers) return;
+    this.dropCharge = Math.min(this.dropMax, this.dropCharge + DROP.charge * DROP.skip);
+    this.choose(-1);
+  }
+
+  // i = -1 takes no card (a skip).
   choose(i) {
     if (this.state !== 'levelup' || !this.offers) return;
     const o = this.offers[i];
-    if (!o) return;
+    if (!o && i !== -1) return;
     this.previewOffer(null);
     this.pendingLevels--;
-    applyOffer(this, o);
+    if (o) applyOffer(this, o);
     this.offers = null;
     if (this.pendingLevels > 0) {
-      this.offers = buildOffers(this, 3);
-      this.hooks.onLevelUp?.(this.offers);
+      this.hooks.onLevelUp?.(this._deal());
       return;
     }
     this._resume();
@@ -602,16 +658,25 @@ export class Game {
     this.preview = o;
     this.seq.preview = null;
     A.setPreviewRole(null);
-    A.applyPedals(this.loadout.pedalLevels());
+    // A remix card plays the remix: its pedal opens up on the channel strip.
+    const boost = this.loadout.remixBoost();
+    if (o?.kind === 'remix') boost[o.role] = o.def.remix.pedal;
+    A.applyPedals(this.loadout.pedalLevels(), boost);
     // The mix stays dimmed while a card screen is up, except when auditioning a pedal on the whole band.
     const held = this.state === 'levelup' || this.state === 'paused';
     A.setMuffle(held && !(o && o.pedal));
     if (!o) return;
     if (o.def) {
-      this.seq.preview = { inst: makeInst(o.def, o.level) };
+      const inst = makeInst(o.def, o.level);
+      inst.remix = o.kind === 'remix';
+      this.seq.preview = { inst };
       A.setPreviewRole(o.def.role);
     } else if (o.pedal) {
-      A.applyPedals({ ...this.loadout.pedalLevels(), [o.pedal.id]: o.level });
+      A.applyPedals({ ...this.loadout.pedalLevels(), [o.pedal.id]: o.level }, boost);
+    } else if (o.kind === 'fader') {
+      // A Fader card lifts its channel out of the dimmed mix.
+      this.seq.preview = { inst: o.inst };
+      A.setPreviewRole(o.role);
     }
   }
 
@@ -632,8 +697,9 @@ export class Game {
     this.seq.hold = false;
     this.seq.preview = null;
     this.preview = null;
-    if (this.audio?.ready) { this.audio.setPreviewRole(null); this.audio.applyPedals(this.loadout.pedalLevels()); this.audio.setMuffle(false); }
+    if (this.audio?.ready) { this.audio.setPreviewRole(null); this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost()); this.audio.setMuffle(false); }
     this.hooks.onResume?.();
+    if (this._remixNames) { this.banner('Remix!', this._remixNames.join(' · ')); this._remixNames = null; }
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
@@ -664,7 +730,7 @@ export class Game {
     const insts = [...this.loadout.instruments()];
     const byId = new Map();
     for (const i of [...insts, ...(this.retired || [])]) {
-      const r = byId.get(i.def.id) || { id: i.def.id, name: i.def.name, role: i.def.role, style: i.def.style, level: 0, dmg: 0, kills: 0, active: false };
+      const r = byId.get(i.def.id) || { id: i.def.id, name: i.remix ? i.def.remix.name : i.def.name, role: i.def.role, style: i.def.style, level: 0, dmg: 0, kills: 0, active: false };
       r.level = Math.max(r.level, i.level);
       r.dmg += Math.round(i.dmg);
       r.kills += i.kills;
@@ -677,6 +743,7 @@ export class Game {
       genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),
+      remixes: this.remixed.map((id) => ({ id, name: BY_ID[id].name, remix: BY_ID[id].remix.name })),
     };
   }
 

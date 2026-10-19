@@ -38,6 +38,10 @@ export const MAX_INSTRUMENT_LEVEL = 5;
 export const MAX_PEDAL_LEVEL = 3;
 export const PEDAL_SLOTS = 4;
 export const REROLLS_PER_RUN = 3;
+export const BANISHES_PER_RUN = 3;
+
+// Fader cards, offered once the real cards run out: each push adds 8% damage to one channel, up to 5 pushes.
+export const FADER = { step: 0.08, max: 5 };
 
 export const PLAYER_BASE = {
   maxHp: 100,
@@ -57,6 +61,7 @@ export const WORLD = {
 // Drop ability: fills from collected notes, fires on the next downbeat after a one-bar build.
 export const DROP = {
   charge: 640,           // xp-equivalent needed to fill the meter
+  skip: 0.2,             // share of a full meter paid for skipping a level-up
   damage: 90,
   radius: 900,
 };
