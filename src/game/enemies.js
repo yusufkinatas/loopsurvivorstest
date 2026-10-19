@@ -128,7 +128,6 @@ export function knockOffBeat(g, e, bar) {
   e.ai.blinkTo = null;
   e.ai.chargeWarn = null;
   e.ai.spiral = false;     // restarts on a downbeat once the boss is back
-  e.ai.spiralAcc = 0;
   g.banner(`${e.def.name} lost the beat`, '', true);
 }
 
@@ -170,33 +169,25 @@ function bossOnBeat(g, e, ev) {
       const phase = Math.max(g.mods.wnPhase, frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3);   // Gain 8 starts it in phase 2
       if (e.ai.phase !== phase) {
         e.ai.phase = phase;
-        e.ai.spiralAcc = 0;
         if (phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
       }
       if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
+      // Spiral arms on 8th notes: one set on the beat and one on the 8th after it. A stun holds them.
+      if (e.ai.spiral && e.stun <= 0) {
+        spiral(g, e);
+        g.later.push({ at: g.time + 2 * STEP_SEC, fn: () => { if (!e.dead && e.ai.spiral && e.stun <= 0) spiral(g, e); } });
+      }
       break;
     }
   }
 }
 
-function bossUpdate(g, e, dt) {
-  const p = g.player;
-  if (e.type === 'whitenoise' && e.ai.spiral) {
-    // Spiral arms on 8th notes. Started on a beat, so it stays on the grid.
-    e.ai.spiralAcc = (e.ai.spiralAcc || 0) + dt;
-    e.ai.spiralA = (e.ai.spiralA || 0);
-    const every = STEP_SEC * 2;
-    while (e.ai.spiralAcc >= every) {
-      e.ai.spiralAcc -= every;
-      e.ai.spiralA += 0.42;
-      const arms = e.ai.phase === 3 ? 4 : 3;
-      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5, from: e });
-    }
-  }
-  void p;
-  return false;
+function spiral(g, e) {
+  e.ai.spiralA = (e.ai.spiralA || 0) + 0.42;
+  const arms = e.ai.phase === 3 ? 4 : 3;
+  for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5, from: e });
 }
 
 // Movement, separation and contact damage.
@@ -231,7 +222,6 @@ export function updateEnemies(g, dt) {
       continue;
     }
     if (e.def.charger && e.ai.chargeWarn) continue;   // a Stomp stands its ground while its lane is lit
-    if (e.boss && bossUpdate(g, e, dt)) continue;
 
     const dx = p.x - e.x, dy = p.y - e.y;
     const d = Math.hypot(dx, dy) || 1;
