@@ -31,7 +31,11 @@ export function loadSettings() {
 
 export function saveSettings(s) { const d = read(); d.settings = s; write(d); }
 
-export function loadBest() { return read().best || null; }
+// A stored best that is not a run (data the game never writes) reads as none, so the title can show it.
+export function loadBest() {
+  const b = read().best;
+  return b && typeof b === 'object' && Number.isFinite(b.score) ? b : null;
+}
 
 // Returns true when this run is the new best and was stored. A finished song ranks above any run that
 // did not finish, then the score decides.
