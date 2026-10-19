@@ -65,7 +65,8 @@ export class Director {
     if (ev.beat === 0 && ev.bar % 16 === 0 && (g.section.id === 'verse2' || g.section.id === 'bridge')) this.spawnElite();
     // Set piece: on beat 3 of the Build-Up's last bar a ring of Stomps appears around you, lights its lanes on
     // beat 4 and slams in on the downbeat where the song drops (a Drop timed for that downbeat clears it).
-    if (ev.beat === 2 && g.section.build && g.song.position(ev.bar).barsLeft === 1) this.stompRing(ev.bar);
+    // Once only: a resume can replay beat 3.
+    if (ev.beat === 2 && g.section.build && ev.bar !== this.ringBar && g.song.position(ev.bar).barsLeft === 1) this.stompRing(ev.bar);
   }
 
   // Set pieces: an encircling ring, or a swarm charging from one side.
