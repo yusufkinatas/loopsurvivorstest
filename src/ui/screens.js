@@ -129,19 +129,22 @@ export class Screens {
 
   howto(back) {
     const rows = ROLES.map((r) => `<li style="--c:${ROLE_INFO[r].color}"><span class="ht-icon">${icon(r)}</span><b>${ROLE_INFO[r].name}</b><span>${ROLE_INFO[r].desc}</span></li>`).join('');
+    const keys = [['Move', 'WASD or arrows', 'Left stick'], ['The Drop', 'Space', 'A'], ['Pick a card', '1 · 2 · 3', 'A'], ['Reroll', 'R', 'X'],
+      ['Banish · Skip', 'X · Q', 'D-pad down, then A'], ['Pause', 'Esc or P', 'Start'], ['Back', '', 'B'], ['Mute', 'M', '']]
+      .map(([act, key, pad]) => `<tr><th>${act}</th><td>${key}</td><td>${pad}</td></tr>`).join('');
     const el = this._mount('howto', `
       <div class="panel panel-wide">
         <h2>How to play</h2>
         <ol class="howto">
-          <li><b>Move.</b> WASD or arrow keys. On a touch screen, drag anywhere. Moving is all you control.</li>
-          <li><b>Your instruments fight for you.</b> They play on the beat by themselves, and every note they play is an attack.</li>
-          <li><b>One instrument per channel.</b> Your mixer has six channels. Each one holds a single sound, so the song never turns to mush. A new sound for a full channel swaps out the old one. Channels open up as the song goes on, so your band grows with it.</li>
-          <li><b>It always sounds right.</b> Every note is tuned to the song's key and locked to the beat. Pick what you like.</li>
-          <li><b>Styles belong together.</b> Instruments are Synth, Live or 8-Bit. Two or more of a style unlock a bonus. Two of every style unlocks Fusion.</li>
-          <li><b>Pedals</b> change your sound and your stats at the same time. You have four slots.</li>
-          <li><b>The Drop.</b> Collected notes fill the Drop meter. Press Space (or tap the meter) when it is full. The music builds for one bar and slams on the downbeat.</li>
+          <li><b>Move.</b> That is all you control. Your instruments play on the beat, and every note is an attack.</li>
+          <li><b>One sound per channel.</b> Your six mixer channels open up as the song goes on. A new sound for a full channel swaps out the old one.</li>
+          <li><b>It always sounds right.</b> Every note is in key, so pick what you like. Two or more sounds of a style (Synth, Live or 8-Bit) unlock a bonus, and two of each unlock Fusion. Pedals change your sound and your stats.</li>
+          <li><b>Level-ups.</b> Pick one of three cards. You can also reroll them, banish one for the rest of the run, or skip the level to charge the Drop.</li>
+          <li><b>The Drop.</b> Notes you collect fill the Drop meter. When it is full, set it off: the music builds for a bar and slams on the downbeat.</li>
           <li><b>Survive the song.</b> Each chorus brings a boss. Silence White Noise in the finale to win.</li>
         </ol>
+        <table class="keys"><thead><tr><th></th><th>Keyboard</th><th>Gamepad</th></tr></thead><tbody>${keys}</tbody></table>
+        <p class="touch-note">On a touch screen, drag anywhere to move and tap the Drop meter. Hold a card to hear it.</p>
         <ul class="roles">${rows}</ul>
         <div class="panel-actions"><button class="btn btn-primary" type="button" data-act="back">Got it</button></div>
       </div>`);

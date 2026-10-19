@@ -237,6 +237,14 @@ body[data-input=pad] #screens :is(.btn, input):focus { outline: 2px solid var(--
 .roles li b { color: var(--c); font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
 .roles li span:last-child { grid-column: 2; color: var(--muted); }
 .ht-icon { grid-row: 1 / span 2; width: 26px; height: 26px; color: var(--c); }
+.keys { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 13.5px; }
+.keys th, .keys td { padding: 3px 12px 3px 0; text-align: left; border-bottom: 1px solid var(--line); }
+.keys thead th { font: 700 10.5px/1.4 var(--f-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.keys tbody th { font-weight: 600; }
+.keys td { font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.touch-note { display: none; margin: 14px 0 0; font-size: 14.5px; line-height: 1.5; color: var(--muted); }
+body[data-input=touch] .keys { display: none; }
+body[data-input=touch] .touch-note { display: block; }
 
 .field { display: grid; gap: 8px; margin-top: 18px; font-size: 14px; }
 .field input[type=range] { width: 100%; accent-color: var(--chords); }
@@ -365,6 +373,12 @@ body[data-input=pad] .card-key::after { content: "A"; font-size: 11px; }
   .end-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .end-rows li { grid-template-columns: 22px minmax(0, 1fr) 64px; }
   .er-bar { display: none; }
+  .screen-howto .panel { padding: 20px 16px; }
+  .howto { gap: 7px; font-size: 14px; line-height: 1.42; }
+  .roles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 14px; }
+  .roles li { grid-template-columns: 18px 1fr; column-gap: 8px; padding: 5px 8px; font-size: 11.5px; line-height: 1.3; }
+  .roles li b { font-size: 11px; }
+  .ht-icon { width: 18px; height: 18px; }
 }
 
 /* Landscape phones: compact cards, so a whole card screen fits without scrolling. */
