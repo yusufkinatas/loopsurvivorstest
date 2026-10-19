@@ -46,13 +46,14 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
   return e;
 }
 
+// opts.from: the enemy that fired it, so a hit is credited to it by name (damageBy, lastHitBy).
 export function enemyShot(g, x, y, angle, speed = 160, dmg = 8, opts = {}) {
   if (g.shots.length > 500) return;
-  g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? '#ff4d6d' });
+  g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? '#ff4d6d', from: opts.from ?? null });
 }
 
 function radial(g, e, n, speed, dmg, offset = 0, color) {
-  for (let i = 0; i < n; i++) enemyShot(g, e.x, e.y, offset + (i / n) * TAU, speed, dmg, { color });
+  for (let i = 0; i < n; i++) enemyShot(g, e.x, e.y, offset + (i / n) * TAU, speed, dmg, { color, from: e });
 }
 
 function summonRing(g, e, type, n, dist) {
@@ -83,7 +84,7 @@ export function enemiesOnBeat(g, ev) {
     if (e.def.ranged && ev.beat === 2 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0) {
       const d2 = dist2(e.x, e.y, p.x, p.y);
       if (d2 < 480 * 480) {
-        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, 14 * (1 + g.time / 60 * 0.06), { color: '#ff7a95' });
+        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, 14 * (1 + g.time / 60 * 0.06), { color: '#ff7a95', from: e });
         e.ai.shootT = 0.2;
       }
     }
@@ -105,7 +106,7 @@ function bossOnBeat(g, e, ev) {
     case 'clipper':
       if (ev.beat === 0 || ev.beat === 2) radial(g, e, 14, 160, 16, (ev.beat === 2 ? Math.PI / 14 : 0) + ev.bar * 0.13, '#ffb06a');
       if (ev.beat === 0 && ev.bar % 4 === 3) summonRing(g, e, 'static', 6, e.r + 36);
-      if (frac < 0.7 && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 16, { color: '#ffd08a' });
+      if (frac < 0.7 && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 16, { color: '#ffd08a', from: e });
       break;
     case 'glitchking': {
       if (ev.beat === 0 && ev.bar % 2 === 0) {
@@ -119,7 +120,7 @@ function bossOnBeat(g, e, ev) {
         radial(g, e, 20, 150, 25, rand(0, TAU), '#8ff3ff');
         summonRing(g, e, 'glitch', 4, e.r + 40);
       }
-      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, 22, { color: '#b9f7ff' });
+      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, 22, { color: '#b9f7ff', from: e });
       break;
     }
     case 'whitenoise': {
@@ -155,7 +156,7 @@ function bossUpdate(g, e, dt) {
       e.ai.spiralAcc -= every;
       e.ai.spiralA += 0.42;
       const arms = e.ai.phase === 3 ? 4 : 3;
-      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5 });
+      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5, from: e });
     }
   }
   void p;
@@ -235,7 +236,7 @@ export function updateEnemies(g, dt) {
     s.age += dt;
     s.x += s.vx * dt; s.y += s.vy * dt;
     const rr = s.r + p.r - 4;
-    if (dist2(s.x, s.y, p.x, p.y) < rr * rr) { g.hurt(s.dmg, null); g.shots.splice(i, 1); continue; }
+    if (dist2(s.x, s.y, p.x, p.y) < rr * rr) { g.hurt(s.dmg, null, s.from); g.shots.splice(i, 1); continue; }
     if (s.age > s.life) g.shots.splice(i, 1);
   }
 }

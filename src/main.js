@@ -337,6 +337,7 @@ window.__LS = {
     return {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
       damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
+      damageBy: game.damageBy, lastHitBy: game.lastHitBy, bossLog: game.bossLog,
       bossesSpawned: game.bossesSpawned, sectionIndex: game.sectionIndex, cap: game.channelCap(), dropState: game.dropState,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
       genre: game.genre, key: game.key?.name,

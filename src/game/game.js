@@ -53,6 +53,9 @@ export class Game {
     };
     this.enemies = [];
     this.damageTaken = { contact: 0, shots: 0, boss: 0 };
+    this.damageBy = {};      // enemy name -> damage taken from it (bodies and shots)
+    this.lastHitBy = null;
+    this.bossLog = [];       // { type, spawn, end, how: 'silenced' | 'faded' } in game seconds
     this.shots = [];
     this.gems = [];
     this.later = [];
@@ -298,13 +301,16 @@ export class Game {
 
   // ------------------------------------------------------------------ player
 
-  hurt(dmg, from) {
+  // from: the enemy body that touched the player (null for a shot). shotFrom: the enemy that fired the shot.
+  hurt(dmg, from, shotFrom) {
     const p = this.player;
     if (this.state !== 'playing' || this.won || p.iframes > 0 || this.opts.god) return;
     const taken = Math.max(1, dmg - this.stats.armor);
     p.hp -= taken;
     const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
     this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
+    const by = (from || shotFrom)?.def.name;
+    if (by) { this.damageBy[by] = (this.damageBy[by] || 0) + taken; this.lastHitBy = by; }
     p.iframes = PLAYER_BASE.iframes;
     p.hurtT = 0.3;
     this.hurtFlash = 1;
@@ -425,11 +431,13 @@ export class Game {
   onBossSpawn(e) {
     this.boss = e;
     (this.bossesSpawned ||= []).push(e.type);
+    this.bossLog.push({ type: e.type, spawn: this.time, end: null, how: null });
     this.hooks.onBoss?.(e);
   }
 
   onBossDeath(e) {
     this.bossesBeaten++;
+    this._logBossEnd(e, 'silenced');
     if (this.boss === e) {
       this.boss = null;
       for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -447,6 +455,11 @@ export class Game {
       this.banner(`${e.def.name} is silenced`, '', true);
       magnetAll(this);
     }
+  }
+
+  _logBossEnd(e, how) {
+    const b = this.bossLog.find((b) => b.type === e.type && b.end === null);
+    if (b) { b.end = this.time; b.how = how; }
   }
 
   // compact: a short line under the boss bar instead of the big center banner (for mid-fight messages).
@@ -675,6 +688,7 @@ export class Game {
     return {
       won, time: this.time, kills: this.kills, level: this.level, score: this.score(),
       genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,
+      bar: this.seq.bar, damageBy: this.damageBy, lastHitBy: this.lastHitBy,
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),
     };
