@@ -176,7 +176,7 @@ const flute = {
 
   remix: {
     id: 'canon', name: 'Canon', pedal: 'delay',
-    text: 'The flute plays a round: the delay sings every wisp again, a dotted eighth and then a quarter later.',
+    text: 'The flute plays a round: the delay sings every wisp again, a dotted eighth and then a dotted quarter later.',
     stats: { canon: 0.6, canon2: 0.35 },
     fire(g, note, st, inst) {
       this.fire(g, note, st, inst);
