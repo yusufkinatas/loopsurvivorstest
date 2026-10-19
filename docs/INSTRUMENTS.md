@@ -79,6 +79,15 @@ A note is `{ s, v, k, ct | sc | chord, o, d }`:
 Levels should build: each level keeps the previous pattern and adds to it (the card preview marks
 added steps). Level 5 is the full part.
 
+### Fills, rolls and rests
+
+The song's arrangement (`src/music/song.js`) changes some bars. Every 8th bar the Beat channel plays
+a fill on steps 12-15, and in the Build-Up it rolls into The Drop. Fills and rolls use the level's own
+fill sound: the first note in its pattern whose `k` is not `'kick'` (808 clap, Taiko rim, 8-Bit snare),
+else the kick. So **every kind a Beat level plays must fire with that level's stats**. Channels can
+also rest (the Bridge breakdown) or stop short after a boss goes down. A resting note is neither heard
+nor fired, so attacks always match the music.
+
 ### The resolved note
 
 `sound()` and `fire()` receive:
@@ -158,6 +167,8 @@ A support effect (slow, stun, heal, knockback) can justify lower damage.
 ```
 node tools/check.mjs --role <role>             # levels, clipping, spectrum for each instrument level
 node tools/check.mjs --mix a,b,c --level 5     # a band through the full mixing desk
+node tools/check.mjs --mix a,b,c --start 140 --bars 56   # the same, bar by bar, through the arrangement
+node tools/check.mjs --audit                   # every note of the song in every key: in key, on the grid
 node tools/sim.mjs "<query>" --summary         # gameplay, errors, damage
 ```
 
