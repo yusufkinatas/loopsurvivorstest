@@ -208,8 +208,8 @@ Measured with the solo sim (no level-ups, invincible, autopilot, 3 minutes, seed
 node tools/sim.mjs "speed=16&bot=1&minutes=3&god=1&solo=1&start=<id>&give=<id>:<level>&seed=7" --summary
 ```
 
-The reference beat instruments deal roughly 10k to 25k total damage at level 1 and 26k to 52k at
-level 5. Land in that band. Each role has a flavor: `perc` is many small hits, `bass` heavy and
+The reference beat instruments (808 Kick, Taiko, 8-Bit Drums) deal roughly 6k to 14k total damage at
+level 1 and 22k to 32k at level 5. Land in that band. Each role has a flavor: `perc` is many small hits, `bass` heavy and
 close, `chords` wide area and support, `lead` precise long-range, `arp` many glittery extras.
 A support effect (slow, stun, heal, knockback) can justify lower damage.
 
