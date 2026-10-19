@@ -273,12 +273,14 @@ export class Sequencer {
     this._chime(i, CLIMB[this.pingN++ % CLIMB.length], 0.07 / (1 + recent / 6));
   }
 
-  // One chime on global step i, unless a stop holds the band silent there.
+  // One chime on global step i, unless a stop holds the band silent there. A landed stop is matched by
+  // bar and step, since a hold inside the stop bar keeps counting global steps but not bars.
   _chime(i, idx, gain) {
     const s = this.pendingStop || this.lastStop;
     const at = this.pendingStop ? Math.ceil(this.globalStep / STEPS_PER_BAR) * STEPS_PER_BAR : this.lastStop?.step;
-    if (s && i > at && i < at + s.len) return;
     const bar = this.bar + Math.floor(i / STEPS_PER_BAR) - Math.floor(Math.max(0, this.globalStep - 1) / STEPS_PER_BAR);
+    const sib = i % STEPS_PER_BAR;
+    if (this.pendingStop ? i > at && i < at + s.len : s && bar === s.bar && sib > 0 && sib < s.len) return;
     const pos = this.song.position(bar);
     const chord = s?.home && i === at ? this.song.chord(0, pos.section.lift) : pos.chord;   // the ending's downbeat is on i
     this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, chimeMidi(chord, idx), gain);
