@@ -707,6 +707,9 @@ export class Game {
     this.state = 'victory';
     this.seq.hold = false;
     this.seq.clearEvents();
+    // A Drop still queued or building would play its build and impact over the end screen: call it off, as _die() does.
+    this.seq.dropState = null;
+    this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     this.hooks.onVictory?.(this.summary(true));
   }
