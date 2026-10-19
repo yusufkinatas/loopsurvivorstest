@@ -3,10 +3,6 @@ export const TAU = Math.PI * 2;
 export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
-export const len = (x, y) => Math.sqrt(x * x + y * y);
-export const angleTo = (ax, ay, bx, by) => Math.atan2(by - ay, bx - ax);
-export const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
-export const easeOutQuad = (t) => 1 - (1 - t) * (1 - t);
 
 // Seeded RNG (mulberry32) so sim runs are reproducible.
 let _seed = (Math.random() * 2 ** 32) >>> 0;
@@ -19,9 +15,7 @@ export function rng() {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 export const rand = (lo, hi) => lo + (hi - lo) * rng();
-export const randInt = (lo, hi) => Math.floor(rand(lo, hi + 1));
 export const pick = (arr) => arr[Math.floor(rng() * arr.length)];
-export const chance = (p) => rng() < p;
 
 export function weightedPick(items, weightOf) {
   let total = 0;

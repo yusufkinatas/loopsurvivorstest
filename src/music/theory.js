@@ -91,8 +91,3 @@ export function voiceChord(chord, prev, center, n = 3, seventh = false) {
   }
   return best;
 }
-
-export function pcName(pc) { return NOTE_NAMES[mod(pc, 12)]; }
-
-// Hue for a pitch class: notes of the same name share a color everywhere in the game.
-export function pcHue(pc) { return mod(pc * 30 + 200, 360); }

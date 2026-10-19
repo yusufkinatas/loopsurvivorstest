@@ -1,7 +1,7 @@
 // The Noise: static, buzz, hum and feedback that want to drown the song out.
 // Enemies move to the beat too. They surge on every beat, and some act on specific beats.
 
-import { TAU, rand, rng, pick, dist2, clamp } from '../util.js';
+import { TAU, rand, rng, pick, dist2 } from '../util.js';
 import { STEP_SEC, BEAT_SEC } from '../config.js';
 
 export const ENEMY_TYPES = {
