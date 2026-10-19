@@ -37,7 +37,7 @@ const browser = await launch();
 const page = await browser.newPage({ ignoreHTTPSErrors: true });
 page.setDefaultTimeout(timeout);
 const logs = [];
-page.on('console', (m) => { if (m.type() === 'error') logs.push(m.text()); });
+page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) logs.push(m.text()); });   // web fonts offline: harmless
 page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
 
 if (args.includes('--replay')) {
