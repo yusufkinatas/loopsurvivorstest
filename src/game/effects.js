@@ -7,6 +7,7 @@ import { TAU, rand, dist2, segDist2, clamp, swapRemove } from '../util.js';
 const MAX_PARTICLES = 900;
 const MAX_TEXTS = 30;
 const MAX_BULLETS = 700;
+const NO_TARGETS = [];
 
 export class Effects {
   constructor(game) {
@@ -316,7 +317,7 @@ export class Effects {
       if (r.follow) { r.x = p.x; r.y = p.y; }
       const k = clamp(r.t / r.dur, 0, 1);
       r.r = r.r0 + (r.r1 - r.r0) * (1 - (1 - k) * (1 - k));
-      const cand = g.inRadius(r.x, r.y, r.r);
+      const cand = r.damage > 0 ? g.inRadius(r.x, r.y, r.r) : NO_TARGETS;   // a ring with no damage is only a visual
       const prev = g.src; g.src = r.src;
       for (const e of cand) {
         if (r.hit.has(e)) continue;

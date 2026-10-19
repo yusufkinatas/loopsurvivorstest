@@ -252,7 +252,11 @@ export class Game {
     const src = o.src || this.src;
     if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
-    e.flash = 0.09;
+    // An enemy under fire tints in the color of the channel hitting it. Bosses are hit constantly, so they
+    // flash once per 1% of their health: the outline keeps its color and the flash rate reads as your damage.
+    e.hitColor = o.color || (src ? this.color(src) : '#ffffff');
+    if (!e.boss) e.flash = 0.09;
+    else if ((e.flashAcc = (e.flashAcc || 0) + dmg) >= e.maxHp * 0.01) { e.flashAcc = 0; e.flash = 0.09; }
     if (o.kb && !e.boss) {
       const fx = o.fx ?? this.player.x, fy = o.fy ?? this.player.y;
       let dx = e.x - fx, dy = e.y - fy;
@@ -263,8 +267,10 @@ export class Game {
     }
     if (o.stun) e.stun = Math.max(e.stun, o.stun * (e.boss ? 0.12 : e.elite ? 0.5 : 1));
     if (o.slow) { e.slow = Math.max(e.slow, Math.min(0.8, o.slow) * (e.boss ? 0.4 : 1)); e.slowT = 1.2; }
-    // Numbers only for hits worth reading: crits, killing blows and big chunks. Otherwise they flood the screen.
-    if (this.settings.damageNumbers && (crit || e.hp <= 0 || dmg >= e.maxHp * 0.2)) {
+    // Numbers only for hits worth reading: big crits always, and on a calm screen also other crits, killing
+    // blows and big chunks. Otherwise they flood the screen.
+    const big = crit && (e.boss || e.elite || dmg >= e.maxHp * 0.25);
+    if (this.settings.damageNumbers && (big || (this.fx.texts.length < 8 && (crit || e.hp <= 0 || dmg >= e.maxHp * 0.2)))) {
       this.fx.text(e.x, e.y - e.r - 4, String(Math.round(dmg)), crit ? '#ffe066' : '#ffffff', crit ? 14 : 10);
     }
     if (e.hp <= 0) this.kill(e, src);
@@ -275,7 +281,13 @@ export class Game {
     e.dead = true;
     this.kills++;
     if (src) src.kills++;
-    this.fx.particles(e.x, e.y, e.color, e.boss ? 60 : e.elite ? 20 : 7, e.boss ? 380 : 170, e.boss ? 1 : 0.4, e.boss ? 4 : 2.4);
+    // A kill pops in the color of the hit that landed it. Off-screen kills skip the pop, so a Drop's far
+    // kills leave the particle budget to the ones you can see.
+    if (e.boss || this.onScreen(e)) {
+      const col = e.hitColor || e.color;
+      this.fx.particles(e.x, e.y, col, e.boss ? 60 : e.elite ? 20 : 8, e.boss ? 380 : e.elite ? 170 : 190, e.boss ? 1 : e.elite ? 0.4 : 0.42, e.boss ? 4 : e.elite ? 2.4 : 2.8);
+      if (!e.boss) this.fx.flash(e.x, e.y, e.r * (e.elite ? 2.4 : 1.8), col, 0.16, 0);
+    }
     if (e.xp > 0) {
       if (e.boss) { for (let i = 0; i < 12; i++) dropGem(this, e.x + rand(-50, 50), e.y + rand(-50, 50), Math.ceil(e.xp / 12)); }
       else dropGem(this, e.x, e.y, e.xp);
@@ -294,6 +306,12 @@ export class Game {
       }
     }
     if (e.boss) this.onBossDeath(e);
+  }
+
+  // Inside the visible arena (with a margin), for effects that only matter when seen.
+  onScreen(e) {
+    const v = this.view, p = this.player;
+    return Math.abs(e.x - p.x) < v.w / 2 + 60 && Math.abs(e.y - p.y) < v.h / 2 + 60;
   }
 
   // ------------------------------------------------------------------ player
@@ -360,7 +378,10 @@ export class Game {
     this.shake = Math.max(this.shake, 16);
     const dmg = DROP.damage * (1 + this.level * 0.08) * this.stats.damage;
     const prev = this.src; this.src = null;
-    for (const e of this.inRadius(p.x, p.y, DROP.radius)) this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6 });
+    // Kills color by distance as a spectrum of your band: Beat nearest, Sparkle outermost.
+    const band = ROLES.filter((r) => this.loadout.channels[r]).map((r) => ROLE_INFO[r].color);
+    const colorAt = (e) => band[Math.min(band.length - 1, Math.floor(Math.hypot(e.x - p.x, e.y - p.y) / (720 / band.length)))];
+    for (const e of this.inRadius(p.x, p.y, DROP.radius)) this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6, color: colorAt(e) });
     this.src = prev;
     this.shots.length = 0;
     this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });

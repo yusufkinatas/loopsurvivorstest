@@ -71,6 +71,14 @@ export class Renderer {
     return t;
   }
 
+  // Half-transparent channel color: the body of an enemy under that channel's fire.
+  hitFill(color) {
+    let f = this._fills?.get(color);
+    if (f) return f;
+    (this._fills ||= new Map()).set(color, f = rgba(color, 0.5));
+    return f;
+  }
+
   // ------------------------------------------------------------------------------------------
 
   begin(dt) {
@@ -161,7 +169,7 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
     this._orbits(c, g);
     this._bullets(c, g, inView);
-    this._rings(c, g);
+    this._rings(c, g, inView);
     this._beams(c, g);
     this._particles(c, g, inView);
     c.globalCompositeOperation = 'source-over';
@@ -307,8 +315,9 @@ export class Renderer {
   _enemyShape(c, e, r, t) {
     const j = () => (Math.random() - 0.5) * r * 0.16;
     const flash = e.flash > 0;
-    // Elites keep their dark body and flash only their outline, so they stay recognizable under fire.
-    const fill = flash && !e.elite ? 'rgba(255,255,255,0.8)' : 'rgba(18,14,28,0.92)';
+    // Under fire the body tints in the hitting channel's color and the outline flashes white. Elites keep
+    // their dark body and flash only their outline, so they stay recognizable under fire.
+    const fill = flash && !e.elite ? this.hitFill(e.hitColor || '#ffffff') : 'rgba(18,14,28,0.92)';
     const stroke = flash ? '#ffffff' : e.elite ? '#ffd166' : e.color;
     c.lineWidth = e.elite ? 3 : 2;
     c.fillStyle = fill;
@@ -621,8 +630,9 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
   }
 
-  _rings(c, g) {
+  _rings(c, g, inView) {
     for (const r of g.fx.rings) {
+      if (!inView(r.x, r.y, r.r)) continue;
       const k = clamp(r.t / r.dur, 0, 1);
       const a = (1 - k) * 0.9 + 0.05;
       c.strokeStyle = rgba(r.color, a);
@@ -633,9 +643,9 @@ export class Renderer {
       circle(c, r.x, r.y, r.r); c.stroke();
     }
     for (const f of g.fx.flashes) {
+      if (!inView(f.x, f.y, f.r)) continue;
       const k = f.age / f.life;
-      c.fillStyle = rgba(f.color, f.fill * (1 - k));
-      circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.fill();
+      if (f.fill > 0) { c.fillStyle = rgba(f.color, f.fill * (1 - k)); circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.fill(); }
       c.strokeStyle = rgba(f.color, 0.8 * (1 - k));
       c.lineWidth = 2.5 * (1 - k) + 0.5;
       circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.stroke();
