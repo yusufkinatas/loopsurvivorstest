@@ -202,11 +202,12 @@ export class Screens {
   levelUp(g, offers) {
     const descs = offers.map((o) => describeOffer(g, o));
     const cards = descs.map((d, i) => cardHtml(d, i, { listen: true })).join('');
+    const sounds = offers.some((o) => o.def || o.pedal);   // else only Fader, Breather and bonus cards: nothing to hear
     const el = this._mount('levelup', `
       <div class="cards-wrap">
         <p class="kicker">Level ${g.level - g.pendingLevels + 1}</p>
-        <h2>Pick your next sound</h2>
-        <p class="sub">Hover or hold a card to hear it in your mix.</p>
+        <h2>${sounds ? 'Pick your next sound' : 'Pick a card'}</h2>
+        <p class="sub">${sounds ? 'Hover or hold a card to hear it in your mix.' : 'No sounds or pedals are left to offer.'}</p>
         <div class="cards">${cards}</div>
         <div class="row-actions">
           <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left<span class="k-key"> · R</span><span class="k-pad"> · X</span>)</span></button>
