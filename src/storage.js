@@ -26,7 +26,9 @@ export const DEFAULT_SETTINGS = { volume: 0.8, damageNumbers: true, shake: true,
 export function loadSettings() {
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const base = { ...DEFAULT_SETTINGS, shake: !reduced, flashes: !reduced };
-  return { ...base, ...(read().settings || {}) };
+  const s = { ...base, ...(read().settings || {}) };
+  if (!(s.volume >= 0 && s.volume <= 1)) s.volume = DEFAULT_SETTINGS.volume;   // the mixer throws on a non-finite gain
+  return s;
 }
 
 export function saveSettings(s) { const d = read(); d.settings = s; write(d); }
