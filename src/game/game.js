@@ -134,7 +134,7 @@ export class Game {
     this.banner(this.section.name, `${this.key.name} · ${Math.round(60 / (STEP_SEC * 4))} BPM`);
   }
 
-  xpFor(level) { return Math.round(Math.min(176, 5 + level * 0.34 + level * level * 0.44)); }
+  xpFor(level) { return Math.round(Math.min(200, 5 + level * 0.34 + level * level * 0.44)); }
 
   // ------------------------------------------------------------------ loadout
 
