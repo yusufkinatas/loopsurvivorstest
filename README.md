@@ -9,7 +9,9 @@ server below. Sound on, headphones help.
 
 ## How it plays
 
-- **Move** with WASD or the arrow keys, drag on a touch screen, or use a gamepad. Moving is all you steer.
+- **Move** with WASD or the arrow keys, drag on a touch screen, or use a gamepad.
+- **Dash through danger** with Shift, right-click, gamepad B, or the touch Dash button. You are invulnerable during the dash. Time it within 80 ms of a beat to earn +25 score and recover 0.6 seconds faster. The four beat lights help you find the rhythm.
+- **Keep the groove.** Chain kills within four seconds without taking damage. At 10, 25 and 50 kills, your kill score rises to ×2, ×3 and ×4. Your best chain appears in the set recap.
 - **Your instruments fight for you.** Each one plays a pattern locked to the beat, and each note it
   plays launches its attack at the exact moment you hear it.
 - **Level up** by collecting the notes the noise drops. Pick one of three cards: a new sound, a
@@ -19,6 +21,9 @@ server below. Sound on, headphones help.
   one bar, then slams on the downbeat and blasts everything on screen.
 - **Survive the song.** About eight minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
   Bridge, Build-Up, The Drop, Finale), a boss at every chorus, and White Noise in the finale.
+- **Build your record collection.** Six permanent performance milestones, discovered instruments, and career totals are saved locally. All instruments are available from the start; the collection rewards mastery without adding grind or power advantages.
+
+The stage now has a headphone-wearing performer, dash afterimages, a recovery ring, a live song timeline and readable enemy silhouettes. Menus use a custom live-show poster design, with responsive layouts for keyboard, gamepad and touch. Screen shake and flash settings also apply to the arena's lighting and hit effects.
 
 ## The mechanic that keeps the music clean
 
@@ -57,6 +62,8 @@ arrangement, so the game enforces the rules a producer would:
 npm install          # esbuild + playwright, only needed for building and tests
 npm run dev          # serves the repo at http://localhost:5173 (ES modules need http, not file://)
 npm run build        # writes dist/loop-survivors.html and dist/artifact.html
+npm test             # dash, timing, groove, career persistence regressions
+npm run test:browser # real desktop/touch control flows and screenshot checks
 ```
 
 ## Project layout

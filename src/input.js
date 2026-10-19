@@ -1,4 +1,4 @@
-// Keyboard, touch (floating stick) and gamepad. Movement is the only thing the player steers.
+// Keyboard, touch (floating stick) and gamepad. Movement, dash and the Drop.
 
 export class Input {
   constructor(canvas, stickEl, onKey) {
@@ -10,7 +10,8 @@ export class Input {
     this.padPrev = {};
 
     window.addEventListener('keydown', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' && e.target.type === 'range')) return;
+      // Form controls own their keys (especially Space on checkboxes); Escape still leaves settings.
+      if (e.target?.tagName === 'INPUT' && e.key !== 'Escape') return;
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k)) e.preventDefault();
       if (k === ' ' && e.repeat) e.preventDefault();   // a held Space never presses a focused button
@@ -21,11 +22,15 @@ export class Input {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       this.keys.delete(k);
     });
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('blur', () => { this.keys.clear(); this.releaseStick(); });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     const R = 56;
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'mouse') return;
+      if (e.pointerType === 'mouse') {
+        if (e.button === 2) { e.preventDefault(); this.onKey('mouse-dash', e); }
+        return;
+      }
       this.touchUsed = true;
       if (this.stick.active) return;
       this.stick = { active: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
@@ -85,12 +90,12 @@ export class Input {
     return { x, y };
   }
 
-  // Edge-triggered gamepad buttons: A = drop / confirm, Start = pause.
+  // Edge-triggered gamepad buttons: A = drop / confirm, B = dash, Start = pause.
   pollPad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = [...pads].find(Boolean);
-    if (!gp) return;
-    const map = { 0: 'pad-a', 9: 'Escape', 2: 'r', 14: 'pad-left', 15: 'pad-right' };
+    if (!gp) { this.padPrev = {}; return; }
+    const map = { 0: 'pad-a', 1: 'pad-b', 9: 'Escape', 2: 'r', 14: 'pad-left', 15: 'pad-right' };
     for (const idx in map) {
       const pressed = !!gp.buttons[idx]?.pressed;
       if (pressed && !this.padPrev[idx]) this.onKey(map[idx], null);

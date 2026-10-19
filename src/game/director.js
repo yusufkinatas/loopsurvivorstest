@@ -23,6 +23,7 @@ export class Director {
   reset() {
     this.eliteTimer = 58;
     this.lastFormationBar = -1;
+    this.openingSpawned = false;
   }
 
   get mix() { return MIX[this.g.section.id] || MIX.finale; }
@@ -47,6 +48,24 @@ export class Director {
   onBeat(ev) {
     const g = this.g;
     const want = this.target();
+    if (!this.openingSpawned) {
+      this.openingSpawned = true;
+      if (g.section.id === 'intro' && g.time < 1 && want > 0) {
+        // Give the first notes visible targets. An open back and a long spawn tell make this
+        // an invitation to move, not a trap. These replace the first ordinary spawn batch.
+        const n = Math.min(want, Math.max(1, Math.min(5, Math.round(5 * (g.opts.density ?? 1)))));
+        const p = g.player;
+        const facing = Math.atan2(p.faceY, p.faceX);
+        for (let i = 0; i < n; i++) {
+          const offset = n === 1 ? 0 : (i / (n - 1)) * 2 - 1;
+          const angle = facing + offset * Math.PI / 3;
+          const radius = 250 + 40 * (1 - Math.abs(offset));
+          const e = spawnEnemy(g, 'static', p.x + Math.cos(angle) * radius, p.y + Math.sin(angle) * radius);
+          e.spawnT = 0.7;
+        }
+        return;
+      }
+    }
     const alive = g.enemies.length;
     if (alive < want) {
       const n = Math.min(want - alive, Math.ceil(3 + want * 0.07));

@@ -3,7 +3,7 @@
 
 import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
-import { KEYS } from '../music/theory.js';
+import { KEYS, mtof } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
 import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
@@ -17,6 +17,8 @@ import { PEDAL_BY_ID } from '../content/pedals.js';
 
 // Channels with a send into the tape delay: only these echo, so every echo attack is also heard.
 const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
+const DASH = { duration: 0.18, cooldown: 2.4, speed: 4.6, grace: 0.05, perfectWindow: 0.08, refund: 0.6 };
+const COMBO_DURATION = 4;
 
 export class Game {
   constructor({ audio, clock, seq, opts = {}, settings = {}, hooks = {} }) {
@@ -50,6 +52,8 @@ export class Game {
     this.player = {
       x: 0, y: 0, r: PLAYER_BASE.radius, hp: PLAYER_BASE.maxHp, maxHp: PLAYER_BASE.maxHp,
       iframes: 0, faceX: 1, faceY: 0, vx: 0, vy: 0, speedNow: 0, hurtT: 0,
+      dashT: 0, dashCooldown: 0, dashMaxCooldown: DASH.cooldown, dashPerfect: false,
+      dashX: 1, dashY: 0, dashTrailT: 0,
     };
     this.enemies = [];
     this.damageTaken = { contact: 0, shots: 0, boss: 0 };
@@ -62,6 +66,13 @@ export class Game {
     this.stats = computeStats(this.loadout);
     this.time = 0;
     this.kills = 0;
+    this.dashes = 0;
+    this.perfectDashes = 0;
+    this.combo = 0;
+    this.comboTimer = 0;
+    this.comboMultiplier = 1;
+    this.bestCombo = 0;
+    this.grooveBonus = 0;
     this.level = 1;
     this.xp = 0;
     this.xpNeed = this.xpFor(1);
@@ -274,6 +285,7 @@ export class Game {
     if (e.dead) return;
     e.dead = true;
     this.kills++;
+    this._chainKill();
     if (src) src.kills++;
     this.fx.particles(e.x, e.y, e.color, e.boss ? 60 : e.elite ? 20 : 7, e.boss ? 380 : 170, e.boss ? 1 : 0.4, e.boss ? 4 : 2.4);
     if (e.xp > 0) {
@@ -298,11 +310,81 @@ export class Game {
 
   // ------------------------------------------------------------------ player
 
+  // Dash immediately in the requested direction, or along the last movement direction.
+  // Timing follows the audible transport, including its output latency and paused vamp.
+  requestDash(move) {
+    const p = this.player;
+    if (this.state !== 'playing' || this.won || !p || p.dashCooldown > 0 || p.dashT > 0) return false;
+    let dx = Number.isFinite(move?.x) ? move.x : 0;
+    let dy = Number.isFinite(move?.y) ? move.y : 0;
+    let d = Math.hypot(dx, dy);
+    if (d < 0.1) { dx = p.faceX; dy = p.faceY; d = Math.hypot(dx, dy); }
+    if (d < 0.01) { dx = 1; dy = 0; d = 1; }
+    p.dashX = p.faceX = dx / d;
+    p.dashY = p.faceY = dy / d;
+    p.dashPerfect = this._dashOnBeat();
+    p.dashT = DASH.duration;
+    p.dashTrailT = 0;
+    p.dashCooldown = p.dashMaxCooldown - (p.dashPerfect ? DASH.refund : 0);
+    p.iframes = Math.max(p.iframes, DASH.duration + DASH.grace);
+    this.dashes++;
+    const color = p.dashPerfect ? '#ffe28a' : '#6fffe9';
+    this.fx.flash(p.x, p.y, p.dashPerfect ? 48 : 30, color, 0.26, 0.12);
+    this.fx.particles(p.x, p.y, color, 10, 150, 0.3, 2.5);
+    if (p.dashPerfect) {
+      this.perfectDashes++;
+      this.bonusScore += 25;
+      this.fx.text(p.x, p.y - 35, 'ON BEAT +25', color, 14);
+      if (this.audio?.ready && !this.opts.sim) {
+        const sounding = this.seq.sounding(this.clock.now() - (this.audio.latency || 0));
+        const chord = sounding ? this.song.position(sounding.bar).chord : this.seq.position?.chord;
+        const fifth = chord ? (chord.rootPc + chord.intervals[2]) % 12 : (this.key.pc + 7) % 12;
+        this.audio.uiBlip(mtof(72 + fifth), 0.08);
+      }
+    }
+    this.hooks.onDash?.({ perfect: p.dashPerfect, cooldown: p.dashCooldown });
+    return true;
+  }
+
+  _dashOnBeat() {
+    const now = this.clock.now() - (this.opts.sim ? 0 : (this.audio?.latency || 0));
+    // A beat in the lookahead is eligible too: pressing just before a beat feels as fair as just after.
+    for (const step of this.seq.stepLog || []) {
+      if (step.sib % 4 === 0 && Math.abs(step.time - now) <= DASH.perfectWindow + 1e-8) return true;
+    }
+    return false;
+  }
+
+  _chainKill() {
+    const before = this.comboMultiplier;
+    this.combo++;
+    this.comboTimer = COMBO_DURATION;
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
+    this.comboMultiplier = this.combo >= 50 ? 4 : this.combo >= 25 ? 3 : this.combo >= 10 ? 2 : 1;
+    // Only kill score is multiplied; weapon damage and XP keep their existing balance.
+    const bonus = (this.comboMultiplier - 1) * 10;
+    this.grooveBonus += bonus;
+    this.bonusScore += bonus;
+    if (this.comboMultiplier > before) {
+      const names = ['', '', 'IN THE GROOVE', 'ON FIRE', 'UNSTOPPABLE'];
+      this.fx.text(this.player.x, this.player.y - 48, `${names[this.comboMultiplier]} ×${this.comboMultiplier}`, '#ffe28a', 16);
+      this.hooks.onCombo?.(this.combo, this.comboMultiplier);
+    }
+  }
+
+  _resetCombo() {
+    this.combo = 0;
+    this.comboTimer = 0;
+    this.comboMultiplier = 1;
+  }
+
   hurt(dmg, from) {
     const p = this.player;
-    if (this.state !== 'playing' || this.won || p.iframes > 0 || this.opts.god) return;
+    if (this.state !== 'playing' || this.won || p.iframes > 0 || p.dashT > 0 || this.opts.god) return;
     const taken = Math.max(1, dmg - this.stats.armor);
     p.hp -= taken;
+    if (this.combo >= 10) this.fx.text(p.x, p.y - 40, 'GROOVE BROKEN', '#ff8fa3', 12);
+    this._resetCombo();
     const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
     this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
     p.iframes = PLAYER_BASE.iframes;
@@ -462,6 +544,9 @@ export class Game {
   // while the band drops to a muffled vamp.
   _die() {
     const p = this.player;
+    p.dashT = 0;
+    p.dashPerfect = false;
+    this._resetCombo();
     this.state = 'dying';
     this.dyingT = 0.9;
     this.seq.hold = true;
@@ -484,6 +569,8 @@ export class Game {
       return;
     }
     if (this.state !== 'playing') return;
+    this.comboTimer = Math.max(0, this.comboTimer - dt);
+    if (this.comboTimer === 0 && this.combo > 0) this._resetCombo();
     this._processEvents();
     if (this.state !== 'playing') return;
     this.time += dt;
@@ -495,12 +582,30 @@ export class Game {
     const ml = Math.hypot(mx, my);
     const tx = ml > 0.01 ? (mx / Math.max(1, ml)) * spd : 0;
     const ty = ml > 0.01 ? (my / Math.max(1, ml)) * spd : 0;
-    const acc = 1 - Math.pow(0.0005, dt);
-    p.vx += (tx - p.vx) * acc;
-    p.vy += (ty - p.vy) * acc;
-    p.x += p.vx * dt; p.y += p.vy * dt;
+    const dashDt = Math.min(dt, p.dashT);
+    if (dashDt > 0) {
+      p.vx = p.dashX * spd * DASH.speed;
+      p.vy = p.dashY * spd * DASH.speed;
+      p.x += p.vx * dashDt; p.y += p.vy * dashDt;
+      p.dashT = Math.max(0, p.dashT - dt);
+      p.dashTrailT -= dashDt;
+      if (p.dashTrailT <= 0) {
+        p.dashTrailT += 0.025;
+        this.fx.particles(p.x, p.y, p.dashPerfect ? '#ffe28a' : '#6fffe9', 3, 28, 0.22, 3);
+      }
+      // No slippery burst of leftover velocity after the dash: normal movement takes over immediately.
+      if (p.dashT === 0) { p.vx = tx; p.vy = ty; }
+    }
+    const moveDt = dt - dashDt;
+    if (moveDt > 0) {
+      const acc = 1 - Math.pow(0.0005, moveDt);
+      p.vx += (tx - p.vx) * acc;
+      p.vy += (ty - p.vy) * acc;
+      p.x += p.vx * moveDt; p.y += p.vy * moveDt;
+    }
     p.speedNow = Math.hypot(p.vx, p.vy);
-    if (ml > 0.2) { p.faceX = mx / ml; p.faceY = my / ml; }
+    if (ml > 0.2 && p.dashT === 0) { p.faceX = mx / ml; p.faceY = my / ml; }
+    p.dashCooldown = Math.max(0, p.dashCooldown - dt);
     p.iframes = Math.max(0, p.iframes - dt);
     p.hurtT = Math.max(0, p.hurtT - dt);
     if (this.stats.regen > 0) p.hp = Math.min(p.maxHp, p.hp + this.stats.regen * dt);
@@ -674,6 +779,7 @@ export class Game {
     const rows = [...byId.values()];
     return {
       won, time: this.time, kills: this.kills, level: this.level, score: this.score(),
+      dashes: this.dashes, perfectDashes: this.perfectDashes, bestCombo: this.bestCombo, grooveBonus: this.grooveBonus,
       genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),

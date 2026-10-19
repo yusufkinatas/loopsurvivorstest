@@ -15,7 +15,7 @@ import { Hud } from './ui/hud.js';
 import { Screens } from './ui/screens.js';
 import { Input } from './input.js';
 import { botMove, autopick } from './bot.js';
-import { loadSettings, saveSettings, loadBest, saveBest } from './storage.js';
+import { loadSettings, saveSettings, loadBest, saveBest, loadCareer, recordRun } from './storage.js';
 import { BY_ID, byRole } from './content/instruments/index.js';
 
 function parseOpts() {
@@ -80,6 +80,7 @@ const game = new Game({ audio, clock, seq, opts: { ...opts, autopick: opts.sim &
 
 const hud = new Hud(hudRoot, {
   onDrop: () => game.requestDrop(),
+  onDash: () => game.requestDash(input.move()),
   onPause: () => pauseRun(),
 });
 
@@ -133,7 +134,7 @@ function showTitle() {
   hudRoot.hidden = true;
   listening = false;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
-  screens.title(loadBest());
+  screens.title(loadBest(), loadCareer());
 }
 
 async function enterLobby() {
@@ -165,12 +166,18 @@ function startRun(id) {
   hud.refreshLoadout(game);
   hud.setBoss(null);
   dropTipShown = false;
-  hud.tip(isTouch() ? 'Drag anywhere to move. Your sounds attack on their own.' : 'Move with WASD or the arrow keys. Your sounds attack on their own.', 7);
+  hud.tip(isTouch() ? 'Drag to move. Tap DASH to slip through danger.' : 'WASD to move · SHIFT to dash · your sounds attack for you', 8);
+  dashTipShown = false;
 }
 
 let dropTipShown = false;
+let dashTipShown = false;
 const isTouch = () => input.touchUsed || (typeof matchMedia === 'function' && matchMedia('(hover: none)').matches);
 function tips() {
+  if (!dashTipShown && game.state === 'playing' && game.time > 12) {
+    dashTipShown = true;
+    hud.tip('Dash ON BEAT for faster recovery and +25 score.', 7);
+  }
   if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState) {
     dropTipShown = true;
     hud.tip(isTouch() ? 'The Drop is ready. Tap the Drop meter.' : 'The Drop is ready. Press Space.', 6);
@@ -183,14 +190,19 @@ function pauseRun() {
 }
 
 function endRun(sum) {
-  const best = saveBest(sum);
+  const recordable = !opts.sim && !opts.bot && !opts.god && !opts.solo && opts.density === 1 && !opts.give.length && !opts.givePedals.length;
+  const best = recordable ? saveBest(sum) : false;
+  const { career, newRecords } = recordable ? recordRun(sum) : { career: loadCareer(), newRecords: [] };
   hud.setBoss(null);
-  screens.end(sum, best);
+  screens.end(sum, best, career, newRecords);
   if (opts.sim) window.__LS.done = true;
 }
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
+  if ((k === 'Escape' || k === 'pad-b') && ['howto', 'settings', 'records', 'select'].includes(screens.current)) {
+    screensRoot.querySelector('[data-act=back]')?.click(); return true;
+  }
   // Space and E are the Drop keys: on menus they must never press a focused button by accident.
   if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
@@ -214,6 +226,7 @@ function onKey(k) {
     return true;
   }
   if (mode === 'run' && game.state === 'playing') {
+    if (k === 'Shift' || k === 'mouse-dash' || k === 'pad-b') { game.requestDash(input.move()); return true; }
     if (k === ' ' || k === 'pad-a' || k === 'e') { game.requestDrop(); return true; }
     if (k === 'Escape' || k === 'p') { pauseRun(); return true; }
   } else if (mode === 'run' && game.state === 'paused' && (k === 'Escape' || k === 'p') && screens.current === 'pause') {
@@ -269,7 +282,7 @@ function frame(ts) {
     renderer.draw(game, dt);
     hud.update(game, clock.now() - (opts.sim ? 0 : audio.latency), seq);
   } else {
-    renderer.drawAttract(dt, mode === 'lobby' ? pulseFromSeq() : 0.3 + 0.3 * Math.sin(ts / 500));
+    renderer.drawAttract(dt, mode === 'lobby' ? pulseFromSeq() : 0.3 + 0.3 * Math.sin(ts / 500), settings);
   }
 }
 
@@ -336,7 +349,7 @@ window.__LS = {
   metrics() {
     return {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
-      damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
+      damageTaken: game.damageTaken, drops: game.drops, dashes: game.dashes, perfectDashes: game.perfectDashes, bestCombo: game.bestCombo, bossesAlive: game.boss ? game.boss.type : null,
       bossesSpawned: game.bossesSpawned, sectionIndex: game.sectionIndex, cap: game.channelCap(), dropState: game.dropState,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
       genre: game.genre, key: game.key?.name,

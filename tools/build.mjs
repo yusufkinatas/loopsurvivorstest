@@ -20,10 +20,11 @@ const res = await build({
   legalComments: 'none',
 });
 const js = res.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
-const css = await readFile(path.join(root, 'styles.css'), 'utf8');
+const css = (await Promise.all(['styles.css', 'performance.css'].map((file) => readFile(path.join(root, file), 'utf8')))).join('\n');
 const html = await readFile(path.join(root, 'index.html'), 'utf8');
 
 const full = html
+  .replace('<link rel="stylesheet" href="performance.css">', '')
   .replace('<link rel="stylesheet" href="styles.css">', () => `<style>\n${css}\n</style>`)
   .replace('<script type="module" src="src/main.js"></script>', () => `<script>\n${js}\n</script>`);
 if (full.includes('src/main.js') || full.includes('href="styles.css"')) throw new Error('template replacement failed');

@@ -1,7 +1,7 @@
 // In-run HUD: health, XP, song position, the mixer (your six channels), pedalboard, style chemistry,
 // the Drop meter and a live step-sequencer view of everything your band is playing.
 
-import { ROLES, ROLE_INFO, STYLES, PEDAL_SLOTS, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
+import { ROLES, ROLE_INFO, STYLES, PEDAL_SLOTS, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, BAR_SEC } from '../config.js';
 import { fmtTime, rgba } from '../util.js';
 import { icon } from './icons.js';
 import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
@@ -10,7 +10,7 @@ import { SECTIONS } from '../music/song.js';
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 
 export class Hud {
-  constructor(root, { onDrop, onPause }) {
+  constructor(root, { onDrop, onPause, onDash }) {
     this.root = root;
     root.innerHTML = '';
     this.top = el('div', 'hud-top');
@@ -21,6 +21,16 @@ export class Hud {
     const bars = el('div', 'hud-bars');
     bars.append(this.hp, this.xp);
     this.top.append(bars, this.clock, this.kills);
+
+    this.transport = el('div', 'transport', `<div class="song-path" aria-label="Song progress">${SECTIONS.map((s, i) => `<i title="${s.name}" data-section="${i}"></i>`).join('')}</div><div class="transport-readout"><span class="transport-next">Find your rhythm</span><span class="beat-lights" aria-label="Beat guide"><i></i><i></i><i></i><i></i></span></div>`);
+    this.pathSegments = [...this.transport.querySelectorAll('.song-path i')];
+    this.beatLights = [...this.transport.querySelectorAll('.beat-lights i')];
+    this.nextSection = this.transport.querySelector('.transport-next');
+    this.combo = el('div', 'groove-meter', '<span class="groove-label">KEEP THE GROOVE</span><div class="groove-count"><b>0</b><span>CHAIN</span><strong>×1</strong></div><div class="groove-track"><i></i></div><span class="groove-help">Silence enemies. Stay untouched.</span>');
+    this.comboCount = this.combo.querySelector('.groove-count b');
+    this.comboMult = this.combo.querySelector('.groove-count strong');
+    this.comboFill = this.combo.querySelector('.groove-track i');
+    this.comboHelp = this.combo.querySelector('.groove-help');
 
     this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div>');
     this.boss.hidden = true;
@@ -40,6 +50,7 @@ export class Hud {
     this.strips = {};
     for (const role of ROLES) {
       const s = el('div', 'strip');
+      s.setAttribute('role', 'group');
       s.style.setProperty('--c', ROLE_INFO[role].color);
       s.innerHTML = `<div class="strip-meter"><i></i></div><div class="strip-icon">${icon(role)}</div><div class="strip-body"><span class="strip-name"></span><span class="strip-sub"></span></div><div class="strip-pips"></div>`;
       this.strips[role] = { el: s, meter: s.querySelector('.strip-meter i'), name: s.querySelector('.strip-name'), sub: s.querySelector('.strip-sub'), pips: s.querySelector('.strip-pips') };
@@ -54,6 +65,10 @@ export class Hud {
     this.drop.type = 'button';
     this.drop.setAttribute('aria-label', 'Trigger the Drop');
     this.drop.addEventListener('click', (e) => { e.stopPropagation(); onDrop(); });
+    this.dash = el('button', 'dashmeter', '<div class="dashmeter-fill"></div><span class="dashmeter-label">Dash ready</span><kbd>Shift</kbd>');
+    this.dash.type = 'button';
+    this.dash.setAttribute('aria-label', 'Dash through danger. Time it to the beat for faster recovery.');
+    this.dash.addEventListener('click', (e) => { e.stopPropagation(); onDash?.(); });
     this.pauseBtn = el('button', 'pausebtn', icon('pause'));
     this.pauseBtn.type = 'button';
     this.pauseBtn.setAttribute('aria-label', 'Pause');
@@ -61,8 +76,10 @@ export class Hud {
 
     const mixWrap = el('div', 'mixwrap');
     mixWrap.append(this.mixCap, this.mixer);
-    this.bottom.append(this.drop, mixWrap, this.pedals);
-    root.append(this.top, this.boss, this.banner, this.note, this.tipEl, this.side, this.bottom, this.pauseBtn);
+    this.abilities = el('div', 'abilities');
+    this.abilities.append(this.dash, this.drop);
+    this.bottom.append(this.abilities, mixWrap, this.pedals);
+    root.append(this.top, this.transport, this.combo, this.boss, this.banner, this.note, this.tipEl, this.side, this.bottom, this.pauseBtn);
 
     this._bannerTimer = null;
     this._last = {};
@@ -121,7 +138,7 @@ export class Hud {
       s.el.classList.toggle('empty', !inst);
       if (inst) {
         s.el.classList.remove('locked');
-        s.el.title = '';
+        s.el.title = `${inst.def.name} · Level ${inst.level} · ${ROLE_INFO[role].name} channel`;
         s.name.textContent = inst.def.name;
         s.sub.textContent = STYLES[inst.def.style].name;
         s.sub.style.color = STYLES[inst.def.style].color;
@@ -135,6 +152,7 @@ export class Hud {
         s.sub.style.color = '';
         s.pips.innerHTML = '';
       }
+      s.el.setAttribute('aria-label', s.el.title);
     }
     this.pedalSlots.forEach((slot, i) => {
       const p = g.loadout.pedals[i];
@@ -166,6 +184,34 @@ export class Hud {
     set('sec', g.section.name, (v) => { this.clock.querySelector('.clock-section').textContent = v; });
     set('kills', g.kills, (v) => { this.kills.querySelector('.kills-n').textContent = v.toLocaleString('en-US'); });
 
+    const cooldown = p.dashCooldown || 0;
+    const dashReady = cooldown <= 0 && g.state === 'playing';
+    this.dash.classList.toggle('ready', dashReady);
+    this.dash.classList.toggle('perfect', !!p.dashPerfect && p.dashT > 0);
+    this.dash.querySelector('.dashmeter-fill').style.transform = `scaleX(${Math.max(0, 1 - cooldown / (p.dashMaxCooldown || 2.4))})`;
+    set('dashlabel', cooldown > 0 ? `Dash ${cooldown.toFixed(1)}s` : 'Dash ready', (v) => { this.dash.querySelector('.dashmeter-label').textContent = v; });
+    this.dash.setAttribute('aria-disabled', String(!dashReady));
+
+    const combo = g.combo || 0, multiplier = g.comboMultiplier || 1;
+    set('combo', combo, (v) => { this.comboCount.textContent = String(v); });
+    set('comboMult', multiplier, (v) => { this.comboMult.textContent = `×${v}`; });
+    this.combo.classList.toggle('active', combo >= 10);
+    this.comboFill.style.transform = `scaleX(${Math.min(1, (g.comboTimer || 0) / 4)})`;
+    set('combohelp', combo >= 50 ? 'MAX GROOVE · KEEP IT ALIVE' : combo >= 25 ? `${50 - combo} to ×4` : combo >= 10 ? `${25 - combo} to ×3` : combo ? `${10 - combo} to ×2` : 'Silence enemies. Stay untouched.', (v) => { this.comboHelp.textContent = v; });
+
+    const position = seq.sounding(now);
+    const songPos = position ? g.song.position(position.bar) : null;
+    const sectionIndex = g.sectionIndex;
+    set('songsection', sectionIndex, (v) => this.pathSegments.forEach((segment, i) => {
+      segment.classList.toggle('past', i < v); segment.classList.toggle('current', i === v);
+    }));
+    const next = SECTIONS[sectionIndex + 1];
+    const remaining = songPos ? Math.max(1, Math.ceil((songPos.barsLeft - (position.sib || 0) / 16) * BAR_SEC)) : 32;
+    const objective = g.boss ? `Silence ${g.boss.def.name}` : next ? `${next.name} in ${fmtTime(remaining)}` : 'Finish the song';
+    set('objective', objective, (v) => { this.nextSection.textContent = v; });
+    const beat = position ? Math.floor(position.sib / 4) : -1;
+    set('beatlight', beat, (v) => this.beatLights.forEach((light, i) => light.classList.toggle('on', i === v)));
+
     for (const role of ROLES) {
       const k = g.chanPulse[role];
       this.strips[role].meter.style.transform = `scaleY(${Math.min(1, k)})`;
@@ -175,7 +221,7 @@ export class Hud {
     this.drop.querySelector('.dropmeter-fill').style.transform = `scaleX(${g.dropState ? 1 : g.dropCharge / g.dropMax})`;
     this.drop.classList.toggle('ready', ready);
     this.drop.classList.toggle('building', !!g.dropState);
-    set('droplabel', g.dropState ? 'Build' : ready ? 'Drop ready' : 'Drop', (v) => { this.drop.querySelector('.dropmeter-label').textContent = v; });
+    set('droplabel', g.dropState === 'queued' ? 'Queued' : g.dropState ? 'Build up' : ready ? 'Drop ready' : `Drop ${Math.floor(100 * g.dropCharge / g.dropMax)}%`, (v) => { this.drop.querySelector('.dropmeter-label').textContent = v; });
 
     if (this.bossEnemy) {
       const e = this.bossEnemy;

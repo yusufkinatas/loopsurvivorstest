@@ -1,7 +1,7 @@
 // Canvas renderer. The arena is a dark stage floor whose grid pulses with the beat and whose
 // color follows the song section. Music is color: every attack wears its channel's color.
 
-import { TAU, clamp, lerp, rand, rgba, hexToRgb } from '../util.js';
+import { TAU, clamp, lerp, rgba, hexToRgb } from '../util.js';
 import { BEAT_SEC } from '../config.js';
 import { ROLE_INFO, ROLES } from '../config.js';
 import { ITEM_INFO } from '../game/pickups.js';
@@ -15,6 +15,10 @@ export class Renderer {
     this.hue = 248;
     this.time = 0;
     this.scale = 1;
+    this.dashTrail = [];
+    this.trailClock = 0;
+    this.reducedFlash = false;
+    this.motionPreference = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -80,48 +84,98 @@ export class Renderer {
     return c;
   }
 
-  // Title screen backdrop: the floor grid breathing to a slow pulse.
-  drawAttract(dt, pulse) {
+  // Attract mode borrows the stage's vinyl geometry, leaving the center quiet for the title.
+  drawAttract(dt, pulse, settings = {}) {
     const c = this.begin(dt);
-    this.cam.x += dt * 22; this.cam.y += dt * 9;
-    this._background(c, 258, pulse, pulse * 0.6);
+    this.reducedFlash = settings.flashes === false;
+    const motion = settings.motion !== false && !this.motionPreference?.matches;
+    if (motion) { this.cam.x += dt * 9; this.cam.y += dt * 3; }
+    this._background(c, 64, motion ? pulse * 0.35 : 0, 0, 0, 0);
+    const r = Math.max(this.w, this.h) * 0.36;
+    const x = this.w * 0.79, y = this.h * 0.56;
+    c.save();
+    c.translate(x, y);
+    c.rotate(motion ? this.time * 0.025 : 0);
+    c.strokeStyle = 'rgba(229,233,211,0.035)';
+    c.lineWidth = 1;
+    for (let i = 0; i < 28; i++) { circle(c, 0, 0, r * (0.39 + i * 0.021)); c.stroke(); }
+    c.strokeStyle = 'rgba(202,255,113,0.13)';
+    c.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      c.beginPath(); c.arc(0, 0, r * (0.96 + i * 0.045), 0.12 + i * 0.35, 1.48 + i * 0.35); c.stroke();
+    }
+    c.strokeStyle = 'rgba(229,233,211,0.07)';
+    circle(c, 0, 0, r * 0.3); c.stroke();
+    circle(c, 0, 0, r * 0.13); c.stroke();
+    c.restore();
   }
 
   _background(c, hue, beat, bar, sx = 0, sy = 0) {
     const w = this.w, h = this.h, s = this.scale;
+    const pulse = this.reducedFlash ? 0 : beat;
     const camX = this.cam.x + sx, camY = this.cam.y + sy;
-    c.fillStyle = `hsl(${hue}, 38%, 6.5%)`;
+    c.fillStyle = '#101210';
     c.fillRect(0, 0, w, h);
-    const vg = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
-    vg.addColorStop(0, `hsla(${hue}, 60%, 20%, ${0.35 + beat * 0.12})`);
-    vg.addColorStop(1, `hsla(${hue}, 50%, 3%, 0)`);
+    const vg = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.68);
+    vg.addColorStop(0, `hsla(${hue}, 36%, 25%, ${0.19 + pulse * 0.04})`);
+    vg.addColorStop(1, 'rgba(8,10,9,0)');
     c.fillStyle = vg;
     c.fillRect(0, 0, w, h);
-    // Grid in world space
+    // A low-contrast stage grid provides movement cues without competing with attacks.
     const step = 64 * s;
-    const ox = (-camX * s + w / 2) % step;
-    const oy = (-camY * s + h / 2) % step;
+    const ox = ((-camX * s + w / 2) % step + step) % step;
+    const oy = ((-camY * s + h / 2) % step + step) % step;
     c.lineWidth = 1;
-    c.strokeStyle = `hsla(${hue}, 70%, 70%, ${0.04 + beat * 0.14})`;
+    c.strokeStyle = `rgba(194,209,177,${0.027 + pulse * 0.018})`;
     c.beginPath();
     for (let x = ox; x < w; x += step) { c.moveTo(Math.round(x) + 0.5, 0); c.lineTo(Math.round(x) + 0.5, h); }
     for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(w, Math.round(y) + 0.5); }
     c.stroke();
-    // Major lines every 4 cells flash on the downbeat
-    const big = step * 4;
-    const bx = (-camX * s + w / 2) % big;
-    const by = (-camY * s + h / 2) % big;
-    c.strokeStyle = `hsla(${hue}, 80%, 72%, ${0.08 + bar * 0.24})`;
-    c.lineWidth = 1.5;
-    c.beginPath();
-    for (let x = bx; x < w; x += big) { c.moveTo(Math.round(x), 0); c.lineTo(Math.round(x), h); }
-    for (let y = by; y < h; y += big) { c.moveTo(0, Math.round(y)); c.lineTo(w, Math.round(y)); }
-    c.stroke();
+    // Registration crosses and record-shaped floor inlays make the arena a recognizable place.
+    const tile = 768;
+    const left = camX - w / s / 2, top = camY - h / s / 2;
+    c.save();
+    c.translate(w / 2 - camX * s, h / 2 - camY * s);
+    c.scale(s, s);
+    for (let ty = Math.floor(top / tile); ty <= Math.ceil((top + h / s) / tile); ty++) {
+      for (let tx = Math.floor(left / tile); tx <= Math.ceil((left + w / s) / tile); tx++) {
+        const x = tx * tile, y = ty * tile;
+        c.strokeStyle = 'rgba(211,218,192,0.065)';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(x - 8, y); c.lineTo(x + 8, y);
+        c.moveTo(x, y - 8); c.lineTo(x, y + 8);
+        c.stroke();
+        c.strokeStyle = 'rgba(211,218,192,0.035)';
+        for (let i = 0; i < 4; i++) { circle(c, x + 384, y + 384, 112 + i * 9); c.stroke(); }
+        c.beginPath(); c.arc(x + 384, y + 384, 82, -Math.PI * 0.15, Math.PI * 1.15); c.stroke();
+        c.fillStyle = 'rgba(216,225,198,0.065)';
+        c.font = '600 9px ui-monospace, monospace';
+        c.textAlign = 'left';
+        c.fillText('LOOP / LIVE', x + 290, y + 391);
+        c.fillText('33⅓', x + 414, y + 391);
+        // Eight level bars double as stage tape markings. They breathe, but never blink.
+        for (let i = 0; i < 8; i++) {
+          const amp = 9 + (Math.sin(i * 2.1 + tx + ty) + 1) * 8 + pulse * (i % 3 + 1) * 3;
+          c.fillStyle = i === 7 ? 'rgba(202,255,113,0.09)' : 'rgba(211,218,192,0.045)';
+          c.fillRect(x + 36 + i * 7, y + 58 - amp, 3, amp);
+        }
+        c.strokeStyle = 'rgba(211,218,192,0.045)';
+        c.beginPath();
+        c.moveTo(x + 20, y + 19); c.lineTo(x + 20, y + 71); c.lineTo(x + 102, y + 71);
+        c.moveTo(x + 748, y + 697); c.lineTo(x + 748, y + 749); c.lineTo(x + 666, y + 749);
+        c.stroke();
+      }
+    }
+    c.restore();
   }
 
   draw(g, dt) {
     const c = this.begin(dt);
     const p = g.player;
+    this.reducedFlash = g.settings.flashes === false;
+    if (this._game !== g || g.time < (this._gameTime ?? 0)) { this.dashTrail.length = 0; this._game = g; }
+    this._gameTime = g.time;
     const targetHue = g.section?.hue ?? 248;
     let dh = targetHue - this.hue;
     if (dh > 180) dh -= 360;
@@ -131,8 +185,10 @@ export class Renderer {
     // Camera
     this.cam.x = lerp(this.cam.x, p.x, Math.min(1, dt * 8));
     this.cam.y = lerp(this.cam.y, p.y, Math.min(1, dt * 8));
-    const shakeAmt = g.settings.shake ? g.shake : g.shake * 0.2;
-    const sx = rand(-1, 1) * shakeAmt, sy = rand(-1, 1) * shakeAmt;
+    const shakeAmt = g.settings.shake ? g.shake : 0;
+    // Visual jitter must not consume the simulation's seeded random stream.
+    const sx = shakeAmt ? (Math.random() * 2 - 1) * shakeAmt : 0;
+    const sy = shakeAmt ? (Math.random() * 2 - 1) * shakeAmt : 0;
 
     this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy);
 
@@ -144,19 +200,19 @@ export class Renderer {
 
     // Soft stage light under the player that thumps with the kick, and a floor ripple on every beat.
     c.globalCompositeOperation = 'lighter';
-    const thump = Math.max(g.beatPulse, g.chanPulse.beat || 0);
-    this.drawGlow(p.x, p.y, 150 + thump * 36, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.16 + thump * 0.16);
+    const thump = this.reducedFlash ? 0 : Math.max(g.beatPulse, g.chanPulse.beat || 0);
+    this.drawGlow(p.x, p.y, 100 + thump * 16, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.11 + thump * 0.07);
     c.globalCompositeOperation = 'source-over';
-    if (g.beatPulse > 0.05) {
-      c.strokeStyle = `hsla(${Math.round(this.hue)}, 80%, 70%, ${g.beatPulse * 0.12})`;
+    if (g.beatPulse > 0.05 && !this.reducedFlash) {
+      c.strokeStyle = `hsla(${Math.round(this.hue)}, 80%, 70%, ${g.beatPulse * 0.07})`;
       c.lineWidth = 2;
-      circle(c, p.x, p.y, 40 + (1 - g.beatPulse) * 300); c.stroke();
+      circle(c, p.x, p.y, 36 + (1 - g.beatPulse) * 140); c.stroke();
     }
 
+    this._dashTrail(c, g, dt);
     this._pickups(c, g, inView);
     this._mines(c, g, inView);
     this._strikes(c, g, inView);
-    this._enemies(c, g, inView);
     c.globalCompositeOperation = 'lighter';
     this._orbits(c, g);
     this._bullets(c, g, inView);
@@ -165,6 +221,7 @@ export class Renderer {
     this._particles(c, g, inView);
     c.globalCompositeOperation = 'source-over';
     // The player and everything that can hurt them go on top of the band's effects, so they stay readable.
+    this._enemies(c, g, inView);
     this._player(c, g);
     this._telegraphs(c, g);
     this._shots(c, g, inView);
@@ -175,7 +232,7 @@ export class Renderer {
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const low = p.hp / p.maxHp;
     if (low < 0.3 || g.hurtFlash > 0.02) {
-      const a = Math.max(g.settings.flashes ? g.hurtFlash * 0.45 : g.hurtFlash * 0.15, low < 0.3 ? (0.3 - low) * 0.9 * (0.7 + 0.3 * g.beatPulse) : 0);
+      const a = Math.max(g.settings.flashes ? g.hurtFlash * 0.34 : 0, low < 0.3 ? (0.3 - low) * 0.8 * (this.reducedFlash ? 1 : 0.8 + 0.2 * g.beatPulse) : 0);
       const vg = c.createRadialGradient(this.w / 2, this.h / 2, Math.min(this.w, this.h) * 0.3, this.w / 2, this.h / 2, Math.max(this.w, this.h) * 0.75);
       vg.addColorStop(0, 'rgba(255,40,70,0)');
       vg.addColorStop(1, `rgba(255,40,70,${a})`);
@@ -284,7 +341,7 @@ export class Renderer {
   }
 
   _enemies(c, g, inView) {
-    const bob = 1 + g.beatPulse * 0.09;
+    const bob = 1 + (this.reducedFlash ? 0 : g.beatPulse * 0.055);
     const t = this.time;
     for (const e of g.enemies) {
       if (e.dead || !inView(e.x, e.y, e.r + 10)) continue;
@@ -304,76 +361,80 @@ export class Renderer {
   }
 
   _enemyShape(c, e, r, t) {
-    const j = () => (Math.random() - 0.5) * r * 0.16;
-    const flash = e.flash > 0;
-    // Elites keep their dark body and flash only their outline, so they stay recognizable under fire.
-    const fill = flash && !e.elite ? 'rgba(255,255,255,0.8)' : 'rgba(18,14,28,0.92)';
-    const stroke = flash ? '#ffffff' : e.elite ? '#ffd166' : e.color;
-    c.lineWidth = e.elite ? 3 : 2;
-    c.fillStyle = fill;
-    c.strokeStyle = stroke;
+    const flash = !this.reducedFlash && e.flash > 0;
+    const stroke = flash ? '#f0eedb' : e.elite ? '#ffd166' : e.color;
+    c.fillStyle = flash ? '#32382e' : '#171b19';
     c.beginPath();
     switch (e.shape) {
-      case 'square': {
-        c.moveTo(e.x - r + j(), e.y - r + j()); c.lineTo(e.x + r + j(), e.y - r + j());
-        c.lineTo(e.x + r + j(), e.y + r + j()); c.lineTo(e.x - r + j(), e.y + r + j()); c.closePath();
+      case 'square':
+        // Clipped corners give the common enemy a little speaker-cabinet silhouette.
+        c.moveTo(e.x - r * 0.7, e.y - r); c.lineTo(e.x + r * 0.7, e.y - r);
+        c.lineTo(e.x + r, e.y - r * 0.7); c.lineTo(e.x + r, e.y + r * 0.7);
+        c.lineTo(e.x + r * 0.7, e.y + r); c.lineTo(e.x - r * 0.7, e.y + r);
+        c.lineTo(e.x - r, e.y + r * 0.7); c.lineTo(e.x - r, e.y - r * 0.7); c.closePath();
         break;
-      }
       case 'tri': {
-        const a = Math.atan2(e.ai.faceY ?? 0, e.ai.faceX ?? 1) + t * 3 + e.phase;
-        for (let i = 0; i < 3; i++) { const aa = a + (i / 3) * TAU; c.lineTo(e.x + Math.cos(aa) * r * 1.2 + j(), e.y + Math.sin(aa) * r * 1.2 + j()); }
+        const a = Math.atan2(e.ai.faceY ?? 0, e.ai.faceX ?? 1) + Math.sin(t * 3 + e.phase) * 0.3;
+        for (let i = 0; i < 3; i++) { const aa = a + (i / 3) * TAU; c.lineTo(e.x + Math.cos(aa) * r * 1.2, e.y + Math.sin(aa) * r * 1.2); }
         c.closePath();
         break;
       }
-      case 'hex': {
-        for (let i = 0; i < 6; i++) { const aa = (i / 6) * TAU + e.phase; c.lineTo(e.x + Math.cos(aa) * r + j(), e.y + Math.sin(aa) * r + j()); }
+      case 'hex':
+        for (let i = 0; i < 6; i++) { const aa = (i / 6) * TAU; c.lineTo(e.x + Math.cos(aa) * r, e.y + Math.sin(aa) * r); }
         c.closePath();
         break;
-      }
-      case 'diamond': {
+      case 'diamond':
         c.moveTo(e.x, e.y - r * 1.25); c.lineTo(e.x + r, e.y); c.lineTo(e.x, e.y + r * 1.25); c.lineTo(e.x - r, e.y); c.closePath();
         break;
-      }
-      case 'ring': { c.arc(e.x, e.y, r, 0, TAU); break; }
+      case 'ring': c.arc(e.x, e.y, r, 0, TAU); break;
       case 'glitch': default: {
-        const ox = e.ai.glitchT ? 4 : 0;
-        c.rect(e.x - r + ox, e.y - r * 0.8, r * 2, r * 1.6);
+        const ox = e.ai.glitchT && !this.reducedFlash ? Math.sin(t * 28) * 3 : 0;
+        c.moveTo(e.x - r + ox, e.y - r * 0.8); c.lineTo(e.x + r, e.y - r * 0.8);
+        c.lineTo(e.x + r, e.y); c.lineTo(e.x + r * 0.7, e.y);
+        c.lineTo(e.x + r * 0.7, e.y + r * 0.8); c.lineTo(e.x - r, e.y + r * 0.8); c.closePath();
         break;
       }
     }
+    // A dark outer keyline protects silhouettes when bright attacks pass behind them.
+    c.strokeStyle = '#0b0e0c'; c.lineWidth = e.elite ? 7 : 5; c.stroke();
     c.fill();
-    c.stroke();
-    if (flash) return;
-    // Static inside the shell: flickering scanlines.
-    c.fillStyle = rgba(e.color, 0.55);
-    const lines = e.shape === 'hex' ? 3 : 2;
-    for (let i = 0; i < lines; i++) {
-      const yy = e.y - r * 0.5 + ((i + 1) / (lines + 1)) * r + (Math.random() - 0.5) * r * 0.4;
-      c.fillRect(e.x - r * 0.55, yy, r * 1.1 * (0.4 + Math.random() * 0.6), 1.5);
-    }
-    if (e.shape === 'glitch') {
-      c.fillStyle = 'rgba(255,60,200,0.35)';
-      c.fillRect(e.x - r - 3, e.y - r * 0.5, r * 2, 3);
-    }
-    if (e.shape === 'ring') {
-      c.strokeStyle = rgba(e.color, 0.6); c.lineWidth = 1.5;
-      circle(c, e.x, e.y, r * 0.5); c.stroke();
+    c.strokeStyle = stroke; c.lineWidth = e.elite ? 2.8 : 1.7; c.stroke();
+    c.fillStyle = stroke;
+    if (e.shape === 'tri') {
+      circle(c, e.x, e.y, Math.max(1.4, r * 0.19)); c.fill();
+    } else if (e.shape === 'hex' || e.shape === 'ring') {
+      c.strokeStyle = rgba(e.color, 0.64); c.lineWidth = 1.4;
+      circle(c, e.x, e.y, r * 0.6); c.stroke();
+      circle(c, e.x, e.y, r * 0.28); c.stroke();
+      if (e.shape === 'hex') {
+        c.fillRect(e.x - r * 0.14, e.y - r * 0.72, r * 0.28, r * 0.22);
+        c.fillRect(e.x - r * 0.14, e.y + r * 0.5, r * 0.28, r * 0.22);
+      }
+    } else if (e.shape === 'diamond') {
+      c.beginPath(); c.moveTo(e.x - r * 0.4, e.y); c.lineTo(e.x, e.y - r * 0.4);
+      c.lineTo(e.x + r * 0.4, e.y); c.lineTo(e.x, e.y + r * 0.4); c.closePath(); c.fill();
+    } else {
+      c.fillRect(e.x - r * 0.54, e.y - r * 0.24, r * 0.3, r * 0.24);
+      c.fillRect(e.x + r * 0.24, e.y - r * 0.24, r * 0.3, r * 0.24);
+      c.fillStyle = rgba(e.color, 0.35);
+      c.fillRect(e.x - r * 0.48, e.y + r * 0.33, r * 0.96, 1.4);
     }
     if (e.def.ranged && (e.ai.windup > 0 || e.ai.shootT)) {
-      // Wind-up tell: the glow swells for a beat before the shot.
       const k = e.ai.windup > 0 ? 1 - e.ai.windup / BEAT_SEC : 1;
+      c.strokeStyle = rgba('#ff4d6d', 0.55 + k * 0.4); c.lineWidth = 1.5;
+      circle(c, e.x, e.y, r * (1.15 + 0.5 * k)); c.stroke();
       c.globalCompositeOperation = 'lighter';
-      this.drawGlow(e.x, e.y, r * (1.2 + 1.6 * k), '#ff4d6d', 0.35 + 0.55 * k);
+      this.drawGlow(e.x, e.y, r * (1.2 + k), '#ff4d6d', this.reducedFlash ? 0.12 : 0.12 + 0.23 * k);
       c.globalCompositeOperation = 'source-over';
     }
   }
 
   _boss(c, g, e, r) {
     const t = this.time;
-    const flash = e.flash > 0;
+    const flash = !this.reducedFlash && e.flash > 0;
     const col = flash ? '#ffffff' : e.color;
     c.globalCompositeOperation = 'lighter';
-    this.drawGlow(e.x, e.y, r * 2.6, e.color, 0.35 + g.beatPulse * 0.25);
+    this.drawGlow(e.x, e.y, r * 2.6, e.color, this.reducedFlash ? 0.2 : 0.2 + g.beatPulse * 0.12);
     c.globalCompositeOperation = 'source-over';
     // Bosses are hit constantly: keep the silhouette dark and flash only the outline.
     c.fillStyle = 'rgba(14,10,22,0.95)';
@@ -409,7 +470,7 @@ export class Renderer {
         break;
       }
       case 'king': {
-        const ox = e.ai.blinkTo ? (Math.random() - 0.5) * 8 : 0;
+        const ox = e.ai.blinkTo && !this.reducedFlash ? Math.sin(t * 32) * 4 : 0;
         c.beginPath(); c.rect(e.x - r + ox, e.y - r * 0.7, r * 2, r * 1.5); c.fill(); c.stroke();
         c.beginPath();
         c.moveTo(e.x - r, e.y - r * 0.7);
@@ -427,17 +488,19 @@ export class Renderer {
         circle(c, e.x, e.y, r); c.fill();
         c.save();
         circle(c, e.x, e.y, r); c.clip();
-        for (let i = 0; i < 90; i++) {
-          const v = Math.floor(Math.random() * 255);
-          c.fillStyle = `rgba(${v},${v},${v},0.8)`;
-          c.fillRect(e.x - r + Math.random() * r * 2, e.y - r + Math.random() * r * 2, 3 + Math.random() * 5, 2);
+        for (let i = 0; i < 28; i++) {
+          const drift = this.reducedFlash ? 0 : t * 9;
+          const yy = ((i * 13.7 + drift) % (r * 2)) - r;
+          const xx = Math.sin(i * 7.13) * r * 0.8;
+          c.fillStyle = `rgba(230,235,220,${0.2 + (i % 4) * 0.08})`;
+          c.fillRect(e.x + xx, e.y + yy, 4 + (i % 5) * 4, 2);
         }
         c.restore();
         c.lineWidth = 4;
         c.beginPath();
         for (let i = 0; i <= 40; i++) {
           const a = (i / 40) * TAU;
-          const rr = r + (Math.random() - 0.5) * 10 * (1 + g.beatPulse);
+          const rr = r + Math.sin(i * 4.7 + (this.reducedFlash ? 0 : t * 4)) * 3;
           c.lineTo(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr);
         }
         c.closePath();
@@ -473,7 +536,7 @@ export class Renderer {
       if (bt) {
         // Landing marker in the danger palette (red and white), so it never looks like a player attack.
         const k = clamp((g.time - (e.ai.blinkSetAt ?? g.time)) / (BEAT_SEC * 2), 0, 1);
-        const blink = 0.6 + 0.4 * Math.sin(this.time * 18);
+        const blink = this.reducedFlash ? 1 : 0.8 + 0.2 * Math.sin(this.time * 8);
         c.fillStyle = `rgba(255,45,85,${0.1 + 0.14 * k})`;
         circle(c, bt.x, bt.y, e.r); c.fill();
         c.strokeStyle = `rgba(255,255,255,${(0.55 + 0.4 * k) * blink})`;
@@ -538,42 +601,94 @@ export class Renderer {
     c.restore();
   }
 
+  _dashTrail(c, g, dt) {
+    const p = g.player;
+    this.trailClock += dt;
+    for (const q of this.dashTrail) q.age += dt;
+    this.dashTrail = this.dashTrail.filter((q) => q.age < 0.25);
+    if (p.dashT > 0 && this.trailClock > 0.02) {
+      this.dashTrail.push({ x: p.x, y: p.y, age: 0, color: p.dashPerfect ? '#ffe28a' : '#6fffe9', lean: p.faceX * 0.13 });
+      this.trailClock = 0;
+    }
+    for (const q of this.dashTrail) {
+      const k = 1 - q.age / 0.25;
+      c.save(); c.translate(q.x, q.y); c.rotate(q.lean);
+      c.globalAlpha = k * (this.reducedFlash ? 0.16 : 0.3);
+      c.fillStyle = q.color;
+      c.beginPath(); c.ellipse(0, 5, p.r * 0.83, p.r * 0.6, 0, 0, TAU); c.fill();
+      circle(c, 0, -p.r * 0.25, p.r * 0.65); c.fill();
+      c.strokeStyle = q.color; c.lineWidth = 3;
+      c.beginPath(); c.arc(0, -p.r * 0.25, p.r * 0.84, Math.PI, TAU); c.stroke();
+      c.restore();
+    }
+  }
+
   _player(c, g) {
     const p = g.player;
-    if (p.iframes > 0 && Math.floor(this.time * 24) % 2 === 0) c.globalAlpha = 0.45;
-    const r = p.r * (1 + g.beatPulse * 0.06);
-    c.fillStyle = 'rgba(8,6,14,0.6)';
-    circle(c, p.x, p.y, r + 9); c.fill();
-    // Channel rings: each instrument that just played lights its ring.
-    let i = 0;
-    for (const role of ROLES) {
-      const inst = g.loadout.channels[role];
-      if (!inst) continue;
-      const k = g.chanPulse[role];
-      const rr = r + 5 + i * 3.2;
-      c.strokeStyle = rgba(ROLE_INFO[role].color, 0.22 + k * 0.7);
-      c.lineWidth = 1.6 + k * 1.6;
-      circle(c, p.x, p.y, rr + k * 2); c.stroke();
-      i++;
+    const beat = this.reducedFlash ? 0 : g.beatPulse;
+    const r = p.r;
+    const dash = p.dashT > 0;
+    const accent = dash ? (p.dashPerfect ? '#ffe28a' : '#6fffe9') : '#caff71';
+    c.save();
+    if ((g.comboMultiplier || 1) > 1) {
+      this.drawGlow(p.x, p.y, r * 3, '#caff71', 0.035 * g.comboMultiplier);
     }
-    // Speaker body
-    c.fillStyle = '#16121f';
-    circle(c, p.x, p.y, r); c.fill();
-    c.strokeStyle = '#f4efff'; c.lineWidth = 2.5;
-    circle(c, p.x, p.y, r); c.stroke();
-    c.strokeStyle = 'rgba(244,239,255,0.55)'; c.lineWidth = 1.5;
-    circle(c, p.x, p.y, r * (0.58 + g.beatPulse * 0.1)); c.stroke();
-    c.fillStyle = '#f4efff';
-    circle(c, p.x, p.y, r * 0.22); c.fill();
-    // Facing tick
-    const a = Math.atan2(p.faceY, p.faceX);
-    c.fillStyle = '#f4efff';
-    c.beginPath();
-    c.moveTo(p.x + Math.cos(a) * (r + 7), p.y + Math.sin(a) * (r + 7));
-    c.lineTo(p.x + Math.cos(a + 0.35) * (r + 1), p.y + Math.sin(a + 0.35) * (r + 1));
-    c.lineTo(p.x + Math.cos(a - 0.35) * (r + 1), p.y + Math.sin(a - 0.35) * (r + 1));
-    c.closePath(); c.fill();
-    c.globalAlpha = 1;
+    if (p.iframes > 0 && !dash) c.globalAlpha = this.reducedFlash ? 0.8 : 0.7 + Math.sin(this.time * 20) * 0.2;
+    // Ground shadow and one segmented mixer halo frame the character without hiding their feet.
+    c.fillStyle = 'rgba(4,8,5,0.78)';
+    c.beginPath(); c.ellipse(p.x, p.y + 6, r + 7, r + 5, 0, 0, TAU); c.fill();
+    for (let i = 0; i < ROLES.length; i++) {
+      const role = ROLES[i];
+      if (!g.loadout.channels[role]) continue;
+      const k = this.reducedFlash ? 0.3 : (g.chanPulse[role] || 0);
+      const a = -Math.PI / 2 + i / 6 * TAU;
+      c.strokeStyle = rgba(ROLE_INFO[role].color, 0.38 + k * 0.5);
+      c.lineWidth = 1.7 + k * 0.8;
+      c.beginPath(); c.arc(p.x, p.y, r + 7 + k * 1.4, a + 0.12, a + TAU / 6 - 0.12); c.stroke();
+    }
+    // A small, stable cooldown arc is readable even when the HUD is outside peripheral vision.
+    if (p.dashCooldown !== undefined) {
+      const ready = p.dashCooldown <= 0;
+      const recovery = clamp(1 - p.dashCooldown / (p.dashMaxCooldown || 1), 0, 1);
+      c.strokeStyle = 'rgba(219,230,210,0.12)'; c.lineWidth = 2;
+      c.beginPath(); c.arc(p.x, p.y, r + 12, Math.PI * 0.2, Math.PI * 0.8); c.stroke();
+      c.strokeStyle = ready ? '#caff71' : 'rgba(219,230,210,0.65)';
+      c.beginPath(); c.arc(p.x, p.y, r + 12, Math.PI * 0.2, Math.PI * (0.2 + 0.6 * recovery)); c.stroke();
+    }
+    // Headphones, visor, and a lime bomber jacket make the player a musician, not another projectile.
+    c.translate(p.x, p.y);
+    const moving = Math.min(1, Math.hypot(p.vx || 0, p.vy || 0) / 160);
+    const walk = Math.sin(this.time * 14) * moving;
+    c.rotate(p.faceX * (dash ? 0.2 : 0.075));
+    c.fillStyle = '#e9e9d9';
+    c.beginPath(); c.ellipse(-r * 0.4, r * 0.69 + walk * 1.2, r * 0.21, r * 0.3, -0.15, 0, TAU); c.fill();
+    c.beginPath(); c.ellipse(r * 0.4, r * 0.69 - walk * 1.2, r * 0.21, r * 0.3, 0.15, 0, TAU); c.fill();
+    c.fillStyle = accent;
+    c.beginPath(); c.ellipse(0, r * 0.3, r * 0.82, r * 0.63, 0, 0, TAU); c.fill();
+    c.strokeStyle = '#181e16'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(0, r * 0.2); c.lineTo(0, r * 0.79); c.stroke();
+    c.fillStyle = '#e9e9d9';
+    circle(c, -r * 0.77, r * 0.3 + walk, r * 0.2); c.fill();
+    circle(c, r * 0.77, r * 0.3 - walk, r * 0.2); c.fill();
+    const headY = -r * 0.31 - beat * 0.6;
+    c.fillStyle = '#efedda'; circle(c, 0, headY, r * 0.64); c.fill();
+    // A dark visor points slightly toward the movement direction.
+    c.fillStyle = '#19221c';
+    c.beginPath(); c.ellipse(p.faceX * 1.8, headY + 1.5 + p.faceY * 1.1, r * 0.47, r * 0.19, 0, 0, TAU); c.fill();
+    c.fillStyle = accent;
+    c.fillRect(p.faceX * 1.8 - r * 0.23, headY + 0.4 + p.faceY * 1.1, 2, 2);
+    c.fillRect(p.faceX * 1.8 + r * 0.14, headY + 0.4 + p.faceY * 1.1, 2, 2);
+    c.strokeStyle = '#0c110e'; c.lineWidth = 5.8;
+    c.beginPath(); c.arc(0, headY, r * 0.8, Math.PI * 0.9, TAU + Math.PI * 0.1); c.stroke();
+    c.strokeStyle = '#f3f0dc'; c.lineWidth = 2.7;
+    c.beginPath(); c.arc(0, headY, r * 0.8, Math.PI * 0.96, TAU + Math.PI * 0.04); c.stroke();
+    c.fillStyle = '#253322';
+    c.fillRect(-r * 0.94, headY - 2, r * 0.3, r * 0.48);
+    c.fillRect(r * 0.64, headY - 2, r * 0.3, r * 0.48);
+    c.fillStyle = accent;
+    c.fillRect(-r * 0.91, headY - 0.7, 2.4, r * 0.3);
+    c.fillRect(r * 0.74, headY - 0.7, 2.4, r * 0.3);
+    c.restore();
   }
 
   _orbits(c, g) {
@@ -581,7 +696,7 @@ export class Renderer {
       for (const it of grp.items) {
         const sz = grp.size * (1 + it.glow * 0.6);
         this.drawGlow(it.x, it.y, sz * 3 + it.glow * 12, grp.color, 0.55 + it.glow * 0.45);
-        c.fillStyle = it.glow > 0.3 ? '#ffffff' : grp.color;
+        c.fillStyle = it.glow > 0.3 && !this.reducedFlash ? this.tint(grp.color) : grp.color;
         shape(c, grp.shape, it.x, it.y, sz, this.time * 2);
       }
     }
@@ -623,7 +738,7 @@ export class Renderer {
   _rings(c, g) {
     for (const r of g.fx.rings) {
       const k = clamp(r.t / r.dur, 0, 1);
-      const a = (1 - k) * 0.9 + 0.05;
+      const a = ((1 - k) * 0.9 + 0.05) * (this.reducedFlash ? 0.55 : 1);
       c.strokeStyle = rgba(r.color, a);
       c.lineWidth = r.width * (1 - k * 0.6);
       circle(c, r.x, r.y, r.r); c.stroke();
@@ -633,9 +748,9 @@ export class Renderer {
     }
     for (const f of g.fx.flashes) {
       const k = f.age / f.life;
-      c.fillStyle = rgba(f.color, f.fill * (1 - k));
+      c.fillStyle = rgba(f.color, (this.reducedFlash ? 0.025 : f.fill * 0.65) * (1 - k));
       circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.fill();
-      c.strokeStyle = rgba(f.color, 0.8 * (1 - k));
+      c.strokeStyle = rgba(f.color, (this.reducedFlash ? 0.4 : 0.8) * (1 - k));
       c.lineWidth = 2.5 * (1 - k) + 0.5;
       circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.stroke();
     }
@@ -648,7 +763,7 @@ export class Renderer {
       c.strokeStyle = rgba(b.color, 0.35 * k);
       c.lineWidth = b.width * 2.2 * k;
       c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
-      c.strokeStyle = rgba('#ffffff', 0.9 * k);
+      c.strokeStyle = rgba(this.tint(b.color), (this.reducedFlash ? 0.55 : 0.9) * k);
       c.lineWidth = Math.max(1, b.width * 0.45 * k);
       c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
     }
@@ -663,7 +778,7 @@ export class Renderer {
         const segs = 4;
         for (let s = 1; s <= segs; s++) {
           const tt = s / segs;
-          const jx = s < segs ? (Math.random() - 0.5) * 16 : 0, jy = s < segs ? (Math.random() - 0.5) * 16 : 0;
+          const jx = s < segs && !this.reducedFlash ? (Math.random() - 0.5) * 16 : 0, jy = s < segs && !this.reducedFlash ? (Math.random() - 0.5) * 16 : 0;
           c.lineTo(x1 + (x2 - x1) * tt + jx, y1 + (y2 - y1) * tt + jy);
         }
       }
