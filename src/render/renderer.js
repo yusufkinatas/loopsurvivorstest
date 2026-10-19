@@ -16,6 +16,7 @@ export class Renderer {
     this.time = 0;
     this.scale = 1;
     this.zoom = 1;               // the Drop camera, on top of scale (see draw)
+    this.waveAt = -Infinity;     // when the last section wave started
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -160,15 +161,24 @@ export class Renderer {
     const cx = this.cam.x, cy = this.cam.y;
     const inView = (x, y, r = 0) => Math.abs(x - cx) < vw + r && Math.abs(y - cy) < vh + r;
 
-    // Soft stage light under the player that thumps with the kick, and a floor ripple on every beat.
+    // Soft stage light under the player that thumps with the kick and widens as the band grows, and a floor
+    // ripple on every beat.
     c.globalCompositeOperation = 'lighter';
     const thump = Math.max(g.beatPulse, g.chanPulse.beat || 0);
-    this.drawGlow(p.x, p.y, 150 + thump * 36, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.16 + thump * 0.16);
+    this.drawGlow(p.x, p.y, 120 + 10 * g.loadout.filled() + thump * 36, `#${hslHex(Math.round(this.hue / 10) * 10 % 360, 70, 55)}`, 0.16 + thump * 0.16);
     c.globalCompositeOperation = 'source-over';
     if (g.beatPulse > 0.05) {
       c.strokeStyle = `hsla(${Math.round(this.hue)}, 80%, 70%, ${g.beatPulse * 0.12})`;
       c.lineWidth = 2;
       circle(c, p.x, p.y, 40 + (1 - g.beatPulse) * 300); c.stroke();
+    }
+    // A section's downbeat sends a wave across the floor from you, landing with its crash cymbal.
+    if (g.sectionIndex !== this._section) { if (g.sectionIndex > 0) this.waveAt = this.time; this._section = g.sectionIndex; }
+    const wt = (this.time - this.waveAt) / 0.7;
+    if (wt < 1) {
+      c.strokeStyle = `hsla(${g.section.hue}, 80%, 70%, ${0.55 * (1 - wt)})`;
+      c.lineWidth = (14 * (1 - wt) + 2) / s;
+      circle(c, p.x, p.y, lerp(40, 0.75 * Math.max(this.w, this.h), 1 - (1 - wt) * (1 - wt)) / s); c.stroke();
     }
 
     this._pickups(c, g, inView);
@@ -569,15 +579,15 @@ export class Renderer {
     const r = p.r * (1 + g.beatPulse * 0.06);
     c.fillStyle = 'rgba(8,6,14,0.6)';
     circle(c, p.x, p.y, r + 9); c.fill();
-    // Channel rings: each instrument that just played lights its ring.
+    // Channel rings: each instrument that just played lights its ring, and a ring thickens as its sound levels up.
     let i = 0;
     for (const role of ROLES) {
       const inst = g.loadout.channels[role];
       if (!inst) continue;
       const k = g.chanPulse[role];
-      const rr = r + 5 + i * 3.2;
+      const rr = r + 5 + i * 3.8;
       c.strokeStyle = rgba(ROLE_INFO[role].color, 0.22 + k * 0.7);
-      c.lineWidth = 1.6 + k * 1.6;
+      c.lineWidth = 1.2 + 0.45 * inst.level + k * 1.6;
       circle(c, p.x, p.y, rr + k * 2); c.stroke();
       i++;
     }
@@ -610,11 +620,12 @@ export class Renderer {
     let i = 0;
     c.globalAlpha = 1 - k;
     for (const role of ROLES) {
-      if (!g.loadout.channels[role]) continue;
-      const rr = p.r + 5 + i * 3.2 + e * (70 + 18 * i);
+      const inst = g.loadout.channels[role];
+      if (!inst) continue;
+      const rr = p.r + 5 + i * 3.8 + e * (70 + 18 * i);
       const a0 = i * 0.9 + (i % 2 ? 1.2 : -1.2) * e;
       c.strokeStyle = ROLE_INFO[role].color;
-      c.lineWidth = 1.6;
+      c.lineWidth = 1.2 + 0.45 * inst.level;
       for (let j = 0; j < 3; j++) { c.beginPath(); c.arc(p.x, p.y, rr, a0 + (j / 3) * TAU, a0 + (j / 3) * TAU + 1.5); c.stroke(); }
       i++;
     }

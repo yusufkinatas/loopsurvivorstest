@@ -118,6 +118,14 @@ export class Game {
     inst.since = this.time;
     this._setupInst(inst);
     this.onLoadoutChanged();
+    // A sound that joins mid-song gets a line and a ring in its channel color, once play resumes after the pick.
+    if (this.time > 0) {
+      const line = old ? `${def.name} takes over ${ROLE_INFO[def.role].name}` : `${def.name} joins the band`;
+      this.later.push({ at: this.time, fn: () => {
+        this.banner(line, '', true);
+        this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 14, r1: 200, dur: 0.6, damage: 0, kb: 0, width: 6, color: this.color(def.role) });
+      } });
+    }
     return inst;
   }
 
