@@ -16,7 +16,7 @@ function write(data) {
   try { window.localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable */ }
 }
 
-export const DEFAULT_SETTINGS = { volume: 0.8, damageNumbers: true, shake: true, flashes: true };
+export const DEFAULT_SETTINGS = { volume: 0.8, damageNumbers: true, shake: true, flashes: true, chimes: true };
 
 export function loadSettings() {
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;

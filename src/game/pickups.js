@@ -1,4 +1,4 @@
-// Dropped notes (XP) and rare items. Pickups make no sound of their own, so the music stays clean.
+// Dropped notes (XP) and rare items. Collecting one rings a chime on the beat grid, in key (Sequencer.ping).
 
 import { rand, dist2, rng, swapRemove } from '../util.js';
 import { WORLD } from '../config.js';

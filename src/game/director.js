@@ -46,7 +46,9 @@ export class Director {
 
   onBeat(ev) {
     const g = this.g;
-    const want = this.target();
+    // While the drums sit out (the Bridge breakdown) the crowd thins and no formations arrive.
+    const resting = g.song.position(ev.bar).arr.rest.includes('beat');
+    const want = Math.floor(this.target() * (resting ? 0.6 : 1));
     const alive = g.enemies.length;
     if (alive < want) {
       const n = Math.min(want - alive, Math.ceil(3 + want * 0.07));
@@ -56,7 +58,7 @@ export class Director {
         spawnEnemy(g, randomType(mix), s.x, s.y);
       }
     }
-    if (ev.beat === 0 && ev.bar % 8 === 4 && g.time > 35 && ev.bar !== this.lastFormationBar) {
+    if (!resting && ev.beat === 0 && ev.bar % 8 === 4 && g.time > 35 && ev.bar !== this.lastFormationBar) {
       this.lastFormationBar = ev.bar;
       this.formation();
     }
