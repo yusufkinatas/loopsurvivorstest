@@ -121,7 +121,7 @@ export function enemiesOnBeat(g, ev) {
 // Then the boss has four bars to find the groove before another Drop can stagger it again.
 export function knockOffBeat(g, e) {
   if (g.time < (e.ai.restaggerAt ?? 0)) return;
-  e.ai.offbeatT = 2 * BAR_SEC - 0.4;
+  e.ai.offbeatT = 2 * BAR_SEC - 0.45;   // over after beat 4 of the second bar, before the next downbeat's cue is scheduled
   e.ai.restaggerAt = g.time + e.ai.offbeatT + 4 * BAR_SEC;
   e.ai.blinkTo = null;
   e.ai.chargeWarn = null;
