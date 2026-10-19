@@ -56,6 +56,7 @@ Peak at the channel input must stay below 0.98 (check.mjs flags clipping). No Na
   setup(g, st, inst) {},             // optional: on add, level change or stat change (orbiters)
   update(g, dt, st, inst) {},        // optional: every frame while playing
   dispose(g, inst) {},               // optional: when swapped out (owned effects are cleared for you)
+  remix: { id, name, pedal, text, stats, fire, setup, update },   // its remix (see Remix below)
 }
 ```
 
@@ -124,21 +125,69 @@ Queries: `g.player` `{x, y, faceX, faceY}`, `g.aim()` facing angle, `g.nearest(x
 
 Attack archetypes (`src/game/effects.js`), all record which instrument made them:
 
-- `g.fx.bullet({ x, y, angle, speed, r, damage, pierce, life, color, shape, homing, bounce, boomerang, kb, stun, slow, drag, trail, spin, range, onHit })`
-  shapes: `dot note square star seed shard coin diamond ring`
-- `g.fx.ring({ x, y, follow, r0, r1, dur, damage, kb, stun, slow, width, color })` expanding shockwave
+- `g.fx.bullet({ x, y, angle, speed, r, damage, pierce, life, color, shape, homing, bounce, boomerang, kb, stun, slow, drag, trail, spin, range, curve, onHit, onReturn })`
+  shapes: `dot note square star seed shard coin diamond ring`. `curve` turns the shot (rad/s), `onHit(b, enemy, g)`
+  runs on every hit, and `onReturn(b, g)` runs when a boomerang gets home (return true to keep it flying).
+- `g.fx.ring({ x, y, follow, r0, r1, dur, damage, kb, stun, slow, width, color, yoyo, erase })` expanding shockwave.
+  `yoyo` goes out to `r1` and back, hitting again on the way back. `erase` wipes out enemy shots inside that share of its radius while it moves.
 - `g.fx.pulse({ x, y, r, damage, kb, stun, slow, color, max })` instant area hit with a flash
-- `g.fx.beam({ x, y, angle, length, width, damage, kb, color, pierce })` instant line
-- `g.fx.zap({ x, y, target, range, chain, chainRange, damage, falloff, color })` chain lightning
-- `g.fx.strike({ x, y, delay, r, damage, kb, stun, color, target, style })` delayed impact with a marker (`style: 'drop' | 'star' | 'ring'`)
-- `g.fx.mine({ owner: inst.def.id, x, y, r, damage, kb, color, life, max, size })` then `g.fx.detonateMines(inst.def.id, scale)` on a later note
+- `g.fx.beam({ x, y, angle, length, width, damage, kb, color, pierce, onHit })` instant line
+- `g.fx.zap({ x, y, target, range, chain, chainRange, damage, falloff, color, onHit })` chain lightning
+- `g.fx.strike({ x, y, delay, r, damage, kb, stun, color, target, style, onLand })` delayed impact with a marker (`style: 'drop' | 'star' | 'ring'`)
+- `g.fx.mine({ owner: inst.def.id, x, y, r, damage, kb, color, life, max, size })` then `g.fx.detonateMines(inst.def.id, scale, { armed, chain })`
+  on a later note (`armed`: only mines with an enemy on them, `chain`: a blast sets off the other mines inside it)
 - `g.fx.orbit(inst, { count, radius, speed, size, color, shape })` persistent orbiters (call from `setup`), then `grp.pulse({ damage, r, kb, stun, slow, index })` from `fire`
 - cosmetics: `g.fx.particles(x, y, color, n, speed, life, size)`, `g.fx.flash(x, y, r, color, life, fill)`, `g.shake = Math.max(g.shake, n)`
 
-Direct damage: `g.hit(enemy, damage, { kb, fx, fy, stun, slow })`.
+Direct damage: `g.hit(enemy, damage, { kb, fx, fy, stun, slow })`. An enemy marked with `e.vuln` until
+`e.vulnUntil` (game time) takes `1 + e.vuln` times the damage from every source. Drop meter: `g.chargeDrop(n)`.
 
 Every attack must be launched from `fire()` by a note. Never deal damage on a timer that is not a
 note. Persistent things (orbiters, mines) may exist between notes, but they strike on notes.
+
+## Remix
+
+Every instrument has one remix: a new attack for its finished part. It is ready once the instrument is
+at level 5 and its paired pedal is on the board at any level, and the next level-up always shows it as a
+gold card. Taking it keeps the instrument at level 5 for the rest of the run. The channel gets no more
+swap cards, the HUD strip shows the remix name with gold pips, and the end screen lists the remix name.
+
+```js
+remix: {
+  id: 'canon',              // unique, lowercase
+  name: 'Canon',            // shown on the card, the HUD strip and the end screen
+  pedal: 'delay',           // the paired pedal: one the desk already puts on this channel (see 2)
+  text: 'What the remix does, in one or two plain sentences.',
+  sound: 'optional: what you hear, for a pedal with no insert on this strip',
+  stats: { canon: 0.6 },    // only what changes: merged over level 5's stats at load
+  fire(g, note, st, inst) {},     // optional, replaces fire()
+  setup(g, st, inst) {},          // optional, replaces setup()
+  update(g, dt, st, inst) {},     // optional, replaces update()
+}
+```
+
+1. **The pattern and `sound()` stay level 5.** The sequencer plays the level 5 part, so the music and
+   check.mjs results do not change. `sound()` may read `inst.remix` for a strip-level signature
+   (Sidechain 808's deeper duck), never to add or move notes.
+2. **You hear the remix.** The paired pedal is one the desk already routes to the channel: inserts
+   (Bitcrusher on Beat and Groove, Overdrive on Bass and Lead, Auto-Wah on Bass and Chords, Chorus on
+   Chords and Lead) or sends (Hall Reverb on every channel, Tape Delay on Groove, Chords, Lead and
+   Sparkle). `audio.applyPedals(levels, boost)` runs it at level 3 on the remixed strip only, with the
+   settings a level 3 pedal already uses. The Compressor lives on the bus, so its two remixes carry their
+   own signature: Sidechain 808 ducks the mix deeper on the downbeat, and a Compressor-boosted melodic
+   strip (Soul Keys) pumps hard under every kick.
+3. **Two ways to write the attack.** Replace `fire()`: it runs with `this` = the definition, so
+   `this.fire(g, note, st, inst)` plays the level 5 attack first. Or add a stat that the level 5
+   `fire()` reads as an option (`st.erase`, `st.split`, `st.curve`). No level sets those stats.
+4. **Safe on any note.** Beat fills and rolls add notes, and Tape Delay echoes call `fire()` again with
+   `g.dmgScale` below 1. Assume nothing about steps beyond what the level 5 pattern guarantees, and check
+   `g.dmgScale === 1` before scheduling a delayed part, so an echo does not echo.
+5. **Delayed parts land on the grid.** Push them onto `g.later` at whole 16th steps of game time
+   (`{ at: g.time + k * STEP_SEC, fn }`), the way Tape Delay echoes do, so a pause holds them too. In `fn`,
+   return if `!g.loadout.has(inst)`, and set `g.src = inst` around the attack (or call
+   `g.fireNote(inst, note, scale)`).
+6. **Stronger than level 5.** A remix beats its level 5 on crowds or on a single target, or gives the
+   band a clear defensive or Drop role, measured with the paired pedal at 3 on both sides (see below).
 
 ## Balance targets
 
@@ -152,6 +201,16 @@ The reference beat instruments deal roughly 10k to 25k total damage at level 1 a
 level 5. Land in that band. Each role has a flavor: `perc` is many small hits, `bass` heavy and
 close, `chords` wide area and support, `lead` precise long-range, `arp` many glittery extras.
 A support effect (slow, stun, heal, knockback) can justify lower damage.
+
+A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>`:
+
+```
+node tools/sim.mjs "speed=16&bot=1&minutes=2.2&god=1&solo=1&start=<id>&give=<id>:5&pedals=<pedal>:3&remix=<id>&seed=7" --summary
+```
+
+At density 1 the spawn supply runs out before the strongest sounds do, so read kills and the boss
+(The Drone arrives at 96 s) as well as damage. `node tools/check.mjs --mixall --remix` checks the
+remixed bands through the desk.
 
 ## Checking your work
 
