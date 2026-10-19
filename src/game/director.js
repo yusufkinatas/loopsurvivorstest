@@ -60,6 +60,8 @@ export class Director {
       this.lastFormationBar = ev.bar;
       this.formation();
     }
+    // Featured elites walk in on the 16-bar downbeats of the quiet stretches between bosses, each with a vinyl.
+    if (ev.beat === 0 && ev.bar % 16 === 0 && (g.section.id === 'verse2' || g.section.id === 'bridge')) this.spawnElite();
   }
 
   // Set pieces: an encircling ring, or a swarm charging from one side.
@@ -90,6 +92,13 @@ export class Director {
     }
   }
 
+  // An elite from the section's mix: a big gold-outlined body that drops a vinyl (one level-up).
+  spawnElite() {
+    const s = this.spawnPoint();
+    const types = Object.keys(this.mix).filter((k) => k !== 'buzz');
+    spawnEnemy(this.g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true });
+  }
+
   onSection(ev) {
     const sec = ev.section;
     if (sec.boss) {
@@ -103,9 +112,7 @@ export class Director {
     this.eliteTimer -= dt;
     if (this.eliteTimer <= 0) {
       this.eliteTimer = Math.max(28, 52 - g.time / 25);
-      const s = this.spawnPoint();
-      const types = Object.keys(this.mix).filter((k) => k !== 'buzz');
-      spawnEnemy(g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true });
+      this.spawnElite();
     }
     // Recycle stragglers left far behind so the density stays around the player.
     const p = g.player;
