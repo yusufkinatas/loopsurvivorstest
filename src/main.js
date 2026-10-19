@@ -166,7 +166,7 @@ function startRun(id) {
   hud.refreshLoadout(game);
   hud.setBoss(null);
   dropTipShown = false;
-  hud.tip(isTouch() ? 'Drag to move. Tap DASH to slip through danger.' : 'WASD to move · SHIFT to dash · your sounds attack for you', 8);
+  hud.tip(isTouch() ? 'Drag to move. Tap DASH to slip through danger. Claim spotlights for remixes.' : 'WASD to move · SHIFT to dash · claim spotlights for powerful remixes', 8);
   dashTipShown = false;
 }
 
@@ -176,7 +176,7 @@ const isTouch = () => input.touchUsed || (typeof matchMedia === 'function' && ma
 function tips() {
   if (!dashTipShown && game.state === 'playing' && game.time > 12) {
     dashTipShown = true;
-    hud.tip('Dash ON BEAT for faster recovery and +25 score.', 7);
+    hud.tip('Dash ON BEAT: +35% attack power for 1.2s and +8 Drop charge.', 7);
   }
   if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState) {
     dropTipShown = true;
@@ -350,6 +350,7 @@ window.__LS = {
     return {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
       damageTaken: game.damageTaken, drops: game.drops, dashes: game.dashes, perfectDashes: game.perfectDashes, bestCombo: game.bestCombo, bossesAlive: game.boss ? game.boss.type : null,
+      spotlightsCleared: game.spotlightsCleared, spotlightsMissed: game.spotlightsMissed, remixes: [...game.remixes],
       bossesSpawned: game.bossesSpawned, sectionIndex: game.sectionIndex, cap: game.channelCap(), dropState: game.dropState,
       hp: game.player?.hp, section: game.section?.id, bosses: game.bossesBeaten, errors, fps: Math.round(fpsAvg),
       genre: game.genre, key: game.key?.name,

@@ -14,6 +14,8 @@ import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
 import { buildOffers, applyOffer } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
+import { buildRemixOffers, REMIX_BY_ID } from './remixes.js';
+import { resetSpotlights, updateSpotlights } from './spotlights.js';
 
 // Channels with a send into the tape delay: only these echo, so every echo attack is also heard.
 const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
@@ -63,8 +65,14 @@ export class Game {
     this.fx.reset();
     this.director.reset();
     this.loadout = new Loadout();
+    this.remixes = [];
+    this.pendingRemixes = 0;
+    this.draftKind = 'upgrade';
+    this.powerT = 0;
+    this.encoreT = 0;
     this.stats = computeStats(this.loadout);
     this.time = 0;
+    resetSpotlights(this);
     this.kills = 0;
     this.dashes = 0;
     this.perfectDashes = 0;
@@ -156,7 +164,10 @@ export class Game {
   onLoadoutChanged() {
     const oldMax = this.player?.maxHp ?? PLAYER_BASE.maxHp;
     this.stats = computeStats(this.loadout);
+    if (this.hasRemix('glass')) { this.stats.damage += 0.35; this.stats.maxHp -= 20; }
+    if (this.hasRemix('magnet')) this.stats.pickup *= 1.6;
     if (this.player) {
+      this.player.dashMaxCooldown = DASH.cooldown + (this.hasRemix('sustain') ? 0.4 : 0);
       this.player.maxHp = this.stats.maxHp;
       if (this.player.maxHp > oldMax) this.player.hp += this.player.maxHp - oldMax;
       this.player.hp = Math.min(this.player.hp, this.player.maxHp);
@@ -174,7 +185,8 @@ export class Game {
   // ------------------------------------------------------------------ API for instruments
 
   // Scaled damage: base x global damage multiplier x echo scale.
-  dmg(base) { return base * this.stats.damage * this.dmgScale; }
+  hasRemix(id) { return this.remixes?.includes(id) || false; }
+  dmg(base) { return base * this.stats.damage * this.dmgScale * (1 + (this.powerT > 0 ? 0.35 : 0) + (this.encoreT > 0 ? 0.5 : 0)); }
   area(r) { return r * this.stats.area; }
   // Counts scale by a percentage (Chorus pedal, 8-Bit chemistry), so a one-shot weapon and a
   // six-shot weapon gain the same share. Fractions round by chance per note, and deterministically
@@ -258,6 +270,8 @@ export class Game {
   // Deal damage. o: kb (knockback strength), fx/fy (where the push comes from), stun (s), slow (0..1), src.
   hit(e, dmg, o = {}) {
     if (!e || e.dead || !(dmg > 0) || this.state !== 'playing') return;
+    if (e.exposedT > 0) dmg *= 1.5;
+    if (this.hasRemix('spotlight')) dmg *= dist2(e.x, e.y, this.player.x, this.player.y) <= 180 * 180 ? 1.4 : 0.9;
     let crit = false;
     if (rng() < this.stats.crit) { dmg *= this.stats.critMult; crit = true; }
     const src = o.src || this.src;
@@ -286,6 +300,7 @@ export class Game {
     e.dead = true;
     this.kills++;
     this._chainKill();
+    if (this.hasRemix('cascade')) this.dropCharge = Math.min(this.dropMax, this.dropCharge + 1);
     if (src) src.kills++;
     this.fx.particles(e.x, e.y, e.color, e.boss ? 60 : e.elite ? 20 : 7, e.boss ? 380 : 170, e.boss ? 1 : 0.4, e.boss ? 4 : 2.4);
     if (e.xp > 0) {
@@ -325,7 +340,7 @@ export class Game {
     p.dashPerfect = this._dashOnBeat();
     p.dashT = DASH.duration;
     p.dashTrailT = 0;
-    p.dashCooldown = p.dashMaxCooldown - (p.dashPerfect ? DASH.refund : 0);
+    p.dashCooldown = p.dashPerfect ? DASH.cooldown - DASH.refund : p.dashMaxCooldown;
     p.iframes = Math.max(p.iframes, DASH.duration + DASH.grace);
     this.dashes++;
     const color = p.dashPerfect ? '#ffe28a' : '#6fffe9';
@@ -334,7 +349,10 @@ export class Game {
     if (p.dashPerfect) {
       this.perfectDashes++;
       this.bonusScore += 25;
-      this.fx.text(p.x, p.y - 35, 'ON BEAT +25', color, 14);
+      this.powerT = 1.2;
+      this.dropCharge = Math.min(this.dropMax, this.dropCharge + 8);
+      if (this.hasRemix('sustain')) p.hp = Math.min(p.maxHp, p.hp + 3);
+      this.fx.text(p.x, p.y - 35, 'ON BEAT · POWER +35%', color, 14);
       if (this.audio?.ready && !this.opts.sim) {
         const sounding = this.seq.sounding(this.clock.now() - (this.audio.latency || 0));
         const chord = sounding ? this.song.position(sounding.bar).chord : this.seq.position?.chord;
@@ -361,7 +379,7 @@ export class Game {
     this.comboTimer = COMBO_DURATION;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
     this.comboMultiplier = this.combo >= 50 ? 4 : this.combo >= 25 ? 3 : this.combo >= 10 ? 2 : 1;
-    // Only kill score is multiplied; weapon damage and XP keep their existing balance.
+    // Groove also increases collected-note Drop charge by 10% per tier; XP stays steady.
     const bonus = (this.comboMultiplier - 1) * 10;
     this.grooveBonus += bonus;
     this.bonusScore += bonus;
@@ -403,7 +421,8 @@ export class Game {
     if (gm.kind === 'xp') {
       const v = gm.value * this.stats.xpGain;
       this.xp += v;
-      this.dropCharge = Math.min(this.dropMax, this.dropCharge + gm.value);
+      const charge = gm.value * (1 + (this.comboMultiplier - 1) * 0.1 + (this.hasRemix('magnet') ? 0.25 : 0));
+      this.dropCharge = Math.min(this.dropMax, this.dropCharge + charge);
       while (this.xp >= this.xpNeed) {
         this.xp -= this.xpNeed;
         this.level++;
@@ -440,10 +459,11 @@ export class Game {
     this.drops++;
     this.dropFlash = 1;
     this.shake = Math.max(this.shake, 16);
-    const dmg = DROP.damage * (1 + this.level * 0.08) * this.stats.damage;
+    const dmg = this.dmg(DROP.damage * (1 + this.level * 0.08));
     const prev = this.src; this.src = null;
     for (const e of this.inRadius(p.x, p.y, DROP.radius)) this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6 });
     this.src = prev;
+    if (this.hasRemix('cascade')) this.encoreT = 5;
     this.shots.length = 0;
     this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
     magnetAll(this);
@@ -574,7 +594,10 @@ export class Game {
     this._processEvents();
     if (this.state !== 'playing') return;
     this.time += dt;
+    this.powerT = Math.max(0, this.powerT - dt);
+    this.encoreT = Math.max(0, this.encoreT - dt);
     const p = this.player;
+    let landed = false;
 
     // Movement
     const spd = this.stats.speed;
@@ -594,7 +617,7 @@ export class Game {
         this.fx.particles(p.x, p.y, p.dashPerfect ? '#ffe28a' : '#6fffe9', 3, 28, 0.22, 3);
       }
       // No slippery burst of leftover velocity after the dash: normal movement takes over immediately.
-      if (p.dashT === 0) { p.vx = tx; p.vy = ty; }
+      if (p.dashT === 0) { p.vx = tx; p.vy = ty; landed = true; }
     }
     const moveDt = dt - dashDt;
     if (moveDt > 0) {
@@ -613,6 +636,12 @@ export class Game {
     // Spatial hash for this frame
     this.grid.clear();
     for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
+    if (landed && this.hasRemix('aftershock')) {
+      const radius = 125;
+      const damage = this.dmg((22 + this.level * 3) * (p.dashPerfect ? 2 : 1));
+      for (const e of this.inRadius(p.x, p.y, radius)) this.hit(e, damage, { kb: 80, stun: 0.25 });
+      this.fx.ring({ x: p.x, y: p.y, r0: 10, r1: radius, dur: 0.32, damage: 0, width: 5, color: p.dashPerfect ? '#ffe28a' : '#6fffe9' });
+    }
 
     // Delayed actions (echoes)
     for (let i = this.later.length - 1; i >= 0; i--) {
@@ -632,6 +661,7 @@ export class Game {
     updateEnemies(this, dt);
     this.director.update(dt);
     updatePickups(this, dt);
+    updateSpotlights(this, dt);
 
     // Remove the dead
     for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].dead) swapRemove(this.enemies, i);
@@ -651,19 +681,19 @@ export class Game {
       if (this.victoryT <= 0) { this.victory(); return; }
     }
 
-    if (this.pendingLevels > 0 && this.state === 'playing' && !this.won) this.openLevelUp();
+    if ((this.pendingLevels > 0 || this.pendingRemixes > 0) && this.state === 'playing' && !this.won) this.openLevelUp();
   }
 
   // ------------------------------------------------------------------ level up
 
   openLevelUp() {
-    this.offers = buildOffers(this, 3);
+    this._buildDraft();
     if (this.opts.autopick) {
       const i = this.hooks.autopick ? this.hooks.autopick(this.offers) : 0;
-      this.pendingLevels--;
+      this._consumeDraft();
       applyOffer(this, this.offers[i] || this.offers[0]);
       this.offers = null;
-      if (this.pendingLevels > 0) this.openLevelUp();
+      if (this.pendingLevels > 0 || this.pendingRemixes > 0) this.openLevelUp();
       return;
     }
     this._pause('levelup');
@@ -676,7 +706,7 @@ export class Game {
   }
 
   reroll() {
-    if (this.state !== 'levelup' || this.rerolls <= 0) return null;
+    if (this.state !== 'levelup' || this.draftKind === 'remix' || this.rerolls <= 0) return null;
     this.rerolls--;
     this.previewOffer(null);
     this.offers = buildOffers(this, 3);
@@ -688,15 +718,30 @@ export class Game {
     const o = this.offers[i];
     if (!o) return;
     this.previewOffer(null);
-    this.pendingLevels--;
+    this._consumeDraft();
     applyOffer(this, o);
     this.offers = null;
-    if (this.pendingLevels > 0) {
-      this.offers = buildOffers(this, 3);
+    if (this.pendingLevels > 0 || this.pendingRemixes > 0) {
+      this._buildDraft();
       this.hooks.onLevelUp?.(this.offers);
       return;
     }
     this._resume();
+  }
+
+  _buildDraft() {
+    // Debug/queued rewards can fill the final remix slot before another reward is served.
+    if (this.remixes.length >= 3 && this.pendingRemixes > 0) {
+      this.pendingLevels += this.pendingRemixes;
+      this.pendingRemixes = 0;
+    }
+    this.draftKind = this.pendingRemixes > 0 ? 'remix' : 'upgrade';
+    this.offers = this.draftKind === 'remix' ? buildRemixOffers(this) : buildOffers(this, 3);
+  }
+
+  _consumeDraft() {
+    if (this.draftKind === 'remix') this.pendingRemixes--;
+    else this.pendingLevels--;
   }
 
   // Audition a card: an instrument plays in place of its channel's current sound, a pedal is switched on.
@@ -780,6 +825,7 @@ export class Game {
     return {
       won, time: this.time, kills: this.kills, level: this.level, score: this.score(),
       dashes: this.dashes, perfectDashes: this.perfectDashes, bestCombo: this.bestCombo, grooveBonus: this.grooveBonus,
+      remixes: this.remixes.map((id) => ({ id, name: REMIX_BY_ID[id].name })), spotlightsCleared: this.spotlightsCleared,
       genre: this.genre, key: this.key.name, section: this.section.name, bosses: this.bossesBeaten,
       instruments: rows.sort((a, b) => b.dmg - a.dmg),
       pedals: this.loadout.pedals.map((p) => ({ id: p.def.id, name: p.def.name, level: p.level })),

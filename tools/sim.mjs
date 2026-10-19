@@ -5,7 +5,8 @@
 //   node tools/sim.mjs "speed=12&bot=1&god=1&minutes=8" --screenshot out.png
 //   node tools/sim.mjs "god=1&start=kick808&give=taiko:5" --timeout 60 --summary
 //
-// Flags: --timeout <s> (wall clock, default 240), --screenshot <path>, --summary (short output), --runs N.
+// Flags: --timeout <s> (wall clock, default 240), --screenshot <path>, --summary (short output), --runs N,
+// --no-dash (compare the same movement/drafting bot without active rhythm mastery).
 import { serve, launch } from './serve.mjs';
 
 const args = process.argv.slice(2);
@@ -15,6 +16,7 @@ const timeout = Number(flag('--timeout', 240)) * 1000;
 const shot = flag('--screenshot', null);
 const summary = args.includes('--summary');
 const runs = Number(flag('--runs', 1));
+const noDash = args.includes('--no-dash');
 
 const { server, url } = await serve();
 const browser = await launch();
@@ -29,19 +31,31 @@ try {
     if (runs > 1 && !/seed=/.test(q)) q += `&seed=${r + 1}`;
     const t0 = Date.now();
     await page.goto(`${url}/index.html?${q}`);
+    if (noDash) await page.evaluate(() => { window.__LS.game.requestDash = () => false; });
     try {
       await page.waitForFunction(() => window.__LS && window.__LS.done, null, { timeout, polling: 500 });
     } catch (e) {
       logs.push(`timeout after ${timeout / 1000}s wall clock`);
     }
-    const m = await page.evaluate(() => (window.__LS ? window.__LS.metrics() : null));
+    const m = await page.evaluate(() => {
+      if (!window.__LS) return null;
+      const g = window.__LS.game;
+      return {
+        ...window.__LS.metrics(),
+        spotlightsCleared: g.spotlightsCleared || 0,
+        remixes: [...(g.remixes || [])],
+        spotlight: g.spotlight ? { progress: g.spotlight.progress, remaining: g.spotlight.remaining, entered: g.spotlight.entered } : null,
+      };
+    });
     if (shot) await page.screenshot({ path: runs > 1 ? shot.replace('.png', `-${r + 1}.png`) : shot });
     await page.close();
     const wall = ((Date.now() - t0) / 1000).toFixed(1);
     if (!m) { results.push({ error: 'no metrics', logs }); continue; }
     const out = summary
       ? { state: m.state, time: Math.round(m.time), level: m.level, kills: m.kills, hp: Math.round(m.hp), section: m.section, bosses: m.bosses, errors: m.errors,
-          damageTaken: m.damageTaken, drops: m.drops, bossAlive: m.bossesAlive, bossesSpawned: m.bossesSpawned, sectionIndex: m.sectionIndex, cap: m.cap, dropState: m.dropState, filledAt: (m.samples.find((s) => s.filled >= 6) || {}).t ?? null, loadout: m.loadout.map((i) => `${i.id}:${i.level}:${i.dmg}`), pedals: m.pedals.map((p) => `${p.id}:${p.level}`), genre: m.genre, wall, logs: logs.slice(0, 12) }
+          damageTaken: m.damageTaken, drops: m.drops, dashes: m.dashes, perfectDashes: m.perfectDashes,
+          spotlightsCleared: m.spotlightsCleared, remixes: m.remixes, spotlight: m.spotlight,
+          bossAlive: m.bossesAlive, bossesSpawned: m.bossesSpawned, sectionIndex: m.sectionIndex, cap: m.cap, dropState: m.dropState, filledAt: (m.samples.find((s) => s.filled >= 6) || {}).t ?? null, loadout: m.loadout.map((i) => `${i.id}:${i.level}:${i.dmg}`), pedals: m.pedals.map((p) => `${p.id}:${p.level}`), genre: m.genre, wall, logs: logs.slice(0, 12) }
       : { ...m, wall, logs: logs.slice(0, 40) };
     results.push(out);
   }

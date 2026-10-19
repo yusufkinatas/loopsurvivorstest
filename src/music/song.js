@@ -13,14 +13,14 @@ const P = {
 };
 
 export const SECTIONS = [
-  { id: 'intro',   name: 'Intro',     bars: 16, prog: P.verse,  hue: 248 },
-  { id: 'verse1',  name: 'Verse',     bars: 32, prog: P.verse,  hue: 226 },
-  { id: 'chorus1', name: 'Chorus',    bars: 32, prog: P.chorus, hue: 292, boss: 'drone',      riser: true },
-  { id: 'verse2',  name: 'Verse II',  bars: 32, prog: P.verse2, hue: 204 },
-  { id: 'chorus2', name: 'Chorus II', bars: 32, prog: P.chorus, hue: 318, boss: 'clipper',    riser: true },
-  { id: 'bridge',  name: 'Bridge',    bars: 32, prog: P.bridge, hue: 172 },
+  { id: 'intro',   name: 'Intro',     bars: 12, prog: P.verse,  hue: 248 },
+  { id: 'verse1',  name: 'Verse',     bars: 20, prog: P.verse,  hue: 226 },
+  { id: 'chorus1', name: 'Chorus',    bars: 24, prog: P.chorus, hue: 292, boss: 'drone',      riser: true },
+  { id: 'verse2',  name: 'Verse II',  bars: 24, prog: P.verse2, hue: 204 },
+  { id: 'chorus2', name: 'Chorus II', bars: 24, prog: P.chorus, hue: 318, boss: 'clipper',    riser: true },
+  { id: 'bridge',  name: 'Bridge',    bars: 24, prog: P.bridge, hue: 172 },
   { id: 'build',   name: 'Build-Up',  bars: 16, prog: P.build,  hue: 34,  build: true },
-  { id: 'drop',    name: 'The Drop',  bars: 32, prog: P.chorus, hue: 336, boss: 'glitchking', riser: true, drop: true },
+  { id: 'drop',    name: 'The Drop',  bars: 24, prog: P.chorus, hue: 336, boss: 'glitchking', riser: true, drop: true },
   { id: 'finale',  name: 'Finale',    bars: Infinity, prog: P.finale, hue: 6, boss: 'whitenoise', riser: true },
 ];
 

@@ -2,15 +2,34 @@
 // existing one further, swap a channel to a different style, or add a pedal.
 
 import { ROLES, ROLE_INFO, STYLES, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
-import { rng, weightedPick, shuffle } from '../util.js';
+import { weightedPick, shuffle } from '../util.js';
 import { INSTRUMENTS } from '../content/instruments/index.js';
 import { PEDALS } from '../content/pedals.js';
 import { CHEMISTRY, FUSION } from './loadout.js';
+import { MAX_REMIXES, REMIX_BY_ID } from './remixes.js';
+
+// New sounds and swaps that complete chemistry are worth surfacing, while every alternative
+// remains possible. A swap can change the band's identity without throwing away its investment.
+function chemistryWeight(counts, def, from = null) {
+  const after = { ...counts };
+  after[def.style]++;
+  if (from) after[from.def.style]--;
+  let weight = 1 + counts[def.style] * 0.12;
+  for (const style of Object.keys(CHEMISTRY)) {
+    for (const tier of CHEMISTRY[style]) {
+      if (after[style] >= tier.n && counts[style] < tier.n) weight += 0.8;
+      if (after[style] < tier.n && counts[style] >= tier.n) weight -= 0.3;
+    }
+  }
+  if (Object.values(after).every((n) => n >= 2) && !Object.values(counts).every((n) => n >= 2)) weight += 1;
+  return Math.max(0.25, weight);
+}
 
 function candidates(g) {
   const L = g.loadout;
   const filled = L.filled();
   const room = filled < g.channelCap();
+  const counts = L.styleCounts();
   const out = [];
   for (const role of ROLES) {
     const cur = L.channels[role];
@@ -18,12 +37,12 @@ function candidates(g) {
     if (!cur) {
       if (!room) continue;
       const w = filled < 3 ? 1.1 : 0.8;
-      for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w });
+      for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w: w * chemistryWeight(counts, d) });
     } else {
-      if (cur.level < MAX_INSTRUMENT_LEVEL) out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: 1.1 - 0.25 * cur.level });
+      if (cur.level < MAX_INSTRUMENT_LEVEL) out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: 1.4 - 0.12 * cur.level });
       for (const d of inRole) {
         if (d === cur.def) continue;
-        out.push({ kind: 'swap', def: d, role, from: cur, level: Math.max(1, cur.level - 1), w: 0.32 });
+        out.push({ kind: 'swap', def: d, role, from: cur, level: cur.level, w: 0.4 * chemistryWeight(counts, d, cur) });
       }
     }
   }
@@ -47,11 +66,12 @@ export function buildOffers(g, count = 3) {
     if (c.role && picked.filter((p) => p.role === c.role).length >= 2) return false;
     return true;
   };
-  // Keep the band growing early. Upgrades are no longer forced onto the offer (chance 0): they come
-  // up by weight, rarer the higher the level, so early picks also go to pedals and levels 5 land late.
-  // Once the pedals are full, upgrades are most of what is left, so they still come.
+  // Each draft gives a real choice between specializing and growing the band. The flexible slot
+  // can complete chemistry, add a pedal, or offer a level-preserving change of style.
+  const upgrades = pool.filter((c) => c.kind === 'up');
+  if (upgrades.length && picked.length < count) take(weightedPick(upgrades, (c) => c.w));
   const news = pool.filter((c) => c.kind === 'new');
-  if (news.length && rng() < 0.85) take(weightedPick(news, (c) => c.w));
+  if (news.length && picked.length < count) take(weightedPick(news, (c) => c.w));
   let guard = 0;
   while (picked.length < count && guard++ < 50) {
     const avail = pool.filter(ok);
@@ -59,7 +79,7 @@ export function buildOffers(g, count = 3) {
     take(weightedPick(avail, (c) => c.w));
   }
   if (picked.length < count) {
-    const fills = [{ kind: 'heal' }, { kind: 'hype' }, { kind: 'score' }];
+    const fills = [{ kind: 'heal' }, { kind: 'hype' }];
     for (const f of fills) if (picked.length < count) picked.push(f);
   }
   return shuffle(picked.slice(0, count));
@@ -73,7 +93,19 @@ export function applyOffer(g, o) {
     case 'swap': g.addInstrument(o.def, o.level); break;
     case 'pedal-new': L.pedals.push({ def: o.pedal, level: 1 }); g.onLoadoutChanged(); break;
     case 'pedal-up': o.own.level = o.level; g.onLoadoutChanged(); break;
-    case 'heal': g.player.hp = Math.min(g.player.maxHp, g.player.hp + g.player.maxHp * 0.4); break;
+    case 'remix': {
+      const remix = REMIX_BY_ID[o.remix?.id];
+      if (!remix) break;
+      g.remixes ||= [];
+      if (g.remixes.length >= MAX_REMIXES || g.remixes.includes(remix.id)) break;
+      g.remixes.push(remix.id);
+      g.onLoadoutChanged();
+      break;
+    }
+    case 'heal':
+      g.player.hp = Math.min(g.player.maxHp, g.player.hp + g.player.maxHp * 0.4);
+      g.player.dashCooldown = 0;
+      break;
     case 'hype': g.dropCharge = g.dropMax; break;
     case 'score': g.bonusScore += 500; break;
   }
@@ -127,6 +159,19 @@ function statDiff(a, b) {
 
 // Everything the level-up card shows.
 export function describeOffer(g, o) {
+  if (o.remix) {
+    return {
+      title: o.remix.name,
+      eyebrow: 'Remix',
+      color: o.remix.color,
+      icon: o.remix.icon,
+      style: null,
+      tag: `Permanent · slot ${(g.remixes?.length || 0) + 1} of ${MAX_REMIXES}`,
+      body: o.remix.body,
+      detail: o.remix.detail,
+      level: 0, maxLevel: 0, cells: null, chem: [],
+    };
+  }
   if (o.def) {
     const def = o.def;
     const role = ROLE_INFO[def.role];
@@ -145,7 +190,7 @@ export function describeOffer(g, o) {
     if (o.kind === 'new') { tag = 'New sound'; chem = chemistryLine(g, def.style, { add: 1 }); }
     else if (o.kind === 'up') tag = `Level ${o.level - 1} → ${o.level}`;
     else {
-      tag = `Swap · replaces ${o.from.def.name} (Lv ${o.from.level} → Lv ${o.level})`;
+      tag = `Swap ${o.from.def.name} · keep level ${o.level}`;
       chem = o.from.def.style === def.style ? [] : chemistryLine(g, def.style, { add: 1, remove: o.from.def.style });
     }
     return {
@@ -183,9 +228,9 @@ export function describeOffer(g, o) {
     };
   }
   const extra = {
-    heal: { title: 'Encore', body: 'Restore 40% of your health.', color: '#ff6f8a', icon: 'heal' },
+    heal: { title: 'Encore', body: 'Restore 40% of your health and refresh your dash.', color: '#ff6f8a', icon: 'heal' },
     hype: { title: 'Crowd Surge', body: 'Fill the Drop meter instantly.', color: '#ffd166', icon: 'drop' },
     score: { title: 'Royalties', body: '+500 score.', color: '#c7c2ff', icon: 'score' },
   }[o.kind];
-  return { ...extra, eyebrow: 'Bonus', tag: 'Everything else is maxed', style: null, cells: null, chem: [], level: 0, maxLevel: 0 };
+  return { ...extra, eyebrow: 'Encore bonus', tag: 'Keep the set going', style: null, cells: null, chem: [], level: 0, maxLevel: 0 };
 }

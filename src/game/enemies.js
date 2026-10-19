@@ -14,10 +14,10 @@ export const ENEMY_TYPES = {
 };
 
 export const BOSS_TYPES = {
-  drone:      { name: 'The Drone',       hp: 1600,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
-  clipper:    { name: 'The Clipper',     hp: 4600,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
-  glitchking: { name: 'The Glitch King', hp: 12100, speed: 58, r: 44, dmg: 22, xp: 800, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
-  whitenoise: { name: 'White Noise',     hp: 22800, speed: 46, r: 64, dmg: 26, xp: 0,   shape: 'noise',  color: '#ffffff', mass: 60, boss: true, final: true },
+  drone:      { name: 'The Drone',       hp: 1400,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
+  clipper:    { name: 'The Clipper',     hp: 3600,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
+  glitchking: { name: 'The Glitch King', hp: 8500,  speed: 58, r: 44, dmg: 22, xp: 800, shape: 'king',   color: '#8ff3ff', mass: 40, boss: true },
+  whitenoise: { name: 'White Noise',     hp: 16000, speed: 46, r: 64, dmg: 26, xp: 0,   shape: 'noise',  color: '#ffffff', mass: 60, boss: true, final: true },
 };
 
 let nextId = 1;
@@ -39,7 +39,7 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
     mass: def.mass * (elite ? 5 : 1),
     elite, boss: !!def.boss, color: def.color, shape: def.shape,
     kbx: 0, kby: 0, stun: 0, slow: 0, slowT: 0, flash: 0, dead: false,
-    age: 0, phase: rand(0, TAU), ai: {}, spawnT: 0.35,
+    age: 0, phase: rand(0, TAU), ai: {}, spawnT: 0.35, exposedT: 0,
   };
   g.enemies.push(e);
   if (e.boss) g.onBossSpawn(e);
@@ -59,6 +59,20 @@ function summonRing(g, e, type, n, dist) {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + rand(0, 0.3);
     spawnEnemy(g, type, e.x + Math.cos(a) * dist, e.y + Math.sin(a) * dist, { hpMul: 0.6 });
+  }
+}
+
+// Surviving a signature attack earns a short opening to close in and deal +50% damage.
+// Old projectiles remain dangerous, so taking the opening still asks for positioning.
+function expose(g, e, duration) {
+  if (e.dead || e.spawnT > 0) return;
+  e.exposedT = duration;
+  e.ai.spiral = false;
+  e.ai.spiralAcc = 0;
+  e.ai.radialWarn = null;
+  if (!e.ai.exposureSeen) {
+    e.ai.exposureSeen = true;
+    g.banner('Boss exposed · +50% damage', '', true);
   }
 }
 
@@ -91,6 +105,7 @@ export function enemiesOnBeat(g, ev) {
 }
 
 function bossOnBeat(g, e, ev) {
+  if (e.exposedT > 0) return;
   const p = g.player;
   const aim = Math.atan2(p.y - e.y, p.x - e.x);
   const frac = e.hp / e.maxHp;
@@ -103,7 +118,14 @@ function bossOnBeat(g, e, ev) {
       if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff9fe2');
       break;
     case 'clipper':
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, 14, 160, 16, (ev.beat === 2 ? Math.PI / 14 : 0) + ev.bar * 0.13, '#ffb06a');
+      if (ev.beat === 1 && ev.bar % 4 === 1) {
+        e.ai.radialWarn = { t: BEAT_SEC, duration: BEAT_SEC, n: 20, offset: Math.PI / 14 + ev.bar * 0.13 };
+      }
+      if (ev.beat === 0 || ev.beat === 2) {
+        const heavy = ev.beat === 2 && ev.bar % 4 === 1;
+        radial(g, e, heavy ? 20 : 14, heavy ? 175 : 160, 16, (ev.beat === 2 ? Math.PI / 14 : 0) + ev.bar * 0.13, '#ffb06a');
+        if (heavy) expose(g, e, 1.75);
+      }
       if (ev.beat === 0 && ev.bar % 4 === 3) summonRing(g, e, 'static', 6, e.r + 36);
       if (frac < 0.7 && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 16, { color: '#ffd08a' });
       break;
@@ -118,6 +140,7 @@ function bossOnBeat(g, e, ev) {
         e.x = e.ai.blinkTo.x; e.y = e.ai.blinkTo.y; e.ai.blinkTo = null;
         radial(g, e, 20, 150, 25, rand(0, TAU), '#8ff3ff');
         summonRing(g, e, 'glitch', 4, e.r + 40);
+        expose(g, e, 1.5);
       }
       if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, 22, { color: '#b9f7ff' });
       break;
@@ -129,7 +152,14 @@ function bossOnBeat(g, e, ev) {
         e.ai.spiralAcc = 0;
         if (phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
       }
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
+      if (ev.beat === 1 && ev.bar % 4 === 3) {
+        e.ai.radialWarn = { t: BEAT_SEC, duration: BEAT_SEC, n: 28, offset: ev.bar * 0.21 + 2 };
+      }
+      if (ev.beat === 0 || ev.beat === 2) {
+        const heavy = ev.beat === 2 && ev.bar % 4 === 3;
+        radial(g, e, heavy ? 28 : phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
+        if (heavy) expose(g, e, 1.5);
+      }
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
       break;
@@ -138,12 +168,14 @@ function bossOnBeat(g, e, ev) {
 }
 
 function bossUpdate(g, e, dt) {
-  const p = g.player;
+  if (e.exposedT > 0) return false;
   if (e.type === 'drone' && e.ai.charge > 0) {
-    e.ai.charge -= dt;
+    const chargeDt = Math.min(dt, e.ai.charge);
+    e.ai.charge = Math.max(0, e.ai.charge - dt);
     const sp = e.speed * 3.4;
-    e.x += Math.cos(e.ai.chargeA) * sp * dt;
-    e.y += Math.sin(e.ai.chargeA) * sp * dt;
+    e.x += Math.cos(e.ai.chargeA) * sp * chargeDt;
+    e.y += Math.sin(e.ai.chargeA) * sp * chargeDt;
+    if (e.ai.charge === 0) expose(g, e, 2.5);
     return true;
   }
   if (e.type === 'whitenoise' && e.ai.spiral) {
@@ -158,7 +190,6 @@ function bossUpdate(g, e, dt) {
       for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5 });
     }
   }
-  void p;
   return false;
 }
 
@@ -170,11 +201,13 @@ export function updateEnemies(g, dt) {
     if (e.dead) continue;
     e.age += dt;
     if (e.spawnT > 0) { e.spawnT -= dt; continue; }
+    e.exposedT = Math.max(0, e.exposedT - dt);
     e.flash = Math.max(0, e.flash - dt);
     if (e.ai.glitchT) e.ai.glitchT = Math.max(0, e.ai.glitchT - dt);
     if (e.ai.shootT) e.ai.shootT = Math.max(0, e.ai.shootT - dt);
     if (e.ai.windup) e.ai.windup = Math.max(0, e.ai.windup - dt);
     if (e.ai.chargeWarn) e.ai.chargeWarn.t = Math.max(0, e.ai.chargeWarn.t - dt);
+    if (e.ai.radialWarn) e.ai.radialWarn.t = Math.max(0, e.ai.radialWarn.t - dt);
     if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slow = 0; }
 
     // Knockback impulse decays fast.
@@ -188,6 +221,7 @@ export function updateEnemies(g, dt) {
     const dx = p.x - e.x, dy = p.y - e.y;
     const d = Math.hypot(dx, dy) || 1;
     let sp = e.speed * (1 - e.slow) * (e.boss ? 1 : e.def.wiggle ? 1 : hop);
+    if (e.exposedT > 0) sp *= 0.25;
     let ux = dx / d, uy = dy / d;
     if (e.def.ranged) {
       if (d < 200) { ux = -ux; uy = -uy; }

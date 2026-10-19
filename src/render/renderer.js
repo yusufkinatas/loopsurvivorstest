@@ -209,6 +209,15 @@ export class Renderer {
       circle(c, p.x, p.y, 36 + (1 - g.beatPulse) * 140); c.stroke();
     }
 
+    if (g.remixes?.includes('spotlight') || g.hasRemix?.('spotlight')) {
+      // Front Row rewards proximity; a quiet floor guide makes its reach visible.
+      c.save();
+      c.strokeStyle = 'rgba(255,209,102,0.19)'; c.lineWidth = 1 / s;
+      c.setLineDash([4 / s, 10 / s]);
+      circle(c, p.x, p.y, 180); c.stroke();
+      c.restore();
+    }
+    this._spotlight(c, g, inView);
     this._dashTrail(c, g, dt);
     this._pickups(c, g, inView);
     this._mines(c, g, inView);
@@ -225,8 +234,10 @@ export class Renderer {
     this._player(c, g);
     this._telegraphs(c, g);
     this._shots(c, g, inView);
+    this._spotlightLabels(c, g, inView);
     this._texts(c, g, inView);
     this._bossArrow(c, g);
+    this._spotlightArrow(c, g);
 
     // Screen-space overlays
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -270,6 +281,66 @@ export class Renderer {
   }
 
   // ------------------------------------------------------------------------------------------
+
+  _spotlight(c, g, inView) {
+    const spot = g.spotlight;
+    if (!spot || !inView(spot.x, spot.y, spot.r)) return;
+    const r = spot.r || 105;
+    const progress = clamp((spot.progress || 0) / (spot.required || 6), 0, 1);
+    const color = spot.inside ? '#caff71' : '#ffd166';
+    c.save();
+    // Record grooves and stage tape share the arena's visual language. The solid outer
+    // arc is captured time: it stays in place when the player leaves to dodge a threat.
+    c.fillStyle = spot.inside ? 'rgba(202,255,113,0.055)' : 'rgba(255,209,102,0.035)';
+    circle(c, spot.x, spot.y, r); c.fill();
+    c.strokeStyle = 'rgba(220,225,195,0.1)';
+    c.lineWidth = 1 / this.scale;
+    for (let i = 1; i <= 3; i++) { circle(c, spot.x, spot.y, r - i * 7); c.stroke(); }
+    c.strokeStyle = rgba(color, 0.42);
+    c.lineWidth = 2 / this.scale;
+    circle(c, spot.x, spot.y, r); c.stroke();
+    c.strokeStyle = color;
+    c.lineWidth = 4 / this.scale;
+    c.lineCap = 'round';
+    if (progress > 0) {
+      c.beginPath(); c.arc(spot.x, spot.y, r, -Math.PI / 2, -Math.PI / 2 + progress * TAU); c.stroke();
+    }
+    // Six short ticks make the hold duration legible before the progress arc starts.
+    c.lineWidth = 2 / this.scale;
+    for (let i = 0; i < 6; i++) {
+      const a = -Math.PI / 2 + i * TAU / 6;
+      c.strokeStyle = rgba(color, progress >= (i + 1) / 6 ? 1 : 0.35);
+      c.beginPath();
+      c.moveTo(spot.x + Math.cos(a) * (r + 6), spot.y + Math.sin(a) * (r + 6));
+      c.lineTo(spot.x + Math.cos(a) * (r + 12), spot.y + Math.sin(a) * (r + 12));
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  _spotlightLabels(c, g, inView) {
+    const spot = g.spotlight;
+    if (!spot || !inView(spot.x, spot.y, (spot.r || 105) + 45)) return;
+    const r = spot.r || 105, s = this.scale;
+    const required = spot.required || 6;
+    const color = spot.inside ? '#caff71' : '#ffd166';
+    const left = Math.max(0, Math.ceil(spot.remaining || 0));
+    c.save();
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.lineJoin = 'round'; c.lineWidth = 4 / s; c.strokeStyle = '#101210';
+    const label = (text, y, size, fill) => {
+      c.font = `700 ${size / s}px ui-monospace, monospace`;
+      c.fillStyle = fill;
+      c.strokeText(text, spot.x, y); c.fillText(text, spot.x, y);
+    };
+    label('SPOTLIGHT', spot.y - r - 27 / s, 11, color);
+    label(`${left}s LEFT`, spot.y - r - 13 / s, 9, left <= 8 ? '#ffd166' : '#bbc5ac');
+    label(spot.inside ? 'HOLD THE STAGE' : spot.entered ? 'RETURN TO FINISH' : 'ENTER TO CLAIM', spot.y - r * 0.42, 9, color);
+    const held = Math.min(required, Math.max(0, spot.progress || 0));
+    label(`${held.toFixed(1)} / ${required}s`, spot.y + r * 0.48, 11, '#f1f0de');
+    if (spot.entered && !spot.inside) label('PROGRESS SAVED', spot.y + r * 0.48 + 15 / s, 8, '#bbc5ac');
+    c.restore();
+  }
 
   _pickups(c, g, inView) {
     const t = this.time;
@@ -508,6 +579,21 @@ export class Renderer {
         break;
       }
     }
+    if (e.exposedT > 0) {
+      c.save();
+      const ringR = r * (e.shape === 'king' ? 1.58 : 1.18) + 5;
+      c.strokeStyle = '#101210'; c.lineWidth = 6 / this.scale;
+      circle(c, e.x, e.y, ringR); c.stroke();
+      c.strokeStyle = '#ffd166'; c.lineWidth = 2 / this.scale;
+      circle(c, e.x, e.y, ringR); c.stroke();
+      c.font = `700 ${10 / this.scale}px ui-monospace, monospace`;
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.strokeStyle = '#101210'; c.lineWidth = 4 / this.scale;
+      const y = e.y - ringR - 12 / this.scale;
+      c.strokeText('EXPOSED', e.x, y);
+      c.fillStyle = '#ffd166'; c.fillText('EXPOSED', e.x, y);
+      c.restore();
+    }
   }
 
   // Enemy shots use a look no player attack has: a dark halo, a white outline and a colored rim,
@@ -572,6 +658,33 @@ export class Renderer {
         c.strokeRect(0, -e.r, L * k, e.r * 2);
         c.restore();
       }
+      const rw = e.ai.radialWarn;
+      if (rw && rw.t > 0 && rw.n > 0) {
+        // Mark the exact lanes before a heavy salvo, leaving visible gaps to aim for.
+        // A dark keyline keeps these thin warning rays clear through player attacks.
+        const k = clamp(1 - rw.t / (rw.duration || BEAT_SEC), 0, 1);
+        const inner = e.r + 12, outer = e.r + 125;
+        c.save();
+        c.lineCap = 'round';
+        c.beginPath();
+        for (let i = 0; i < rw.n; i++) {
+          const a = (rw.offset || 0) + i * TAU / rw.n;
+          c.moveTo(e.x + Math.cos(a) * inner, e.y + Math.sin(a) * inner);
+          c.lineTo(e.x + Math.cos(a) * outer, e.y + Math.sin(a) * outer);
+        }
+        c.strokeStyle = 'rgba(8,10,9,0.9)'; c.lineWidth = 4 / this.scale; c.stroke();
+        c.strokeStyle = 'rgba(255,75,100,0.75)'; c.lineWidth = 1.2 / this.scale; c.stroke();
+        c.strokeStyle = '#fff2e8'; c.lineWidth = 2 / this.scale;
+        c.beginPath();
+        const tip = inner + 16 + (outer - inner - 16) * k;
+        for (let i = 0; i < rw.n; i++) {
+          const a = (rw.offset || 0) + i * TAU / rw.n;
+          c.moveTo(e.x + Math.cos(a) * (tip - 9), e.y + Math.sin(a) * (tip - 9));
+          c.lineTo(e.x + Math.cos(a) * tip, e.y + Math.sin(a) * tip);
+        }
+        c.stroke();
+        c.restore();
+      }
     }
   }
 
@@ -580,14 +693,14 @@ export class Renderer {
     const e = g.boss;
     if (!e || e.dead) return;
     const s = this.scale;
-    const top = 72, bottom = this.w < 760 ? 150 : 104, side = 24;
+    const { top, bottom, left, right } = this._clearPlayArea(g);
     const sxp = (e.x - this.cam.x) * s + this.w / 2, syp = (e.y - this.cam.y) * s + this.h / 2;
-    if (sxp > side && sxp < this.w - side && syp > top && syp < this.h - bottom) return;
+    if (sxp > left && sxp < this.w - right && syp > top && syp < this.h - bottom) return;
     // Center of the clear area, and the point where the ray toward the boss leaves it.
-    const cx = this.w / 2, cy = (top + this.h - bottom) / 2;
+    const cx = (left + this.w - right) / 2, cy = (top + this.h - bottom) / 2;
     const dx = sxp - cx, dy = syp - cy;
     const a = Math.atan2(dy, dx);
-    const hw = this.w / 2 - side - 8, hh = (this.h - bottom - top) / 2 - 8;
+    const hw = Math.max(1, (this.w - right - left) / 2 - 8), hh = Math.max(1, (this.h - bottom - top) / 2 - 8);
     const k = Math.min(hw / Math.abs(Math.cos(a) || 1e-6), hh / Math.abs(Math.sin(a) || 1e-6));
     const x = cx + Math.cos(a) * k, y = cy + Math.sin(a) * k;
     c.save();
@@ -598,6 +711,52 @@ export class Renderer {
     c.strokeStyle = 'rgba(8,4,12,0.9)'; c.lineWidth = 3;
     c.beginPath(); c.moveTo(sz, 0); c.lineTo(-sz * 0.7, sz * 0.75); c.lineTo(-sz * 0.35, 0); c.lineTo(-sz * 0.7, -sz * 0.75); c.closePath();
     c.stroke(); c.fill();
+    c.restore();
+  }
+
+  _clearPlayArea(g) {
+    const mobile = this.w < 760;
+    const boss = g.boss && !g.boss.dead;
+    const top = mobile ? (g.spotlight ? (boss ? 310 : 245) : boss ? 205 : 145) : boss ? 180 : 112;
+    // Mobile stacks the objective and boss above the arena; desktop puts objectives
+    // and mixer detail down its sides. Leave arrows in the clear central rectangle.
+    // Clamp on short screens so this rectangle still has positive dimensions.
+    return {
+      top: Math.min(this.h * 0.48, top),
+      bottom: Math.min(this.h * 0.3, mobile ? 158 : 112),
+      left: mobile ? 28 : Math.min(this.w * 0.3, g.spotlight ? 260 : 196),
+      right: mobile || this.h <= 500 ? 28 : Math.min(this.w * 0.25, 220),
+    };
+  }
+
+  _spotlightArrow(c, g) {
+    const spot = g.spotlight;
+    if (!spot) return;
+    const { top, bottom, left, right } = this._clearPlayArea(g);
+    const sxp = (spot.x - this.cam.x) * this.scale + this.w / 2;
+    const syp = (spot.y - this.cam.y) * this.scale + this.h / 2;
+    if (sxp > left && sxp < this.w - right && syp > top && syp < this.h - bottom) return;
+    const cx = (left + this.w - right) / 2, cy = (top + this.h - bottom) / 2;
+    const a = Math.atan2(syp - cy, sxp - cx);
+    const hw = Math.max(1, (this.w - right - left) / 2 - 8);
+    const hh = Math.max(1, (this.h - bottom - top) / 2 - 8);
+    const k = Math.min(hw / Math.max(1e-6, Math.abs(Math.cos(a))), hh / Math.max(1e-6, Math.abs(Math.sin(a))));
+    const x = cx + Math.cos(a) * k, y = cy + Math.sin(a) * k;
+    c.save();
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    c.translate(x, y); c.rotate(a);
+    c.strokeStyle = '#101210'; c.lineWidth = 5;
+    c.fillStyle = '#ffd166';
+    c.beginPath(); c.moveTo(11, 0); c.lineTo(-6, 7); c.lineTo(-3, 0); c.lineTo(-6, -7); c.closePath();
+    c.stroke(); c.fill();
+    c.rotate(-a);
+    // Place the label toward the screen center, never beyond the edge arrow.
+    const lx = clamp(x - Math.cos(a) * 67, left + 55, this.w - right - 55) - x;
+    const ly = clamp(y - Math.sin(a) * 24, top + 12, this.h - bottom - 12) - y;
+    c.font = '700 9px ui-monospace, monospace';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    const text = `SPOTLIGHT · ${Math.max(0, Math.ceil(spot.remaining || 0))}s`;
+    c.strokeText(text, lx, ly); c.fillText(text, lx, ly);
     c.restore();
   }
 
@@ -630,6 +789,17 @@ export class Renderer {
     const dash = p.dashT > 0;
     const accent = dash ? (p.dashPerfect ? '#ffe28a' : '#6fffe9') : '#caff71';
     c.save();
+    if (g.encoreT > 0 || g.powerT > 0) {
+      const empowered = g.powerT > 0;
+      const strength = empowered ? clamp(g.powerT / 1.2, 0, 1) : 0.55;
+      c.strokeStyle = rgba(empowered ? '#ffe28a' : '#caff71', 0.45 + strength * 0.4);
+      c.lineWidth = (empowered ? 2.5 : 1.5) / this.scale;
+      const haloR = r + 18;
+      for (let i = 0; i < 3; i++) {
+        const a = -Math.PI / 2 + i * TAU / 3;
+        c.beginPath(); c.arc(p.x, p.y, haloR, a, a + TAU / 3 - 0.28); c.stroke();
+      }
+    }
     if ((g.comboMultiplier || 1) > 1) {
       this.drawGlow(p.x, p.y, r * 3, '#caff71', 0.035 * g.comboMultiplier);
     }

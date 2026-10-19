@@ -26,6 +26,7 @@ function closest(rx, ry, wx, wy, T) {
 const bots = new WeakMap();
 
 export function botMove(g) {
+  if (g.state !== 'playing' || !g.player || g.won) return { x: 0, y: 0 };
   let b = bots.get(g);
   if (!b || g.time < b.t) { b = { t: g.time, next: 0, queue: [], dir: { x: 0, y: 0 } }; bots.set(g, b); }
   b.t = g.time;
@@ -34,7 +35,48 @@ export function botMove(g) {
     b.queue.push({ at: g.time + REACT, dir: plan(g) });
   }
   while (b.queue.length && b.queue[0].at <= g.time) b.dir = b.queue.shift().dir;
+  useDash(g, b.dir);
   return b.dir;
+}
+
+// The bot uses the same input API as a player: cross a dangerous lane, close on a distant
+// objective on the beat, or take a rhythm-powered attack when a safe landing is available.
+function useDash(g, move) {
+  const p = g.player;
+  if (!g.requestDash || p.dashCooldown > 0 || p.dashT > 0) return;
+  const length = Math.hypot(move.x, move.y);
+  if (length < 0.2) return;
+  const ux = move.x / length, uy = move.y / length;
+  const travel = g.stats.speed * 4.6 * 0.18;
+  const endX = p.x + ux * travel, endY = p.y + uy * travel;
+  let danger = false, fighting = false;
+  for (const e of g.enemies) {
+    if (e.dead || e.spawnT > 0) continue;
+    const d = Math.hypot(e.x - p.x, e.y - p.y);
+    const room = e.r + p.r;
+    if (Math.hypot(e.x - endX, e.y - endY) < room + 18) return;
+    if (d < room + 28) danger = true;
+    if (d < 350) fighting = true;
+  }
+  for (const s of g.shots) {
+    const [d2] = closest(p.x - s.x, p.y - s.y, p.vx - s.vx, p.vy - s.vy, 0.24);
+    if (d2 < (p.r + s.r + 3) ** 2) danger = true;
+    const sx = s.x + s.vx * 0.22, sy = s.y + s.vy * 0.22;
+    if (Math.hypot(sx - endX, sy - endY) < p.r + s.r + 10) return;
+  }
+  const spot = worthwhileSpotlight(g);
+  const d = spot ? Math.hypot(spot.x - p.x, spot.y - p.y) : 0;
+  const closing = spot && d > spot.r + travel && ((spot.x - p.x) * ux + (spot.y - p.y) * uy) / d > 0.75;
+  // Do not dash out of a nearly-earned reward just to farm a perfect timing bonus.
+  const holdsZone = !spot || !spot.inside || Math.hypot(endX - spot.x, endY - spot.y) < spot.r * 0.85;
+  if (danger || (g._dashOnBeat?.() && (closing || (g.level > 1 && fighting && holdsZone)))) g.requestDash(move);
+}
+
+function worthwhileSpotlight(g) {
+  const spot = g.spotlight;
+  if (!spot || g.level < 2 || g.player.hp / g.player.maxHp < 0.38) return null;
+  const travelTime = Math.max(0, Math.hypot(spot.x - g.player.x, spot.y - g.player.y) - spot.r) / g.stats.speed;
+  return spot.remaining > travelTime + spot.required - spot.progress + 0.5 ? spot : null;
 }
 
 function plan(g) {
@@ -92,6 +134,13 @@ function plan(g) {
   if (g.boss && !g.boss.dead) {
     const bd = Math.hypot(g.boss.x - p.x, g.boss.y - p.y);
     if (bd > 360 + g.boss.r) { goal = g.boss; goalW = 2; }
+  }
+  // A remix changes the whole run. Commit while healthy, but ordinary avoidance still
+  // wins against a collision; leaving the zone preserves earned capture progress.
+  const spotlight = worthwhileSpotlight(g);
+  if (spotlight && !(goal?.kind === 'heal' && hurt < 0.6)) {
+    goal = spotlight;
+    goalW = spotlight.entered ? 3.6 : 2.8;
   }
   // With nothing to collect it closes in on the nearest enemy, so close-range sounds still connect.
   let nearE = null, nearD = Infinity;
@@ -168,6 +217,7 @@ function plan(g) {
       const d0 = Math.hypot(goal.x - p.x, goal.y - p.y);
       const d1 = Math.hypot(goal.x - endX, goal.y - endY);
       cost -= goalW * 1.6 * (d0 - d1) / (speed * HORIZON);
+      if (goal === spotlight && d0 < spotlight.r && d1 > spotlight.r - 15) cost += 1.5;
     } else if (nearE && nearD > 170) {
       const d1 = Math.hypot(nearE.x - endX, nearE.y - endY);
       cost -= 0.5 * (nearD - d1) / (speed * HORIZON);
@@ -204,6 +254,22 @@ export function autopick(offers, g, mode = 'smart') {
       }
       case 'pedal-new': s = 3.5; break;
       case 'pedal-up': s = 3.2; break;
+      case 'remix': {
+        const id = o.remix?.id || o.id;
+        const hp = g.player.hp / g.player.maxHp;
+        const names = g.loadout.instruments().map((inst) => inst.def.id);
+        const close = names.some((id) => ['kick808', 'subbass', 'strings'].includes(id));
+        const scores = {
+          aftershock: 6.5,
+          spotlight: close ? 7.2 : 4.7,
+          glass: hp > 0.8 ? 5.8 : 2.5,
+          sustain: hp < 0.65 ? 8 : 5.5,
+          cascade: 6.8,
+          magnet: g.loadout.filled() < 4 ? 6.3 : 5.7,
+        };
+        s = scores[id] ?? 5.5;
+        break;
+      }
       default: s = 0.5;
     }
     s += rng() * 0.8;

@@ -5,8 +5,15 @@ import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer } from '../game/upgrades.js';
 import { RECORDS } from '../game/records.js';
+import { REMIX_BY_ID, MAX_REMIXES } from '../game/remixes.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function remixList(remixes = [], details = false) {
+  const defs = remixes.map((value) => typeof value === 'string' ? REMIX_BY_ID[value] || Object.values(REMIX_BY_ID).find((r) => r.name === value) || { name: value } : value);
+  if (!defs.length) return '<p class="build-empty">Claim a spotlight to choose a permanent remix.</p>';
+  return `<ul class="build-remixes${details ? ' detailed' : ''}">${defs.map((r) => `<li style="--c:${r.color || 'var(--lime)'}"><b>${esc(r.name)}</b>${details && r.body ? `<span>${esc(r.body)}</span>` : ''}</li>`).join('')}</ul>`;
+}
 
 function stageArt() {
   const ticks = Array.from({ length: 80 }, (_, i) => {
@@ -61,7 +68,7 @@ export function cardHtml(d, index, opts = {}) {
   const style = d.style ? `<span class="badge" style="--s:${d.style.color}">${esc(d.style.name)}</span>` : '';
   const chem = (d.chem || []).map((c) => `<li class="${c.good === true ? 'good' : c.good === false ? 'bad' : ''}">${esc(c.text)}</li>`).join('');
   return `
-  <button class="card" type="button" data-i="${index}" style="--c:${d.color}">
+  <button class="card${opts.remix ? ' card-remix' : ''}" type="button" data-i="${index}" data-listen="${opts.listen ? 'true' : 'false'}" style="--c:${d.color}">
     <span class="card-key" aria-hidden="true">${index + 1}</span>
     <span class="card-top"><span class="eyebrow">${esc(d.eyebrow)}</span>${style}</span>
     <span class="card-head"><span class="card-icon">${icon(d.icon)}</span><span class="card-title">${esc(d.title)}</span></span>
@@ -72,7 +79,7 @@ export function cardHtml(d, index, opts = {}) {
     ${stepsHtml(d.cells)}
     ${chem ? `<ul class="chem-list">${chem}</ul>` : ''}
     ${opts.listen ? '<span class="card-listen" role="presentation">Hold to preview sound</span>' : ''}
-    <span class="card-pick" aria-hidden="true"><span>${opts.start ? 'Take the stage' : 'Add to your mix'}</span><span>↗</span></span>
+    <span class="card-pick" aria-hidden="true"><span>${opts.start ? 'Take the stage' : opts.remix ? 'Commit to this remix' : 'Add to your mix'}</span><span>↗</span></span>
   </button>`;
 }
 
@@ -170,13 +177,14 @@ export class Screens {
       <div class="panel panel-wide">
         <p class="kicker">A quick sound check</p><h2>Find your rhythm.</h2>
         <ol class="howto">
-          <li><b>Move & dash.</b> Move with WASD or arrow keys; drag on touch. Press Shift or right-click to dash through danger. On touch, use the Dash button. Dash on the beat for a perfect dash.</li>
-          <li><b>Build a chain.</b> Keep silencing enemies to raise your score multiplier. Keep the pressure on and avoid damage to keep your chain alive.</li><li><b>Your instruments fight for you.</b> They play on the beat by themselves, and every note they play is an attack. Collect the glowing notes they leave behind to level up.</li>
+          <li><b>Move & dash.</b> Move with WASD or arrow keys; drag on touch. Press Shift or right-click to dash through danger, or tap Dash. Dash on the beat for faster recovery, +8 Drop charge and +35% weapon damage for 1.2 seconds.</li>
+          <li><b>Claim the spotlight.</b> Hold the glowing ring for six seconds before its timer runs out. Progress stays when you step away to dodge. Clear it for +80 Drop charge and a choice of three permanent remixes that change how you fight. Carry three per run; later spotlights grant an upgrade and healing.</li>
+          <li><b>Build a chain.</b> Chain kills without taking damage to raise your score multiplier. At ×2, ×3 and ×4, you also earn 10%, 20% and 30% more Drop charge from notes.</li><li><b>Your instruments fight for you.</b> Every note is an attack. Position enemies where your weapons hit, then collect their glowing notes to level up.</li>
           <li><b>One instrument per channel.</b> Your mixer has six channels. Each one holds a single sound, so the song never turns to mush. A new sound for a full channel swaps out the old one. Channels open up as the song goes on, so your band grows with it.</li>
-          <li><b>It always sounds right.</b> Every note is tuned to the song's key and locked to the beat. Pick what you like.</li>
-          <li><b>Styles belong together.</b> Instruments are Synth, Live or 8-Bit. Two or more of a style unlock a bonus. Two of every style unlocks Fusion.</li>
+          <li><b>Choose a fighting style.</b> Close-range instruments reward holding ground; ranged voices reward lining enemies up. Upgrade your core weapon or add another way to handle the crowd. Every sound stays in key.</li>
+          <li><b>Styles belong together.</b> Two or more Synth, Live or 8-Bit instruments unlock bonuses. Cards show what you gain or lose when you swap. Two of every style unlocks Fusion.</li>
           <li><b>Pedals</b> change your sound and your stats at the same time. You have four slots.</li>
-          <li><b>The Drop.</b> Collected notes fill the Drop meter. Press Space (or tap the meter) when it is full. The music builds for one bar and slams on the downbeat.</li>
+          <li><b>Make room with the Drop.</b> Notes and perfect dashes fill the meter. Press Space or tap Drop when full. It builds for one bar, then blasts the crowd. Save it for a boss or use it to hold a dangerous spotlight.</li>
           <li><b>Survive the song.</b> Each chorus brings a boss. Silence White Noise in the finale to win.</li>
         </ol>
         <ul class="roles">${rows}</ul>
@@ -221,7 +229,7 @@ export class Screens {
       <div class="cards-wrap">
         <p class="kicker">01 / Sound check</p>
         <h2>What’s your opening act?</h2>
-        <p class="sub">Pick the first voice of your band. Hover or hold to listen.</p>
+        <p class="sub">Pick how you fight: close-range pulse, piercing bass or a ranged lead. Hover or hold to listen.</p>
         <div class="select-caption"><span>THREE WAYS TO FIND YOUR SOUND</span><span>SELECT <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></span></div>
         <div class="cards">${cards}</div>
         <div class="row-actions"><button class="btn btn-ghost" type="button" data-act="back">Back</button></div>
@@ -233,21 +241,24 @@ export class Screens {
   // ---------------------------------------------------------------------------- level up
 
   levelUp(g, offers) {
+    const remix = g.draftKind === 'remix';
     const descs = offers.map((o) => describeOffer(g, o));
-    const cards = descs.map((d, i) => cardHtml(d, i, { listen: true })).join('');
+    const cards = descs.map((d, i) => cardHtml(d, i, { listen: !remix && !!(offers[i].def || offers[i].pedal), remix })).join('');
+    const owned = g.remixes || [];
     const el = this._mount('levelup', `
-      <div class="cards-wrap">
-        <p class="kicker">IN THE STUDIO / LEVEL ${g.level - g.pendingLevels + 1}</p>
-        <h2>Make the next move.</h2>
-        <p class="sub">Your band is getting louder. Hover or hold to hear each choice in the mix.</p>
-        <div class="select-caption"><span>THE STAGE CAN WAIT. MAKE IT YOURS.</span><span>SELECT <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></span></div>
+      <div class="cards-wrap${remix ? ' remix-draft' : ''}">
+        <p class="kicker">${remix ? 'SPOTLIGHT CLEARED' : `IN THE STUDIO / LEVEL ${g.level - g.pendingLevels + 1}`}</p>
+        <h2>${remix ? 'Choose your remix.' : 'Make the next move.'}</h2>
+        <p class="sub">${remix ? 'Choose one. It stays with you for the rest of this set. Build around it.' : 'Strengthen your best weapon or cover its weakness. Hover or hold to hear each sound.'}</p>
+        ${remix ? `<div class="remix-slots" aria-label="Permanent remix slots">${Array.from({ length: MAX_REMIXES }, (_, i) => `<span class="${i < owned.length ? 'filled' : i === owned.length ? 'next' : ''}">${i < owned.length ? esc(REMIX_BY_ID[owned[i]]?.name || owned[i]) : i === owned.length ? `CHOOSE SLOT ${i + 1}` : `SLOT ${i + 1}`}</span>`).join('')}</div>` : ''}
+        <div class="select-caption"><span>${remix ? 'ONE OF THREE CHOICES · NO REROLLS' : 'THE STAGE CAN WAIT. MAKE IT YOURS.'}</span><span>SELECT <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></span></div>
         <div class="cards">${cards}</div>
-        <div class="row-actions">
+        ${remix ? '' : `<div class="row-actions">
           <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left · R)</span></button>
-        </div>
+        </div>`}
       </div>`);
     this._wireCards(el, (i) => this.h.onChoose(i), (i) => this.h.onPreview(i));
-    el.querySelector('[data-act=reroll]').addEventListener('click', () => this.h.onReroll());
+    el.querySelector('[data-act=reroll]')?.addEventListener('click', () => this.h.onReroll());
   }
 
   _wireCards(el, onPick, onPreview) {
@@ -257,13 +268,15 @@ export class Screens {
     this.onPreviewCard = onPreview;
     let holdTimer = null, held = false;
     cards.forEach((card, i) => {
-      card.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { this.focus = i; onPreview(i); } });
+      const canListen = card.dataset.listen === 'true';
+      const preview = () => { if (canListen) onPreview(i); };
+      card.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { this.focus = i; preview(); } });
       card.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') onPreview(null); });
       card.addEventListener('focus', () => {
         this.focus = i;
         cards.forEach((c, k) => c.classList.toggle('focused', k === i));
         // Focus that follows a tap or click is not a request to listen (hold and hover handle that).
-        if (performance.now() - this.lastPointer > 700) onPreview(i);
+        if (performance.now() - this.lastPointer > 700) preview();
       });
       card.addEventListener('blur', (e) => {
         if (e.relatedTarget && e.relatedTarget.classList?.contains('card')) return;
@@ -272,8 +285,8 @@ export class Screens {
       });
       card.addEventListener('pointerdown', (e) => {
         this.lastPointer = performance.now();
-        if (e.pointerType === 'mouse') return;
         held = false;
+        if (e.pointerType === 'mouse' || !canListen) return;
         holdTimer = setTimeout(() => { held = true; onPreview(i); card.classList.add('listening'); }, 260);
       });
       const endHold = () => { this.lastPointer = performance.now(); clearTimeout(holdTimer); if (held) { onPreview(null); card.classList.remove('listening'); } };
@@ -312,11 +325,16 @@ export class Screens {
   // ---------------------------------------------------------------------------- pause
 
   pause(g) {
+    const channels = ROLES.filter((role) => g.loadout.channels[role]).map((role) => {
+      const inst = g.loadout.channels[role];
+      return `<span style="--c:${ROLE_INFO[role].color}">${esc(inst.def.name)} <b>Lv ${inst.level}</b></span>`;
+    }).join('');
     const el = this._mount('pause', `
       <div class="panel">
         <p class="kicker">Paused · ${esc(g.section.name)} · ${fmtTime(g.time)}</p>
         <h2>Intermission.</h2>
         <p class="sub">${esc(g.genre)} in ${esc(g.key.name)}. ${g.loadout.filled()} of ${g.channelCap()} channels in use.</p>
+        <div class="current-build"><h3>Your build</h3><div class="build-channels">${channels}</div><h3>Remixes <span>${(g.remixes || []).length}/${MAX_REMIXES} · ${g.spotlightsCleared || 0} spotlights cleared</span></h3>${remixList(g.remixes, true)}</div>
         <div class="panel-actions col">
           <button class="btn btn-primary" type="button" data-act="resume">Resume</button>
           <button class="btn" type="button" data-act="howto">How to play</button>
@@ -355,7 +373,8 @@ export class Screens {
           <div><b>${sum.level}</b><span>level</span></div>
           <div><b>${sum.bestCombo || 0}</b><span>best chain</span></div>
         </div>
-        <div class="end-highlights"><span><b>${sum.perfectDashes || 0}</b> perfect dashes</span><span><b>${sum.dashes || 0}</b> dashes</span><span><b>${career.records?.length || 0}/${RECORDS.length}</b> records collected</span></div>
+        <div class="end-highlights"><span><b>${sum.spotlightsCleared || 0}</b> spotlights cleared</span><span><b>${sum.perfectDashes || 0}</b> perfect dashes</span><span><b>${career.records?.length || 0}/${RECORDS.length}</b> records collected</span></div>
+        ${(sum.remixes || []).length ? `<div class="end-remixes"><span>YOUR REMIXES</span>${remixList(sum.remixes)}</div>` : ''}
         <p class="end-genre">The track you made <span><b>${esc(sum.genre)}</b> / ${esc(sum.key)}</span></p>
         <ul class="end-rows">${rows || '<li>No instruments</li>'}</ul>
         <p class="end-pedals">${pedals}</p>

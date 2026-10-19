@@ -56,7 +56,7 @@ export const WORLD = {
 
 // Drop ability: fills from collected notes, fires on the next downbeat after a one-bar build.
 export const DROP = {
-  charge: 640,           // xp-equivalent needed to fill the meter
+  charge: 220,           // notes, groove, perfect dashes and spotlights all feed this resource
   damage: 90,
   radius: 900,
 };

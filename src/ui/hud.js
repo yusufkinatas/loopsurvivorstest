@@ -6,6 +6,7 @@ import { fmtTime, rgba } from '../util.js';
 import { icon } from './icons.js';
 import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
+import { REMIX_BY_ID, MAX_REMIXES } from '../game/remixes.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 
@@ -31,6 +32,16 @@ export class Hud {
     this.comboMult = this.combo.querySelector('.groove-count strong');
     this.comboFill = this.combo.querySelector('.groove-track i');
     this.comboHelp = this.combo.querySelector('.groove-help');
+    this.power = el('div', 'power-status');
+    this.power.hidden = true;
+    this.combo.append(this.power);
+    this.spotlight = el('div', 'spotlight-objective', '<div class="spotlight-heading"><b>Claim the spotlight</b><span class="spotlight-time"></span></div><div class="spotlight-track"><i></i></div><div class="spotlight-readout"><span class="spotlight-action"></span><b class="spotlight-progress"></b></div><span class="spotlight-reward">REWARD · CHOOSE A PERMANENT REMIX</span>');
+    this.spotlight.hidden = true;
+    this.spotlightTime = this.spotlight.querySelector('.spotlight-time');
+    this.spotlightFill = this.spotlight.querySelector('.spotlight-track i');
+    this.spotlightAction = this.spotlight.querySelector('.spotlight-action');
+    this.spotlightProgress = this.spotlight.querySelector('.spotlight-progress');
+    this.spotlightReward = this.spotlight.querySelector('.spotlight-reward');
 
     this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div>');
     this.boss.hidden = true;
@@ -67,7 +78,7 @@ export class Hud {
     this.drop.addEventListener('click', (e) => { e.stopPropagation(); onDrop(); });
     this.dash = el('button', 'dashmeter', '<div class="dashmeter-fill"></div><span class="dashmeter-label">Dash ready</span><kbd>Shift</kbd>');
     this.dash.type = 'button';
-    this.dash.setAttribute('aria-label', 'Dash through danger. Time it to the beat for faster recovery.');
+    this.dash.setAttribute('aria-label', 'Dash through danger. Dash on the beat for eight Drop charge and a brief damage boost.');
     this.dash.addEventListener('click', (e) => { e.stopPropagation(); onDash?.(); });
     this.pauseBtn = el('button', 'pausebtn', icon('pause'));
     this.pauseBtn.type = 'button';
@@ -75,11 +86,13 @@ export class Hud {
     this.pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); onPause(); });
 
     const mixWrap = el('div', 'mixwrap');
-    mixWrap.append(this.mixCap, this.mixer);
+    this.remixes = el('div', 'remix-rack');
+    this.remixes.setAttribute('aria-label', 'Permanent remixes');
+    mixWrap.append(this.remixes, this.mixCap, this.mixer);
     this.abilities = el('div', 'abilities');
     this.abilities.append(this.dash, this.drop);
     this.bottom.append(this.abilities, mixWrap, this.pedals);
-    root.append(this.top, this.transport, this.combo, this.boss, this.banner, this.note, this.tipEl, this.side, this.bottom, this.pauseBtn);
+    root.append(this.top, this.transport, this.combo, this.spotlight, this.boss, this.banner, this.note, this.tipEl, this.side, this.bottom, this.pauseBtn);
 
     this._bannerTimer = null;
     this._last = {};
@@ -170,6 +183,28 @@ export class Hud {
       return `<div class="chem-row${tier ? ' active' : ''}" style="--s:${STYLES[st].color}"><span class="chem-name">${STYLES[st].name}</span><span class="chem-count">${counts[st]}</span><span class="chem-dots">${dots}</span></div>`;
     }).join('');
     this.genre.innerHTML = `<span class="genre-l">Your sound</span><span class="genre-v">${g.genre}</span>`;
+    this._refreshRemixes(g);
+  }
+
+  _refreshRemixes(g) {
+    const ids = g.remixes || [];
+    const key = ids.join('|');
+    if (this._remixKey === key) return;
+    this._remixKey = key;
+    this.remixes.replaceChildren(el('span', 'remix-label', `REMIX ${ids.length}/${MAX_REMIXES}`));
+    if (!ids.length) {
+      this.remixes.append(el('span', 'remix-empty', 'Claim a spotlight. Change your run.'));
+      return;
+    }
+    ids.forEach((id) => {
+      const def = REMIX_BY_ID[id];
+      if (!def) return;
+      const badge = el('span', 'remix-badge');
+      badge.textContent = def.short || def.name;
+      badge.title = `${def.name}: ${def.body}`;
+      badge.style.setProperty('--c', def.color);
+      this.remixes.append(badge);
+    });
   }
 
   update(g, now, seq) {
@@ -197,7 +232,26 @@ export class Hud {
     set('comboMult', multiplier, (v) => { this.comboMult.textContent = `×${v}`; });
     this.combo.classList.toggle('active', combo >= 10);
     this.comboFill.style.transform = `scaleX(${Math.min(1, (g.comboTimer || 0) / 4)})`;
-    set('combohelp', combo >= 50 ? 'MAX GROOVE · KEEP IT ALIVE' : combo >= 25 ? `${50 - combo} to ×4` : combo >= 10 ? `${25 - combo} to ×3` : combo ? `${10 - combo} to ×2` : 'Silence enemies. Stay untouched.', (v) => { this.comboHelp.textContent = v; });
+    const chargeBonus = Math.max(0, (multiplier - 1) * 10);
+    set('combohelp', chargeBonus ? `+${chargeBonus}% DROP CHARGE · STAY UNTOUCHED` : 'Chain kills for faster Drop charge.', (v) => { this.comboHelp.textContent = v; });
+    this.power.hidden = !(g.powerT > 0 || g.encoreT > 0);
+    set('power', g.powerT > 0 && g.encoreT > 0 ? 'ON BEAT + ENCORE' : g.encoreT > 0 ? 'ENCORE · +50% DAMAGE' : 'ON BEAT · +35% DAMAGE', (v) => { this.power.textContent = v; });
+    this._refreshRemixes(g);
+
+    const spotlight = g.spotlight;
+    this.spotlight.hidden = !spotlight;
+    this.root.classList.toggle('has-spotlight', !!spotlight);
+    if (spotlight) {
+      const progress = Math.max(0, Math.min(spotlight.required, spotlight.progress));
+      const seconds = Math.max(0, Math.ceil(spotlight.remaining));
+      this.spotlight.classList.toggle('holding', !!spotlight.inside);
+      this.spotlight.classList.toggle('urgent', seconds <= 8);
+      this.spotlightFill.style.transform = `scaleX(${progress / spotlight.required})`;
+      set('spotlighttime', seconds, (v) => { this.spotlightTime.textContent = `${v}s left`; });
+      set('spotlightprogress', `${progress.toFixed(1)} / ${spotlight.required}s`, (v) => { this.spotlightProgress.textContent = v; });
+      set('spotlightaction', spotlight.inside ? 'Hold your ground' : spotlight.entered ? 'Step back into the light' : 'Move into the light', (v) => { this.spotlightAction.textContent = v; });
+      set('spotlightreward', (g.remixes || []).length < MAX_REMIXES ? 'REWARD · REMIX + 80 DROP CHARGE' : 'REWARD · UPGRADE + HEAL + 80 CHARGE', (v) => { this.spotlightReward.textContent = v; });
+    }
 
     const position = seq.sounding(now);
     const songPos = position ? g.song.position(position.bar) : null;
