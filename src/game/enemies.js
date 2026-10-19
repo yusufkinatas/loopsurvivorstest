@@ -131,6 +131,12 @@ export function knockOffBeat(g, e, bar) {
   g.banner(`${e.def.name} lost the beat`, '', true);
 }
 
+// White Noise's attack phase from its health. start: the phase it starts in (Gain 8 starts it in phase 2).
+export function whiteNoisePhase(e, start) {
+  const frac = e.hp / e.maxHp;
+  return Math.max(start, frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3);
+}
+
 function bossOnBeat(g, e, ev) {
   if (ev.bar < e.ai.offbeatUntil) return;
   const p = g.player;
@@ -166,7 +172,7 @@ function bossOnBeat(g, e, ev) {
       break;
     }
     case 'whitenoise': {
-      const phase = Math.max(g.mods.wnPhase, frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3);   // Gain 8 starts it in phase 2
+      const phase = whiteNoisePhase(e, g.mods.wnPhase);
       if (e.ai.phase !== phase) {
         // A line for each change, none for the phase it starts in.
         if (e.ai.phase && phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);

@@ -3,6 +3,8 @@
 // plays the cue on that beat (AudioEngine.bossCue). The predicates are copies of the attack beats in
 // bossOnBeat (src/game/enemies.js): change them together.
 
+import { whiteNoisePhase } from './enemies.js';
+
 const NOISE = ['noise1', 'noise2', 'noise3'];
 
 // Cue name for boss `e` on beat `beat` (0..3) of bar `bar`, or null. wnPhase: the phase White Noise starts in.
@@ -17,7 +19,7 @@ export function bossCue(e, bar, beat, wnPhase = 1) {
     case 'glitchking':   // the blink target is set on the downbeat of even bars, the blink and its ring come on beat 3
       return bar % 2 === 0 && e.ai.blinkTo ? (beat === 1 ? 'glitch' : beat === 2 ? 'blink' : null) : null;
     case 'whitenoise':   // a bar of hiss from each downbeat, louder in each of its attack phases
-      return beat === 0 ? NOISE[Math.max(wnPhase, frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3) - 1] : null;
+      return beat === 0 ? NOISE[whiteNoisePhase(e, wnPhase) - 1] : null;
   }
   return null;
 }
