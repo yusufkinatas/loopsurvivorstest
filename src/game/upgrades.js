@@ -47,8 +47,8 @@ const keyOf = (c) => (c.def ? c.def.id : c.pedal ? c.pedal.id : c.kind);
 // swap cards. Remix, Fader and bonus cards cannot be banished (null).
 export const banKey = (c) => (c.pedal ? c.pedal.id : c.kind === 'new' || c.kind === 'up' || c.kind === 'swap' ? c.def.id : null);
 
-// A screen with no real choice: only bonus cards, or swaps that would cost a level. The sim counts these.
-export const deadScreen = (offers) => offers.every((o) => o.kind === 'heal' || o.kind === 'hype' || o.kind === 'score' || (o.kind === 'swap' && o.level < o.from.level));
+// A screen with no real choice: only bonus cards. The sim counts these.
+export const deadScreen = (offers) => offers.every((o) => o.kind === 'heal' || o.kind === 'hype' || o.kind === 'score');
 
 export function buildOffers(g, count = 3) {
   const pool = candidates(g);
