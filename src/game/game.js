@@ -71,6 +71,7 @@ export class Game {
     this.shots = [];
     this.gems = [];
     this.later = [];
+    this.joinLines = [];     // "joins the band" lines waiting for play to resume
     this.fx.reset();
     this.director.reset();
     this.loadout = new Loadout();
@@ -145,10 +146,11 @@ export class Game {
     this._setupInst(inst);
     this.onLoadoutChanged();
     // A sound that joins mid-song gets a line and a ring in its channel color, once play resumes after the pick.
+    // Picks from one chained level-up share one line.
     if (this.time > 0) {
-      const line = old ? `${def.name} takes over ${ROLE_INFO[def.role].name}` : `${def.name} joins the band`;
+      this.joinLines.push(old ? `${def.name} takes over ${ROLE_INFO[def.role].name}` : `${def.name} joins the band`);
       this.later.push({ at: this.time, fn: () => {
-        this.banner(line, '', true);
+        if (this.joinLines.length) this.banner(this.joinLines.splice(0).join(' · '), '', true);
         this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 14, r1: 200, dur: 0.6, damage: 0, kb: 0, width: 6, color: this.color(def.role) });
       } });
     }
