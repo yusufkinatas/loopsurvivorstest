@@ -172,7 +172,7 @@ function bossOnBeat(g, e, ev) {
         e.ai.spiralAcc = 0;
         if (phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
       }
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 22, ev.bar * 0.21 + ev.beat, '#ffffff');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
       break;
@@ -191,7 +191,7 @@ function bossUpdate(g, e, dt) {
       e.ai.spiralAcc -= every;
       e.ai.spiralA += 0.42;
       const arms = e.ai.phase === 3 ? 4 : 3;
-      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 20, { color: '#e6e6ff', r: 5, from: e });
+      for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5, from: e });
     }
   }
   void p;
