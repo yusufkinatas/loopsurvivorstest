@@ -439,7 +439,8 @@ export class Game {
     return true;
   }
 
-  doDrop() {
+  // The Drop lands on the downbeat of `bar`.
+  doDrop(bar) {
     const p = this.player;
     this.dropState = null;
     this.drops++;
@@ -455,7 +456,7 @@ export class Game {
     for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
     for (const e of this.inRadius(p.x, p.y, DROP.radius)) {
       this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6, color: colorAt(e) });
-      if (e.boss && !e.dead) knockOffBeat(this, e);
+      if (e.boss && !e.dead) knockOffBeat(this, e, bar);
     }
     this.src = prev;
     this.shots.length = 0;
@@ -479,7 +480,7 @@ export class Game {
         case 'beat': this.onBeat(ev); break;
         case 'section': this.onSection(ev); break;
         case 'build': this.dropState = 'building'; this.hooks.onDrop?.('building'); break;
-        case 'drop': this.doDrop(); break;
+        case 'drop': this.doDrop(ev.bar); break;
       }
     }
     evs.length = 0;

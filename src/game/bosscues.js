@@ -7,7 +7,7 @@ const NOISE = ['noise1', 'noise2', 'noise3'];
 
 // Cue name for boss `e` on beat `beat` (0..3) of bar `bar`, or null.
 export function bossCue(e, bar, beat) {
-  if (e.spawnT > 0 || e.ai.offbeatT > 0) return null;   // still arriving, or knocked off the beat by a Drop
+  if (e.spawnT > 0 || bar < e.ai.offbeatUntil) return null;   // still arriving, or knocked off the beat by a Drop
   const frac = e.hp / e.maxHp;
   switch (e.type) {
     case 'drone':        // beat 4 shows the charge lane, the dash comes on the downbeat

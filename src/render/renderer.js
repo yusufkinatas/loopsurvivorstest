@@ -423,8 +423,9 @@ export class Renderer {
     const flash = e.flash > 0;
     const col = flash ? '#ffffff' : e.color;
     c.globalCompositeOperation = 'lighter';
-    // A boss the Drop knocked off the beat (enemies.js knockOffBeat) glows dim and stops pulsing.
-    this.drawGlow(e.x, e.y, r * 2.6, e.color, e.ai.offbeatT > 0 ? 0.12 : 0.35 + g.beatPulse * 0.25);
+    // A boss the Drop knocked off the beat (enemies.js knockOffBeat) glows dim and stops pulsing until its bar is heard.
+    const heard = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
+    this.drawGlow(e.x, e.y, r * 2.6, e.color, heard && heard.bar < e.ai.offbeatUntil ? 0.12 : 0.35 + g.beatPulse * 0.25);
     c.globalCompositeOperation = 'source-over';
     // Bosses are hit constantly: keep the silhouette dark and flash only the outline.
     c.fillStyle = 'rgba(14,10,22,0.95)';

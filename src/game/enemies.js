@@ -2,7 +2,7 @@
 // Enemies move to the beat too. They surge on every beat, and some act on specific beats.
 
 import { TAU, rand, rng, pick, dist2, clamp } from '../util.js';
-import { STEP_SEC, BEAT_SEC, BAR_SEC } from '../config.js';
+import { STEP_SEC, BEAT_SEC } from '../config.js';
 
 export const ENEMY_TYPES = {
   static:   { name: 'Static',   hp: 9,  speed: 64,  r: 11, dmg: 7,  xp: 1, shape: 'square',  color: '#d9d4ea', mass: 1 },
@@ -117,14 +117,13 @@ export function enemiesOnBeat(g, ev) {
   }
 }
 
-// The player's Drop knocks a boss off the beat: no attacks and no spiral, and any tell it was showing
-// goes away. It lasts a little under two bars, so the boss comes back in on the downbeat of the bar
-// after next together with the cue the sequencer schedules ahead of that downbeat (it reads offbeatT).
+// The player's Drop on the downbeat of `bar` knocks a boss off the beat: no attacks and no spiral, and any
+// tell it was showing goes away. It is counted in bars, so a pause or a slow frame cannot move it: the boss
+// comes back in on the downbeat of the bar after next (offbeatUntil), which its cue reads too (bosscues.js).
 // Then the boss has four bars to find the groove before another Drop can stagger it again.
-export function knockOffBeat(g, e) {
-  if (g.time < (e.ai.restaggerAt ?? 0)) return;
-  e.ai.offbeatT = 2 * BAR_SEC - 0.45;   // over after beat 4 of the second bar, before the next downbeat's cue is scheduled
-  e.ai.restaggerAt = g.time + e.ai.offbeatT + 4 * BAR_SEC;
+export function knockOffBeat(g, e, bar) {
+  if (bar < (e.ai.offbeatUntil ?? -Infinity) + 4) return;
+  e.ai.offbeatUntil = bar + 2;
   e.ai.blinkTo = null;
   e.ai.chargeWarn = null;
   e.ai.spiral = false;     // restarts on a downbeat once the boss is back
@@ -133,7 +132,7 @@ export function knockOffBeat(g, e) {
 }
 
 function bossOnBeat(g, e, ev) {
-  if (e.ai.offbeatT > 0) return;
+  if (ev.bar < e.ai.offbeatUntil) return;
   const p = g.player;
   const aim = Math.atan2(p.y - e.y, p.x - e.x);
   const frac = e.hp / e.maxHp;
@@ -206,8 +205,6 @@ export function updateEnemies(g, dt) {
   for (const e of g.enemies) {
     if (e.dead) continue;
     e.age += dt;
-    // Runs through a boss's spawn-in too, so a Drop on its arrival downbeat staggers it for the same time.
-    if (e.ai.offbeatT) e.ai.offbeatT = Math.max(0, e.ai.offbeatT - dt);
     if (e.spawnT > 0) { e.spawnT -= dt; continue; }
     e.flash = Math.max(0, e.flash - dt);
     if (e.ai.glitchT) e.ai.glitchT = Math.max(0, e.ai.glitchT - dt);

@@ -137,7 +137,7 @@ export class Sequencer {
           if (A) { A.buildSweep(t, t + BAR_SEC); A.riser(t, BAR_SEC); }
         } else {
           impactAt = t;
-          this.events.push({ type: 'drop', time: t });
+          this.events.push({ type: 'drop', time: t, bar: this.bar });
           this.dropState = null;
         }
       } else if (this.dropState === 'queued' && !this.hold) {
