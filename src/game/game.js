@@ -306,7 +306,7 @@ export class Game {
       if (r < 0.005) dropItem(this, e.x, e.y, 'heal');
       else if (r < 0.0065) dropItem(this, e.x, e.y, 'magnet');
     }
-    if (e.def.splits && !e.elite) {
+    if (e.def.splits && !e.elite && !this.won) {   // nothing new spawns once White Noise is silenced
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * TAU + rand(0, 1);
         const c = spawnEnemy(this, e.def.splits, e.x + Math.cos(a) * 14, e.y + Math.sin(a) * 14, { hpMul: 0.5, scale: 0.8 });
