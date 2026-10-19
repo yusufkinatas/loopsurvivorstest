@@ -66,6 +66,8 @@ arrangement, so the game enforces the rules a producer would:
 | Lead | Saw Lead: lasers | Wooden Flute: homing wisps | Square Lead: pitch-steered sprays |
 | Sparkle | Arp Synth: spinning spark spiral | Music Box: stars that land on the beat | Coin Arp: boomerang coins |
 
+Taiko Drums, Music Box and 8-Bit Drums aim the first hit of each bar at a boss in range.
+
 ## Run it locally
 
 ```

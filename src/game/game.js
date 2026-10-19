@@ -144,7 +144,7 @@ export class Game {
     this.banner(this.section.name, `${this.key.name} · ${Math.round(60 / (STEP_SEC * 4))} BPM`);
   }
 
-  xpFor(level) { return Math.round(Math.min(176, 5 + level * 0.34 + level * level * 0.44) * this.mods.xp); }
+  xpFor(level) { return Math.round(Math.min(200, 5 + level * 0.34 + level * level * 0.44) * this.mods.xp); }
 
   // ------------------------------------------------------------------ loadout
 
@@ -295,6 +295,12 @@ export class Game {
       if (dist2(e.x, e.y, x, y) <= rr * rr) out.push(e);
     });
     return out;
+  }
+
+  // The boss when it is alive and in range (some sounds aim the bar's first hit at it), else null.
+  bossInRange(x, y, range) {
+    const b = this.boss;
+    return b && !b.dead && b.spawnT <= 0.2 && dist2(b.x, b.y, x, y) < (range + b.r) * (range + b.r) ? b : null;
   }
 
   randomEnemy(x, y, range = 450) {

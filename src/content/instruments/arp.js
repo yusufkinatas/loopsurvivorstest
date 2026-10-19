@@ -129,7 +129,8 @@ const musicBox = {
     // Lullaby (remix, st.vuln): what a star lands on is marked, and takes more damage from every source (game.hit).
     const onLand = st.vuln ? (s, gg) => { for (const e of gg.inRadius(s.x, s.y, s.r)) { e.vulnUntil = gg.time + st.vulnTime; e.vuln = st.vuln; } } : null;
     for (let i = 0; i < n; i++) {
-      const e = g.randomEnemy(p.x, p.y, 450);
+      // The bar's first star falls on a boss in range.
+      const e = (i === 0 && note.s === 0 && g.bossInRange(p.x, p.y, 450)) || g.randomEnemy(p.x, p.y, 450);
       // Nobody around: the star still falls just ahead of you, so every chime shows up on screen.
       const a = g.aim() + (i - (n - 1) / 2) * 0.6;
       const x = e ? e.x : p.x + Math.cos(a) * 110, y = e ? e.y : p.y + Math.sin(a) * 110;
