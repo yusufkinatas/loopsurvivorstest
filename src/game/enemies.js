@@ -39,10 +39,11 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
     hp: def.hp * hpMul, maxHp: def.hp * hpMul,
     speed: def.speed * (1 + minutes * 0.05) * (elite ? 0.9 : 1) * rand(0.92, 1.08),
     dmg: def.dmg * (1 + minutes * 0.1) * (elite ? 1.5 : 1),
-    // Notes are worth less as the song fills up, so levels and the Drop keep a steady pace while the crowd grows.
-    xp: def.boss ? def.xp : def.xp * (elite ? 10 : 1) / (1 + (minutes / 2.5) ** 2),
+    // Notes are worth less as the song fills up, so levels and the Drop keep a steady pace while the crowd grows
+    // (and Gain's bigger crowd shares the same notes).
+    xp: def.boss ? def.xp : def.xp * (elite ? 10 : 1) / (1 + (minutes / 2.5) ** 2) / g.mods.density,
     mass: def.mass * (elite ? 5 : 1),
-    elite, boss: !!def.boss, color: def.color, shape: def.shape,
+    elite, vinyl: elite && opts.vinyl !== false, boss: !!def.boss, color: def.color, shape: def.shape,
     kbx: 0, kby: 0, stun: 0, slow: 0, slowT: 0, flash: 0, dead: false,
     age: 0, phase: rand(0, TAU), ai: {}, spawnT: 0.35,
   };

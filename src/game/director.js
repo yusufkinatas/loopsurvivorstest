@@ -22,6 +22,7 @@ export class Director {
 
   reset() {
     this.eliteTimer = 58;
+    this.vinyls = 0;         // timed elites' vinyl share (below 1 per elite at Gain 8)
     this.lastFormationBar = -1;
     this.ringBar = -1;       // the bar the Stomp ring lights its lanes on (enemiesOnBeat reads it)
   }
@@ -114,10 +115,10 @@ export class Director {
   }
 
   // An elite from the section's mix: a big gold-outlined body that drops a vinyl (one level-up).
-  spawnElite() {
+  spawnElite(vinyl = true) {
     const s = this.spawnPoint();
     const types = Object.keys(this.mix).filter((k) => k !== 'buzz');
-    spawnEnemy(this.g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true });
+    spawnEnemy(this.g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true, vinyl });
   }
 
   onSection(ev) {
@@ -133,7 +134,9 @@ export class Director {
     this.eliteTimer -= dt * g.mods.elite;   // Gain 8: elites come more often
     if (this.eliteTimer <= 0) {
       this.eliteTimer = Math.max(28, 52 - g.time / 25);
-      this.spawnElite();
+      this.vinyls += 1 / g.mods.elite;   // the extra ones carry no vinyl, so they add fights, not level-ups
+      this.spawnElite(this.vinyls >= 1);
+      if (this.vinyls >= 1) this.vinyls--;
     }
     // Recycle stragglers left far behind so the density stays around the player.
     const p = g.player;
