@@ -8,7 +8,7 @@ import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
 import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
-import { updateEnemies, enemiesOnBeat, spawnEnemy, BOSS_TYPES } from './enemies.js';
+import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat, BOSS_TYPES } from './enemies.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
 import { buildOffers, applyOffer } from './upgrades.js';
@@ -366,7 +366,13 @@ export class Game {
     this.shake = Math.max(this.shake, 16);
     const dmg = DROP.damage * (1 + this.level * 0.08) * this.stats.damage;
     const prev = this.src; this.src = null;
-    for (const e of this.inRadius(p.x, p.y, DROP.radius)) this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6 });
+    // A boss can arrive on the same downbeat as the Drop: index this frame's spawns before the query.
+    this.grid.clear();
+    for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
+    for (const e of this.inRadius(p.x, p.y, DROP.radius)) {
+      this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6 });
+      if (e.boss && !e.dead) knockOffBeat(this, e);
+    }
     this.src = prev;
     this.shots.length = 0;
     this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
@@ -424,6 +430,16 @@ export class Game {
     const opened = this.channelCap() > before;
     this.banner(ev.section.name, ev.section.boss ? `${BOSS_TYPES[ev.section.boss]?.name || 'A boss'} is here` : opened ? 'A new channel opens on the mixer' : '');
     if (opened) this.hooks.onLoadout?.();
+    // A boss belongs to its chorus. One still alive when the section ends fades out unbeaten (no notes,
+    // no credit, no stop), so the next boss always arrives alone.
+    for (const e of this.enemies) {
+      if (!e.boss || e.dead || e.def.final) continue;
+      e.dead = true;
+      this._logBossEnd(e, 'faded');
+      this.fx.particles(e.x, e.y, e.color, 40, 300, 1, 3);
+      this.banner(`${e.def.name} fades out`, '', true);
+    }
+    if (this.boss?.dead) { this.boss = null; this.hooks.onBoss?.(null); }
     this.director.onSection(ev);
     this.hooks.onSection?.(ev.section);
   }
@@ -446,6 +462,12 @@ export class Game {
       }
     }
     this.shake = Math.max(this.shake, 14);
+    // Its noise turns into music: every shot still in the air pops into a small note (at most 60).
+    this.shots.forEach((s, i) => {
+      if (i < 60) dropGem(this, s.x, s.y, 0.25);
+      this.fx.particles(s.x, s.y, '#ffffff', 3, 90, 0.3, 2);
+    });
+    this.shots.length = 0;
     this.hooks.onBoss?.(this.boss);
     if (e.def.final) {
       this.won = true;
