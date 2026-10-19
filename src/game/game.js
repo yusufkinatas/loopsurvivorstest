@@ -358,7 +358,7 @@ export class Game {
       if (r < 0.005) dropItem(this, e.x, e.y, 'heal');
       else if (r < 0.0065) dropItem(this, e.x, e.y, 'magnet');
     }
-    if (e.def.splits && !e.elite) {
+    if (e.def.splits && !e.elite && !this.won) {   // nothing new spawns once White Noise is silenced
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * TAU + rand(0, 1);
         const c = spawnEnemy(this, e.def.splits, e.x + Math.cos(a) * 14, e.y + Math.sin(a) * 14, { hpMul: 0.5, scale: 0.8 });
@@ -848,6 +848,9 @@ export class Game {
     this.state = 'victory';
     this.seq.hold = false;
     this.seq.clearEvents();
+    // A Drop still queued or building would play its build and impact over the end screen: call it off, as _die() does.
+    this.seq.dropState = null;
+    this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     this.hooks.onVictory?.(this.summary(true));
   }
