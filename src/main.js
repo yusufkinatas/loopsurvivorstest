@@ -77,7 +77,7 @@ const hooks = {
   onGameOver: (sum) => endRun(sum),
   onVictory: (sum) => endRun(sum),
   onBanner: (t, s, compact) => hud.showBanner(t, s, compact),
-  onBoss: (e) => hud.setBoss(e),
+  onBoss: (e) => hud.setBoss(e, game.mods.wnPhase),
   onLoadout: () => { if (mode === 'run') hud.refreshLoadout(game); },
   onDrop: (state) => { if (state === 'queued') hud.tip(''); },
   autopick: (offers) => autopick(offers, game, opts.autopick),

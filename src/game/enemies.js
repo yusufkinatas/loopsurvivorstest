@@ -168,8 +168,9 @@ function bossOnBeat(g, e, ev) {
     case 'whitenoise': {
       const phase = Math.max(g.mods.wnPhase, frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3);   // Gain 8 starts it in phase 2
       if (e.ai.phase !== phase) {
+        // A line for each change, none for the phase it starts in.
+        if (e.ai.phase && phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
         e.ai.phase = phase;
-        if (phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
       }
       if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);

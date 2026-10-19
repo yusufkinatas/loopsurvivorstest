@@ -112,7 +112,8 @@ export class Hud {
 
   hideBanner() { this.banner.classList.remove('show'); }
 
-  setBoss(e) {
+  // wnPhase: the phase White Noise starts in (Gain 8 skips the first one).
+  setBoss(e, wnPhase = 1) {
     this.bossEnemy = e;
     this.chipAt = -Infinity;   // the damage chip catches up on the next update
     this.boss.hidden = !e;
@@ -120,7 +121,7 @@ export class Hud {
     this.boss.querySelector('.bossbar-name').textContent = e.def.name;
     this.boss.style.setProperty('--c', e.def.color);
     // Notches where the boss changes its attack pattern.
-    const marks = { drone: [0.8], clipper: [0.7], glitchking: [], whitenoise: [0.66, 0.33] }[e.type] || [];
+    const marks = { drone: [0.8], clipper: [0.7], glitchking: [], whitenoise: [0.66, 0.33].slice(wnPhase - 1) }[e.type] || [];
     this.boss.querySelector('.bossbar-track').innerHTML = '<div class="bossbar-chip"></div><div class="bossbar-fill"></div>' + marks.map((m) => `<i class="bossbar-notch" style="left:${m * 100}%"></i>`).join('');
   }
 
