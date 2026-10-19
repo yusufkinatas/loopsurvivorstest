@@ -133,9 +133,11 @@ Attack archetypes (`src/game/effects.js`), all record which instrument made them
 - `g.fx.strike({ x, y, delay, r, damage, kb, stun, color, target, style })` delayed impact with a marker (`style: 'drop' | 'star' | 'ring'`)
 - `g.fx.mine({ owner: inst.def.id, x, y, r, damage, kb, color, life, max, size })` then `g.fx.detonateMines(inst.def.id, scale)` on a later note
 - `g.fx.orbit(inst, { count, radius, speed, size, color, shape })` persistent orbiters (call from `setup`), then `grp.pulse({ damage, r, kb, stun, slow, index })` from `fire`
-- cosmetics: `g.fx.particles(x, y, color, n, speed, life, size)`, `g.fx.flash(x, y, r, color, life, fill)`, `g.shake = Math.max(g.shake, n)`
+- cosmetics: `g.fx.particles(x, y, color, n, speed, life, size)`, `g.fx.flash(x, y, r, color, life, fill)`, `g.shake = Math.max(g.shake, n)`.
+  Cosmetic randomness uses `Math.random()`, never `rng()` or `rand()`, so a seed plays the same run at any frame rate.
 
-Direct damage: `g.hit(enemy, damage, { kb, fx, fy, stun, slow })`.
+Direct damage: `g.hit(enemy, damage, { kb, fx, fy, stun, slow, color })`. The enemy tints in the hitting
+channel's color, and `color` overrides it.
 
 Every attack must be launched from `fire()` by a note. Never deal damage on a timer that is not a
 note. Persistent things (orbiters, mines) may exist between notes, but they strike on notes.
