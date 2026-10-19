@@ -141,8 +141,9 @@ function bossOnBeat(g, e, ev) {
     case 'drone':
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, 'buzz', 5, e.r + 30);
       // The charge lane is shown for a beat (beat 4), then the Drone dashes along it on the downbeat.
+      // No lane, no dash: a Drop stagger or a pause can swallow beat 4.
       if (ev.beat === 3 && ev.bar % 4 === 0) e.ai.chargeWarn = { a: aim, t: BEAT_SEC };
-      if (ev.beat === 0 && ev.bar % 4 === 1) { e.ai.charge = 0.75; e.ai.chargeA = e.ai.chargeWarn ? e.ai.chargeWarn.a : aim; e.ai.chargeWarn = null; }
+      if (ev.beat === 0 && ev.bar % 4 === 1 && e.ai.chargeWarn) { e.ai.charge = 0.75; e.ai.chargeA = e.ai.chargeWarn.a; e.ai.chargeWarn = null; }
       if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff9fe2');
       break;
     case 'clipper':
