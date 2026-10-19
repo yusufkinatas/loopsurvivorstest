@@ -222,7 +222,7 @@ export class Screens {
 
   // The career: records pressed (a pressed sleeve plays its run's radio edit), the remix crate and the liner
   // notes. back: 'title' or 'end', where Back returns.
-  discography(meta, back, page = 'records') {
+  discography(meta, back) {
     const h = Math.floor(meta.secs / 3600), min = Math.floor((meta.secs % 3600) / 60);
     const career = [plural(meta.runs, 'run'), plural(meta.wins, 'song finished', 'songs finished'), `${meta.kills.toLocaleString('en-US')} Noise silenced`, `${h ? `${h} h ` : ''}${min} min on stage`].join(' · ');
     const tabs = [['records', 'Records'], ['remixes', 'Remixes'], ['notes', 'Liner notes']];
@@ -249,8 +249,8 @@ export class Screens {
     };
     el.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => show(t.dataset.page)));
     el.querySelector('[data-act=back]').addEventListener('click', () => (back === 'end' ? this.h.onShowEnd() : this.h.onShowTitle()));
-    show(page);
-    el.querySelector(`[data-page=${page}]`).focus({ preventScroll: true });
+    show('records');
+    el.querySelector('[data-page=records]').focus({ preventScroll: true });
   }
 
   // ---------------------------------------------------------------------------- first sound
