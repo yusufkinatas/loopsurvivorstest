@@ -69,7 +69,8 @@ export class Director {
     if (ev.beat === 0 && ev.bar % 16 === featured) this.spawnElite();
     // Set piece: on beat 3 of the Build-Up's last bar a ring of Stomps appears around you, lights its lanes on
     // beat 4 and slams in on the downbeat where the song drops (a Drop timed for that downbeat clears it).
-    if (ev.beat === 2 && g.section.build && g.song.position(ev.bar).barsLeft === 1) this.stompRing(ev.bar);
+    // Once only: a resume can replay beat 3.
+    if (ev.beat === 2 && g.section.build && ev.bar !== this.ringBar && g.song.position(ev.bar).barsLeft === 1) this.stompRing(ev.bar);
   }
 
   // Set pieces: an encircling ring, or a swarm charging from one side.
@@ -102,7 +103,8 @@ export class Director {
 
   stompRing(bar) {
     const g = this.g, p = g.player;
-    const n = 10, R = Math.min(g.view.w, g.view.h) / 2 - 80;   // well inside the view on every screen
+    // Well inside the view on every screen, and on big screens still inside a Stomp's 520 px arm range.
+    const n = 10, R = Math.min(400, Math.min(g.view.w, g.view.h) / 2 - 80);
     this.ringBar = bar;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU;

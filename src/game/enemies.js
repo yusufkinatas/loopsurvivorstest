@@ -141,8 +141,9 @@ function bossOnBeat(g, e, ev) {
     case 'drone':
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, 'buzz', 5, e.r + 30);
       // The charge lane is shown for a beat (beat 4), then the Drone dashes along it on the downbeat.
+      // No lane, no dash: a Drop stagger or a pause can swallow beat 4.
       if (ev.beat === 3 && ev.bar % 4 === 0) e.ai.chargeWarn = { a: aim, t: BEAT_SEC };
-      if (ev.beat === 0 && ev.bar % 4 === 1) { e.ai.charge = 0.75; e.ai.chargeA = e.ai.chargeWarn ? e.ai.chargeWarn.a : aim; e.ai.chargeWarn = null; }
+      if (ev.beat === 0 && ev.bar % 4 === 1 && e.ai.chargeWarn) { e.ai.charge = 0.75; e.ai.chargeA = e.ai.chargeWarn.a; e.ai.chargeWarn = null; }
       if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff9fe2');
       break;
     case 'clipper':
@@ -223,10 +224,11 @@ export function updateEnemies(g, dt) {
     if (e.stun > 0) { e.stun -= dt; continue; }
     // A charge (the Drone, a Stomp) runs straight down its lane, deaf to knockback.
     if (e.ai.charge > 0) {
+      const t = Math.min(dt, e.ai.charge);   // the last frame stops at the end of the lane
       e.ai.charge -= dt;
       const sp = e.ai.chargeSpeed ?? e.speed * 3.4;
-      e.x += Math.cos(e.ai.chargeA) * sp * dt;
-      e.y += Math.sin(e.ai.chargeA) * sp * dt;
+      e.x += Math.cos(e.ai.chargeA) * sp * t;
+      e.y += Math.sin(e.ai.chargeA) * sp * t;
       if (e.ai.charge <= 0 && !e.boss) e.stun = 0.45;   // winded for about a beat: the window to punish it
       continue;
     }

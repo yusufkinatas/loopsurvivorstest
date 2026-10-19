@@ -8,6 +8,7 @@
 //
 // Flags: --timeout <s> (wall clock per run, default 240), --screenshot <path>, --summary (short output),
 // --runs N (seeds 1..N unless the query sets one), --parallel N (pages at once; results stay in seed order).
+// Exits with 1 when a run crashed or produced no metrics; the other runs still print.
 import { serve, launch } from './serve.mjs';
 
 const args = process.argv.slice(2);
@@ -24,12 +25,13 @@ async function run(browser, url, r) {
   const logs = [];
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`${m.type()}: ${m.text()}`); });
   page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}\n${e.stack || ''}`));
+  const crashed = new Promise((resolve) => page.once('crash', resolve));   // a crashed page never reports done
   let q = query.includes('sim=') ? query : `sim=1&${query}`;
   if (runs > 1 && !/seed=/.test(q)) q += `&seed=${r + 1}`;
   const t0 = Date.now();
   await page.goto(`${url}/index.html?${q}`);
   try {
-    await page.waitForFunction(() => window.__LS && window.__LS.done, null, { timeout, polling: 500 });
+    await Promise.race([page.waitForFunction(() => window.__LS && window.__LS.done, null, { timeout, polling: 500 }), crashed]);
   } catch (e) {
     logs.push(`timeout after ${timeout / 1000}s wall clock`);
   }
@@ -53,10 +55,12 @@ const results = new Array(runs);
 try {
   // A small pool of pages pulling the next seed, so N runs take about runs / parallel rounds.
   let next = 0;
-  const worker = async () => { while (next < runs) { const r = next++; results[r] = await run(browser, url, r); } };
+  // A run that crashes or throws keeps its slot as an error, so the other runs still print.
+  const worker = async () => { while (next < runs) { const r = next++; results[r] = await run(browser, url, r).catch((e) => ({ error: e.message })); } };
   await Promise.all(Array.from({ length: Math.min(parallel, runs) }, worker));
 } finally {
   await browser.close();
   server.close();
 }
+if (results.some((x) => x.error)) process.exitCode = 1;
 console.log(JSON.stringify(runs === 1 ? results[0] : results, null, summary ? 0 : 2));
