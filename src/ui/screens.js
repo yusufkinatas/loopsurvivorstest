@@ -130,7 +130,7 @@ export class Screens {
   howto(back) {
     const rows = ROLES.map((r) => `<li style="--c:${ROLE_INFO[r].color}"><span class="ht-icon">${icon(r)}</span><b>${ROLE_INFO[r].name}</b><span>${ROLE_INFO[r].desc}</span></li>`).join('');
     const keys = [['Move', 'WASD or arrows', 'Left stick'], ['The Drop', 'Space', 'A'], ['Pick a card', '1 · 2 · 3', 'A'], ['Reroll', 'R', 'X'],
-      ['Banish · Skip', 'X · Q', 'D-pad down, then A'], ['Pause', 'Esc or P', 'Start'], ['Back', '', 'B'], ['Mute', 'M', '']]
+      ['Banish · Skip', 'X · Q', 'D-pad to the button, then A'], ['Pause', 'Esc or P', 'Start'], ['Back', '', 'B'], ['Mute', 'M', '']]
       .map(([act, key, pad]) => `<tr><th>${act}</th><td>${key}</td><td>${pad}</td></tr>`).join('');
     const el = this._mount('howto', `
       <div class="panel panel-wide">
@@ -210,8 +210,8 @@ export class Screens {
         <div class="cards">${cards}</div>
         <div class="row-actions">
           <button class="btn btn-ghost" type="button" data-act="reroll" ${g.rerolls > 0 ? '' : 'disabled'}>Reroll <span class="muted">(${g.rerolls} left<span class="k-key"> · R</span><span class="k-pad"> · X</span>)</span></button>
-          <button class="btn btn-ghost" type="button" data-act="banish" aria-pressed="false" title="Pick a card to remove its sound or pedal for the rest of the run, upgrades included" ${g.banishes > 0 && offers.some(banKey) ? '' : 'disabled'}>Banish <span class="muted">(${g.banishes} left · X)</span></button>
-          <button class="btn btn-ghost" type="button" data-act="skip" title="Pass on this level. Its notes fill the Drop meter instead">Skip <span class="muted">(+Drop · Q)</span></button>
+          <button class="btn btn-ghost" type="button" data-act="banish" aria-pressed="false" title="Pick a card to remove its sound or pedal for the rest of the run, upgrades included" ${g.banishes > 0 && offers.some(banKey) ? '' : 'disabled'}>Banish <span class="muted">(${g.banishes} left<span class="k-key"> · X</span>)</span></button>
+          <button class="btn btn-ghost" type="button" data-act="skip" title="Pass on this level. Its notes fill the Drop meter instead">Skip <span class="muted">(+Drop<span class="k-key"> · Q</span>)</span></button>
         </div>
       </div>`, ARM_MS);
     // Banish mode: the next card picked is banished instead of taken. Remix, Fader and bonus cards cannot be.
