@@ -11,7 +11,12 @@ export const ENEMY_TYPES = {
   glitch:   { name: 'Glitch',   hp: 20, speed: 56,  r: 12, dmg: 9,  xp: 2, shape: 'glitch',  color: '#94f0ff', mass: 1, blink: true },
   screech:  { name: 'Screech',  hp: 24, speed: 62,  r: 13, dmg: 6,  xp: 3, shape: 'diamond', color: '#ffa3b6', mass: 1, ranged: true },
   feedback: { name: 'Feedback', hp: 34, speed: 50,  r: 16, dmg: 10, xp: 3, shape: 'ring',    color: '#ffd38c', mass: 2, splits: 'static' },
+  stomp:    { name: 'Stomp',    hp: 30, speed: 54,  r: 15, dmg: 12, xp: 2, shape: 'stomp',   color: '#ff8a5c', mass: 3, charger: true },
 };
+
+// Stomp: a speaker cabinet that lights a lane on beat 4 and slams down it on the downbeat, for one beat at
+// `speed`. It only arms on screen with the player `min` to `max` px away, and at most `lanes` light per beat.
+const STOMP = { speed: 900, time: BEAT_SEC, min: 120, max: 520, lanes: 6 };
 
 export const BOSS_TYPES = {
   drone:      { name: 'The Drone',       hp: 1600,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
@@ -66,6 +71,8 @@ function summonRing(g, e, type, n, dist) {
 // Called on every beat (beat 0..3 of each bar) while playing.
 export function enemiesOnBeat(g, ev) {
   const p = g.player;
+  const ringBar = ev.bar === g.director.ringBar;   // the Build-Up's last bar: only the Stomp ring arms
+  let lanes = 0;
   for (const e of g.enemies) {
     if (e.dead || e.spawnT > 0) continue;
     if (e.boss) { bossOnBeat(g, e, ev); continue; }
@@ -77,6 +84,23 @@ export function enemiesOnBeat(g, ev) {
         g.fx.particles(e.x, e.y, e.color, 4, 90, 0.3, 2);
         e.x += Math.cos(a) * hop; e.y += Math.sin(a) * hop;
         e.ai.glitchT = 0.18;
+      }
+    }
+    // Stomp: lights its lane on beat 4 of every other bar and dashes on the next downbeat only. A lane never
+    // outlives the next bar's first beat, so a pause cannot release a dash nobody saw lit, or stack lanes.
+    // The lane leads the player: keep going and it cuts you off.
+    if (e.def.charger) {
+      const cw = e.ai.chargeWarn;
+      if (cw && ev.bar > cw.bar) {
+        if (ev.beat === 0 && ev.bar === cw.bar + 1 && e.stun <= 0) { e.ai.charge = STOMP.time; e.ai.chargeA = cw.a; e.ai.chargeSpeed = STOMP.speed; }
+        e.ai.chargeWarn = null;
+      } else if (ev.beat === 3 && e.stun <= 0 && (ringBar ? e.ai.ring : (ev.bar + e.id) % 2 === 0 && lanes < STOMP.lanes)) {
+        const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy);
+        if (d > STOMP.min && d < STOMP.max && Math.abs(dx) < g.view.w / 2 && Math.abs(dy) < g.view.h / 2) {
+          lanes++;
+          const lead = BEAT_SEC + d / STOMP.speed;
+          e.ai.chargeWarn = { a: Math.atan2(dy + p.vy * lead, dx + p.vx * lead), t: BEAT_SEC, len: STOMP.speed * STOMP.time + e.r, bar: ev.bar };
+        }
       }
     }
     // Screech winds up for a beat (a growing red glow), then fires on beat 3.
@@ -156,13 +180,6 @@ function bossOnBeat(g, e, ev) {
 
 function bossUpdate(g, e, dt) {
   const p = g.player;
-  if (e.type === 'drone' && e.ai.charge > 0) {
-    e.ai.charge -= dt;
-    const sp = e.speed * 3.4;
-    e.x += Math.cos(e.ai.chargeA) * sp * dt;
-    e.y += Math.sin(e.ai.chargeA) * sp * dt;
-    return true;
-  }
   if (e.type === 'whitenoise' && e.ai.spiral) {
     // Spiral arms on 8th notes. Started on a beat, so it stays on the grid.
     e.ai.spiralAcc = (e.ai.spiralAcc || 0) + dt;
@@ -202,6 +219,16 @@ export function updateEnemies(g, dt) {
     e.kbx *= kd; e.kby *= kd;
 
     if (e.stun > 0) { e.stun -= dt; continue; }
+    // A charge (the Drone, a Stomp) runs straight down its lane, deaf to knockback.
+    if (e.ai.charge > 0) {
+      e.ai.charge -= dt;
+      const sp = e.ai.chargeSpeed ?? e.speed * 3.4;
+      e.x += Math.cos(e.ai.chargeA) * sp * dt;
+      e.y += Math.sin(e.ai.chargeA) * sp * dt;
+      if (e.ai.charge <= 0 && !e.boss) e.stun = 0.45;   // winded for about a beat: the window to punish it
+      continue;
+    }
+    if (e.def.charger && e.ai.chargeWarn) continue;   // a Stomp stands its ground while its lane is lit
     if (e.boss && bossUpdate(g, e, dt)) continue;
 
     const dx = p.x - e.x, dy = p.y - e.y;

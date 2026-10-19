@@ -256,7 +256,7 @@ export class Game {
     if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
     e.flash = 0.09;
-    if (o.kb && !e.boss) {
+    if (o.kb && !e.boss && !(e.ai.charge > 0)) {   // a charging enemy holds its lane
       const fx = o.fx ?? this.player.x, fy = o.fy ?? this.player.y;
       let dx = e.x - fx, dy = e.y - fy;
       const d = Math.hypot(dx, dy) || 1;
@@ -264,7 +264,10 @@ export class Game {
       const k = (o.kb * this.stats.knockback * 3) / Math.max(0.5, e.mass);
       e.kbx += dx * k; e.kby += dy * k;
     }
-    if (o.stun) e.stun = Math.max(e.stun, o.stun * (e.boss ? 0.12 : e.elite ? 0.5 : 1));
+    if (o.stun) {
+      e.stun = Math.max(e.stun, o.stun * (e.boss ? 0.12 : e.elite ? 0.5 : 1));
+      if (!e.boss && e.ai.charge > 0) e.ai.charge = 0;   // a stun hit stops a Stomp mid-dash
+    }
     if (o.slow) { e.slow = Math.max(e.slow, Math.min(0.8, o.slow) * (e.boss ? 0.4 : 1)); e.slowT = 1.2; }
     // Numbers only for hits worth reading: crits, killing blows and big chunks. Otherwise they flood the screen.
     if (this.settings.damageNumbers && (crit || e.hp <= 0 || dmg >= e.maxHp * 0.2)) {
@@ -316,7 +319,7 @@ export class Game {
     this.hurtFlash = 1;
     this.shake = Math.max(this.shake, 7);
     if (this.audio?.ready && !this.opts.sim) this.audio.hurt();
-    if (from && !from.boss) {
+    if (from && !from.boss && !(from.ai.charge > 0)) {
       const dx = from.x - p.x, dy = from.y - p.y, d = Math.hypot(dx, dy) || 1;
       from.kbx += (dx / d) * 260; from.kby += (dy / d) * 260;
     }

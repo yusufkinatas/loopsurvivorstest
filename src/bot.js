@@ -58,7 +58,7 @@ function plan(g) {
     if (e.dead) continue;
     const dx = e.x - p.x, dy = e.y - p.y;
     const d2 = dx * dx + dy * dy;
-    const near = e.boss ? 1e5 : 260;
+    const near = e.boss ? 1e5 : (e.ai.chargeWarn || e.ai.charge > 0) ? 480 : 260;   // a lit lane reaches far
     if (d2 < near * near) foes.push(e);
     if (!e.boss && d2 < 220 * 220) crowd++;
   }
@@ -130,8 +130,8 @@ function plan(g) {
       const dx = p.x - e.x, dy = p.y - e.y;
       const d = Math.hypot(dx, dy) || 1;
       let evx, evy;
-      if (e.boss && e.ai.charge > 0) { const sp = e.speed * 3.4; evx = Math.cos(e.ai.chargeA) * sp; evy = Math.sin(e.ai.chargeA) * sp; }
-      else if (e.stun > 0) { evx = 0; evy = 0; }
+      if (e.ai.charge > 0) { const sp = e.ai.chargeSpeed ?? e.speed * 3.4; evx = Math.cos(e.ai.chargeA) * sp; evy = Math.sin(e.ai.chargeA) * sp; }
+      else if (e.stun > 0 || (e.def.charger && e.ai.chargeWarn)) { evx = 0; evy = 0; }   // stunned, or planted on its lane
       else { const sp = e.speed * (1 - e.slow); evx = (dx / d) * sp; evy = (dy / d) * sp; }
       const R = e.r + p.r + 2;
       const [d2, t] = closest(p.x - e.x, p.y - e.y, (endX - p.x) / HORIZON - evx, (endY - p.y) / HORIZON - evy, HORIZON);
@@ -151,6 +151,14 @@ function plan(g) {
           if (db < want) cost += 5 * ((want - db) / 120) ** 2;
         }
       } else {
+        // A lit Stomp lane: do not end up standing in it.
+        const cw = e.ai.chargeWarn;
+        if (cw) {
+          const lx = Math.cos(cw.a), ly = Math.sin(cw.a);
+          const ax = endX - e.x, ay = endY - e.y;
+          const along = ax * lx + ay * ly, side = Math.abs(ax * ly - ay * lx);
+          if (along > -e.r && along < cw.len + p.r && side < e.r + p.r + 8) cost += 6 + e.dmg * 0.4;
+        }
         const room = de - e.r - p.r;
         if (room < 60) cost += (e.elite ? 1.2 : 0.3) * ((60 - room) / 60) ** 2;
       }

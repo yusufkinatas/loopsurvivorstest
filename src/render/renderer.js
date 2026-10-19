@@ -335,6 +335,12 @@ export class Renderer {
         break;
       }
       case 'ring': { c.arc(e.x, e.y, r, 0, TAU); break; }
+      case 'stomp': {
+        // A speaker cabinet: a flat-sided octagon.
+        for (let i = 0; i < 8; i++) { const aa = ((i + 0.5) / 8) * TAU; c.lineTo(e.x + Math.cos(aa) * r * 1.08, e.y + Math.sin(aa) * r * 1.08); }
+        c.closePath();
+        break;
+      }
       case 'glitch': default: {
         const ox = e.ai.glitchT ? 4 : 0;
         c.rect(e.x - r + ox, e.y - r * 0.8, r * 2, r * 1.6);
@@ -358,6 +364,13 @@ export class Renderer {
     if (e.shape === 'ring') {
       c.strokeStyle = rgba(e.color, 0.6); c.lineWidth = 1.5;
       circle(c, e.x, e.y, r * 0.5); c.stroke();
+    }
+    if (e.shape === 'stomp') {
+      // Its cone pumps out while the lane is lit.
+      const k = e.ai.chargeWarn ? 1 - e.ai.chargeWarn.t / BEAT_SEC : 0;
+      c.strokeStyle = rgba(e.color, 0.85); c.lineWidth = 2;
+      circle(c, e.x, e.y, r * (0.5 + 0.28 * k)); c.stroke();
+      c.fillStyle = e.color; circle(c, e.x, e.y, r * 0.18); c.fill();
     }
     if (e.def.ranged && (e.ai.windup > 0 || e.ai.shootT)) {
       // Wind-up tell: the glow swells for a beat before the shot.
@@ -465,10 +478,10 @@ export class Renderer {
     }
   }
 
-  // Boss tells, drawn wherever the tell is (the boss itself may be off-screen).
+  // Boss tells and Stomp lanes, drawn wherever the tell is (the boss itself may be off-screen).
   _telegraphs(c, g) {
     for (const e of g.enemies) {
-      if (!e.boss || e.dead) continue;
+      if (e.dead || (!e.boss && !e.ai.chargeWarn)) continue;
       const bt = e.ai.blinkTo;
       if (bt) {
         // Landing marker in the danger palette (red and white), so it never looks like a player attack.
@@ -496,14 +509,19 @@ export class Renderer {
         }
       }
       const cw = e.ai.chargeWarn;
-      if (cw && cw.t > 0) {
-        // The Drone's charge lane lights up a beat before it dashes.
-        const L = e.speed * 3.4 * 0.75 + e.r;
+      // A charge lane (the Drone's, a Stomp's) lights up a beat before the dash. A Stomp's stays lit until
+      // its downbeat, even when a pause stretched the beat.
+      if (cw && (cw.t > 0 || e.def.charger)) {
+        const L = cw.len ?? e.speed * 3.4 * 0.75 + e.r;
         const k = 1 - cw.t / BEAT_SEC;
         c.save();
         c.translate(e.x, e.y); c.rotate(cw.a);
         c.fillStyle = `rgba(255,45,85,${0.08 + 0.14 * k})`;
         c.fillRect(0, -e.r, L, e.r * 2);
+        // A thin red edge on the whole lane, so crossing lanes stay separate shapes.
+        c.strokeStyle = 'rgba(255,45,85,0.6)';
+        c.lineWidth = 1.5;
+        c.strokeRect(0, -e.r, L, e.r * 2);
         c.strokeStyle = rgba('#ffffff', 0.3 + 0.4 * k);
         c.lineWidth = 2;
         c.strokeRect(0, -e.r, L * k, e.r * 2);
