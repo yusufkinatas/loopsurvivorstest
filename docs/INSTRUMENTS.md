@@ -223,7 +223,7 @@ A remix is compared with its level 5, paired pedal at 3 on both sides, by adding
 node tools/sim.mjs "speed=16&bot=1&minutes=2.2&god=1&solo=1&start=<id>&give=<id>:5&pedals=<pedal>:3&remix=<id>&seed=7" --summary
 ```
 
-At density 1 the spawn supply runs out before the strongest sounds do, so read kills and the boss
+The spawn supply runs out before the strongest sounds do, so read kills and the boss
 (The Drone arrives at 96 s) as well as damage. `node tools/check.mjs --mixall --remix` checks the
 remixed bands through the desk.
 

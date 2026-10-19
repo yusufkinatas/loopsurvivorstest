@@ -18,10 +18,13 @@ server below. Sound on, headphones help.
   sound or pedal for the rest of the run (three times), or skip the level to fill the Drop meter.
 - **Remix.** An instrument at level 5 with its paired pedal on your board (Canon is Wooden Flute plus
   Tape Delay) can be remixed: the same part, a new attack, and that pedal opened up on its channel.
-- **The Drop.** Collected notes fill the Drop meter. Press Space when it is full: the music builds for
-  one bar, then slams on the downbeat and blasts everything on screen.
-- **Survive the song.** About eight minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
-  Bridge, Build-Up, The Drop, Finale), a boss at every chorus, and White Noise in the finale.
+- **The Drop.** Collected notes fill the Drop meter. Press Space or E (A on a gamepad, the Drop button on a
+  touch screen) when it is full: the music builds for one bar, then slams on the downbeat and blasts
+  everything on screen.
+- **Pause** with Escape or P (Start on a gamepad, the pause button on a touch screen). M mutes. On a card
+  screen, R rerolls, X banishes and Q skips.
+- **Survive the song.** Eight to nine minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
+  Bridge, Build-Up, The Drop, Finale), a boss in each chorus and in The Drop, and White Noise in the Finale.
 - **Keep your songs.** The end screen plays your run back as a one-minute radio edit. The Discography
   keeps what you have done across runs:
   - **Liner notes.** 15 goals (silence The Drone, fill all six channels, make your first remix, finish the
@@ -118,7 +121,7 @@ node tools/progress-check.mjs                                 # the career rules
 
 `sim.mjs --runs N` plays seeds 1 to N, `--parallel N` runs that many pages at once, and `--summary` also
 lists the damage taken from each enemy, the boss fights, the remixes taken and the card screens with no
-real choice. `check.mjs --mix a,b,c --start N --bars M` renders a band bar by bar through the song's
+real choice. It exits 1 when a run crashes, throws or times out. `check.mjs --mix a,b,c --start N --bars M` renders a band bar by bar through the song's
 arrangement (add `--boss <type>`, `--stopAt N` or `--pickups R` for boss cues, stop-time or chimes).
 check.mjs fails on clipping, NaN, or a note out of key or off the grid.
 
@@ -127,5 +130,5 @@ the commit history of the balance pass.
 
 Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god`, `solo` (no level-ups),
 `seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `remix=id,...`, `gain=N`, `minutes`, `key`,
-`density`, `realpick` (level-ups through the real pause path) and `chaos` (random pauses, and with `realpick`
+`realpick` (level-ups through the real pause path) and `chaos` (random pauses, and with `realpick`
 also rerolls, banishes and skips). Sims never read or write the career.
