@@ -331,7 +331,7 @@ export class Screens {
     const rows = sum.instruments.map((i) => `
       <li style="--c:${ROLE_INFO[i.role].color}" class="${i.active ? '' : 'retired'}">
         <span class="er-icon">${icon(i.role)}</span>
-        <span class="er-name">${esc(i.name)}<small>${STYLES[i.style].name} · Lv ${i.level}${i.active ? '' : ' · swapped'}</small></span>
+        <span class="er-name">${esc(i.name)}<small>${STYLES[i.style].name} · Lv ${i.level}${sum.remixes.some((r) => r.id === i.id) ? ' · Remix' : ''}${i.active ? '' : ' · swapped'}</small></span>
         <span class="er-bar"><i style="transform:scaleX(${i.dmg / maxDmg})"></i></span>
         <span class="er-num">${i.dmg.toLocaleString('en-US')}</span>
       </li>`).join('');
