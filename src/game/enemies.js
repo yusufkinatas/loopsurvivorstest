@@ -71,7 +71,7 @@ function summonRing(g, e, type, n, dist) {
 // Called on every beat (beat 0..3 of each bar) while playing.
 export function enemiesOnBeat(g, ev) {
   const p = g.player;
-  const ringBar = ev.bar === g.director.ringBar;   // the Build-Up's last bar: only the Stomp ring arms
+  const isRingBar = ev.bar === g.director.ringBar;   // the Build-Up's last bar: only the Stomp ring arms
   let lanes = 0;
   for (const e of g.enemies) {
     if (e.dead || e.spawnT > 0) continue;
@@ -94,7 +94,7 @@ export function enemiesOnBeat(g, ev) {
       if (cw && ev.bar > cw.bar) {
         if (ev.beat === 0 && ev.bar === cw.bar + 1 && e.stun <= 0) { e.ai.charge = STOMP.time; e.ai.chargeA = cw.a; e.ai.chargeSpeed = STOMP.speed; }
         e.ai.chargeWarn = null;
-      } else if (ev.beat === 3 && e.stun <= 0 && (ringBar ? e.ai.ring : (ev.bar + e.id) % 2 === 0 && lanes < STOMP.lanes)) {
+      } else if (ev.beat === 3 && e.stun <= 0 && (isRingBar ? e.ai.ring : (ev.bar + e.id) % 2 === 0 && lanes < STOMP.lanes)) {
         const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy);
         if (d > STOMP.min && d < STOMP.max && Math.abs(dx) < g.view.w / 2 && Math.abs(dy) < g.view.h / 2) {
           lanes++;
