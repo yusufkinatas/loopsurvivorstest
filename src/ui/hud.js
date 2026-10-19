@@ -98,13 +98,14 @@ export class Hud {
 
   setBoss(e) {
     this.bossEnemy = e;
+    this.chipAt = -Infinity;   // the damage chip catches up on the next update
     this.boss.hidden = !e;
     if (!e) return;
     this.boss.querySelector('.bossbar-name').textContent = e.def.name;
     this.boss.style.setProperty('--c', e.def.color);
     // Notches where the boss changes its attack pattern.
     const marks = { drone: [0.8], clipper: [0.7], glitchking: [], whitenoise: [0.66, 0.33] }[e.type] || [];
-    this.boss.querySelector('.bossbar-track').innerHTML = '<div class="bossbar-fill"></div>' + marks.map((m) => `<i class="bossbar-notch" style="left:${m * 100}%"></i>`).join('');
+    this.boss.querySelector('.bossbar-track').innerHTML = '<div class="bossbar-chip"></div><div class="bossbar-fill"></div>' + marks.map((m) => `<i class="bossbar-notch" style="left:${m * 100}%"></i>`).join('');
   }
 
   // Rebuild the parts that only change when the loadout changes.
@@ -179,7 +180,10 @@ export class Hud {
 
     if (this.bossEnemy) {
       const e = this.bossEnemy;
-      this.boss.querySelector('.bossbar-fill').style.transform = `scaleX(${Math.max(0, e.hp / e.maxHp)})`;
+      const fill = `scaleX(${Math.max(0, e.hp / e.maxHp)})`;
+      this.boss.querySelector('.bossbar-fill').style.transform = fill;
+      // The chip shows the health just taken off in white, then catches up every 0.6 s of play.
+      if (g.time - this.chipAt >= 0.6) { this.chipAt = g.time; this.boss.querySelector('.bossbar-chip').style.transform = fill; }
       if (e.dead) this.setBoss(null);
     }
     this._drawSeq(g, now, seq);

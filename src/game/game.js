@@ -385,6 +385,9 @@ export class Game {
     this.src = prev;
     this.shots.length = 0;
     this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
+    // One ring per channel in its color. The outer channels run faster, so the rings spread into the same order
+    // as the kill spectrum (Sparkle outermost). Cosmetic.
+    band.forEach((color, i) => this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.42 + 0.06 * (band.length - 1 - i), damage: 0, kb: 0, width: 8, color }));
     magnetAll(this);
     this.hooks.onDrop?.('done');
   }
@@ -425,6 +428,7 @@ export class Game {
   onBeat(ev) {
     this.beatPulse = 1;
     if (ev.beat === 0) this.barPulse = 1;
+    if (this.won) return;   // White Noise is silenced: no more spawns, beats or shots, only the silence wave
     enemiesOnBeat(this, ev);
     this.director.onBeat(ev);
   }
@@ -464,9 +468,14 @@ export class Game {
       this.won = true;
       this.victoryT = 2.2;
       this.banner('Encore!', 'White Noise is silenced');
+      // The silence wave grows from where it fell and silences the arena (see step()).
+      this.silence = { x: e.x, y: e.y, r: 0 };
     } else {
       this.banner(`${e.def.name} is silenced`, '', true);
       magnetAll(this);
+      // The boss implodes, then bursts outward in its color (cosmetic).
+      this.fx.ring({ x: e.x, y: e.y, r0: e.r * 3.2, r1: 6, dur: 0.22, damage: 0, kb: 0, width: 12, color: e.color });
+      this.later.push({ at: this.time + 2 * STEP_SEC, fn: () => this.fx.ring({ x: e.x, y: e.y, r0: 10, r1: 640, dur: 0.7, damage: 0, kb: 0, width: 16, color: e.color }) });
     }
   }
 
@@ -546,7 +555,7 @@ export class Game {
 
     this.fx.update(dt);
     updateEnemies(this, dt);
-    this.director.update(dt);
+    if (!this.won) this.director.update(dt);   // no elites or recycling while the silence wave clears the arena
     updatePickups(this, dt);
 
     // Remove the dead
@@ -563,6 +572,23 @@ export class Game {
     if (this.sectionBanner) this.sectionBanner.t += dt;
 
     if (this.won && this.state === 'playing') {
+      // The silence wave grows at 900 px/s. Each enemy it reaches is silenced: no notes, items or splits, a pop
+      // in a band color and one more on the counter. It runs on dt, never on victoryT, so it works however
+      // long the final cadence holds the win.
+      const w = this.silence;
+      if (w) {
+        w.r += 900 * dt;
+        const band = this.loadout.instruments();
+        for (const x of this.enemies) {
+          if (x.dead || dist2(x.x, x.y, w.x, w.y) > (w.r + x.r) * (w.r + x.r)) continue;
+          x.dead = true;
+          this.kills++;
+          if (!this.onScreen(x)) continue;
+          const col = this.color(band[x.id % band.length]);
+          this.fx.particles(x.x, x.y, col, 6, 190, 0.42, 2.8);
+          this.fx.flash(x.x, x.y, x.r * 1.8, col, 0.16, 0);
+        }
+      }
       this.victoryT -= dt;
       if (this.victoryT <= 0) { this.victory(); return; }
     }

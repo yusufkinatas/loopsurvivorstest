@@ -15,6 +15,7 @@ export class Renderer {
     this.hue = 248;
     this.time = 0;
     this.scale = 1;
+    this.zoom = 1;               // the Drop camera, on top of scale (see draw)
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -95,8 +96,8 @@ export class Renderer {
     this._background(c, 258, pulse, pulse * 0.6);
   }
 
-  _background(c, hue, beat, bar, sx = 0, sy = 0) {
-    const w = this.w, h = this.h, s = this.scale;
+  _background(c, hue, beat, bar, sx = 0, sy = 0, s = this.scale) {
+    const w = this.w, h = this.h;
     const camX = this.cam.x + sx, camY = this.cam.y + sy;
     c.fillStyle = `hsl(${hue}, 38%, 6.5%)`;
     c.fillRect(0, 0, w, h);
@@ -142,10 +143,18 @@ export class Renderer {
     const shakeAmt = g.settings.shake ? g.shake : g.shake * 0.2;
     // Cosmetic randomness never draws from the seeded rng, so a seed plays the same run at any frame rate.
     const sx = (Math.random() * 2 - 1) * shakeAmt, sy = (Math.random() * 2 - 1) * shakeAmt;
+    // The Drop camera pushes in through the build bar and punches out on the impact. It scales only the drawing,
+    // never viewSize(), so spawns, the bot and the game's view are untouched. Screen shake off keeps it still.
+    const building = g.dropState === 'building';
+    const cur = building ? g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0)) : null;
+    const prog = cur ? cur.sib / 16 : 0;
+    if (g.drops !== this._drops) { if (g.drops > this._drops) this.zoom = 0.94; this._drops = g.drops; }
+    if (!g.settings.shake) this.zoom = 1;
+    else if (g.state === 'playing') this.zoom += ((building ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
+    const s = this.scale * this.zoom;
 
-    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy);
+    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy, s);
 
-    const s = this.scale;
     c.setTransform(this.dpr * s, 0, 0, this.dpr * s, this.dpr * (this.w / 2 - (this.cam.x + sx) * s), this.dpr * (this.h / 2 - (this.cam.y + sy) * s));
     const vw = this.w / s / 2 + 80, vh = this.h / s / 2 + 80;
     const cx = this.cam.x, cy = this.cam.y;
@@ -170,15 +179,24 @@ export class Renderer {
     this._orbits(c, g);
     this._bullets(c, g, inView);
     this._rings(c, g, inView);
+    // The silence wave's front, until it has passed the far corner of the view.
+    const sw = g.won && g.silence;
+    if (sw && sw.r < Math.hypot(Math.abs(sw.x - cx) + vw, Math.abs(sw.y - cy) + vh)) {
+      c.strokeStyle = 'rgba(255,255,255,0.12)'; c.lineWidth = 28;
+      circle(c, sw.x, sw.y, sw.r); c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = 6;
+      c.stroke();
+    }
     this._beams(c, g);
     this._particles(c, g, inView);
     c.globalCompositeOperation = 'source-over';
     // The player and everything that can hurt them go on top of the band's effects, so they stay readable.
-    this._player(c, g);
+    if (g.state === 'dying' || g.state === 'gameover') this._shatter(c, g);
+    else this._player(c, g);
     this._telegraphs(c, g);
     this._shots(c, g, inView);
     this._texts(c, g, inView);
-    this._bossArrow(c, g);
+    this._bossArrow(c, g, s);
 
     // Screen-space overlays
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -193,10 +211,8 @@ export class Renderer {
     }
     // Player position on screen, for screen-space effects centered on them.
     const px = (p.x - this.cam.x) * s + this.w / 2, py = (p.y - this.cam.y) * s + this.h / 2;
-    if (g.dropState === 'building') {
+    if (building) {
       // One bar of build: the screen darkens, a ring closes in on you, and four beat ticks light up.
-      const cur = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
-      const prog = cur ? cur.sib / 16 : 0;
       c.fillStyle = `rgba(4,2,10,${0.18 + 0.4 * prog})`;
       c.fillRect(0, 0, this.w, this.h);
       const R0 = Math.max(this.w, this.h) * 0.62;
@@ -523,10 +539,9 @@ export class Renderer {
   }
 
   // An arrow pointing at a boss that is off-screen or hidden under the HUD, drawn inside the clear play area.
-  _bossArrow(c, g) {
+  _bossArrow(c, g, s) {
     const e = g.boss;
     if (!e || e.dead) return;
-    const s = this.scale;
     const top = 72, bottom = this.w < 760 ? 150 : 104, side = 24;
     const sxp = (e.x - this.cam.x) * s + this.w / 2, syp = (e.y - this.cam.y) * s + this.h / 2;
     if (sxp > side && sxp < this.w - side && syp > top && syp < this.h - bottom) return;
@@ -583,6 +598,38 @@ export class Renderer {
     c.lineTo(p.x + Math.cos(a + 0.35) * (r + 1), p.y + Math.sin(a + 0.35) * (r + 1));
     c.lineTo(p.x + Math.cos(a - 0.35) * (r + 1), p.y + Math.sin(a - 0.35) * (r + 1));
     c.closePath(); c.fill();
+    c.globalAlpha = 1;
+  }
+
+  // The death beat: the channel rings break into arcs that fly off and fade, and the speaker splits into four
+  // wedges that drift apart. Cracks show from the first frame, so no intact speaker appears after the lethal hit.
+  _shatter(c, g) {
+    const p = g.player;
+    const k = g.state === 'dying' ? clamp(1 - g.dyingT / 0.9, 0, 1) : 1;
+    const e = 1 - (1 - k) * (1 - k);
+    let i = 0;
+    c.globalAlpha = 1 - k;
+    for (const role of ROLES) {
+      if (!g.loadout.channels[role]) continue;
+      const rr = p.r + 5 + i * 3.2 + e * (70 + 18 * i);
+      const a0 = i * 0.9 + (i % 2 ? 1.2 : -1.2) * e;
+      c.strokeStyle = ROLE_INFO[role].color;
+      c.lineWidth = 1.6;
+      for (let j = 0; j < 3; j++) { c.beginPath(); c.arc(p.x, p.y, rr, a0 + (j / 3) * TAU, a0 + (j / 3) * TAU + 1.5); c.stroke(); }
+      i++;
+    }
+    c.globalAlpha = 1 - k * k;
+    const d = 3 + 28 * e, q = Math.PI / 2;
+    for (let j = 0; j < 4; j++) {
+      const a = j * q + q / 2, x = p.x + Math.cos(a + q / 2) * d, y = p.y + Math.sin(a + q / 2) * d;
+      c.beginPath(); c.moveTo(x, y); c.arc(x, y, p.r, a, a + q); c.closePath();
+      c.fillStyle = '#16121f'; c.fill();
+      c.strokeStyle = '#f4efff'; c.lineWidth = 2.5; c.stroke();
+      c.strokeStyle = 'rgba(244,239,255,0.55)'; c.lineWidth = 1.5;
+      c.beginPath(); c.arc(x, y, p.r * 0.58, a, a + q); c.stroke();
+      c.fillStyle = '#f4efff';
+      c.beginPath(); c.moveTo(x, y); c.arc(x, y, p.r * 0.22, a, a + q); c.closePath(); c.fill();
+    }
     c.globalAlpha = 1;
   }
 
