@@ -2,7 +2,7 @@
 // color follows the song section. Music is color: every attack wears its channel's color.
 
 import { TAU, clamp, lerp, rgba, hexToRgb } from '../util.js';
-import { BEAT_SEC } from '../config.js';
+import { BEAT_SEC, BALANCE } from '../config.js';
 import { ROLE_INFO, ROLES } from '../config.js';
 import { ITEM_INFO } from '../game/pickups.js';
 
@@ -230,6 +230,7 @@ export class Renderer {
     // The player and everything that can hurt them go on top of the band's effects, so they stay readable.
     if (g.state === 'dying') this._shatter(c, g);
     else if (g.state !== 'gameover') this._player(c, g);   // after the death beat the speaker is gone
+    this._marks(c, g, inView);
     this._telegraphs(c, g);
     this._shots(c, g, inView);
     this._texts(c, g, inView);
@@ -260,12 +261,32 @@ export class Renderer {
       }
     }
     if (g.dropFlash > 0.02 && g.settings.flashes) {
+      // The flash covers the blast, not the whole screen: the Drop is local.
+      const R = (g.dropR || 460) * s * 1.1;
       c.globalCompositeOperation = 'lighter';
-      const fl = c.createRadialGradient(px, py, 0, px, py, Math.max(this.w, this.h) * 0.8);
+      const fl = c.createRadialGradient(px, py, 0, px, py, R);
       fl.addColorStop(0, `rgba(255,255,255,${g.dropFlash * 0.5})`);
-      fl.addColorStop(1, `rgba(255,240,255,${g.dropFlash * 0.15})`);
+      fl.addColorStop(0.8, `rgba(255,240,255,${g.dropFlash * 0.2})`);
+      fl.addColorStop(1, 'rgba(255,240,255,0)');
       c.fillStyle = fl;
       c.fillRect(0, 0, this.w, this.h);
+      c.globalCompositeOperation = 'source-over';
+    }
+    // A perfect drop (on a phrase downbeat): a gold wash and a gold rim at the blast's edge that hold a moment longer.
+    if (g.perfectFlash > 0.02) {
+      const R = (g.dropR || 460) * s;
+      c.globalCompositeOperation = 'lighter';
+      if (g.settings.flashes) {
+        const fl = c.createRadialGradient(px, py, R * 0.2, px, py, R * 1.15);
+        fl.addColorStop(0, 'rgba(255,209,102,0)');
+        fl.addColorStop(0.85, `rgba(255,209,102,${g.perfectFlash * 0.28})`);
+        fl.addColorStop(1, 'rgba(255,209,102,0)');
+        c.fillStyle = fl;
+        c.fillRect(0, 0, this.w, this.h);
+      }
+      c.strokeStyle = `rgba(255,209,102,${g.perfectFlash * 0.9})`;
+      c.lineWidth = 3 + 5 * g.perfectFlash;
+      circle(c, px, py, R * (1.02 + 0.04 * (1 - g.perfectFlash))); c.stroke();
       c.globalCompositeOperation = 'source-over';
     }
   }
@@ -274,14 +295,17 @@ export class Renderer {
 
   _pickups(c, g, inView) {
     const t = this.time;
+    // A note about to fade blinks on 16ths through its last BALANCE.notes.blink seconds.
+    const N = BALANCE.notes;
+    const fading = (gm) => gm.kind === 'xp' && !gm.pull && gm.age > N.life - N.blink && Math.floor(gm.age / (BEAT_SEC / 4)) % 2 === 1;
     c.globalCompositeOperation = 'lighter';
     for (const gm of g.gems) {
-      if (!inView(gm.x, gm.y, 20)) continue;
+      if (!inView(gm.x, gm.y, 20) || fading(gm)) continue;
       this.drawGlow(gm.x, gm.y, gm.r * 2.2, gm.color, gm.kind === 'xp' ? 0.25 : 0.5);
     }
     c.globalCompositeOperation = 'source-over';
     for (const gm of g.gems) {
-      if (!inView(gm.x, gm.y, 20)) continue;
+      if (!inView(gm.x, gm.y, 20) || fading(gm)) continue;
       if (gm.kind === 'xp') {
         drawNote(c, gm.x, gm.y + Math.sin(t * 4 + gm.x) * 1.2, gm.r, gm.color);
       } else if (gm.kind === 'vinyl') {
@@ -346,7 +370,15 @@ export class Renderer {
     const t = this.time;
     for (const e of g.enemies) {
       if (e.dead || !inView(e.x, e.y, e.r + 10)) continue;
-      const spawnK = e.spawnT > 0 ? 1 - e.spawnT / 0.35 : 1;
+      const spawnK = e.spawnT > 0 ? 1 - e.spawnT / (e.spawnDur || 0.35) : 1;
+      // A telegraphed arrival (a drop-in, a close ring): a ring in its color closes in on the spot for its beat.
+      if (e.spawnT > 0 && e.spawnDur > 0.4) {
+        c.strokeStyle = rgba(e.color, 0.35 + 0.55 * spawnK);
+        c.lineWidth = 2;
+        circle(c, e.x, e.y, e.r * (1 + 2.6 * (1 - spawnK))); c.stroke();
+        c.fillStyle = rgba(e.color, 0.1 * spawnK);
+        circle(c, e.x, e.y, e.r); c.fill();
+      }
       const r = e.r * (e.boss ? 1 + g.beatPulse * 0.04 : bob) * spawnK;
       if (r <= 0.5) continue;
       c.globalAlpha = spawnK;
@@ -394,6 +426,11 @@ export class Renderer {
         break;
       }
       case 'ring': { c.arc(e.x, e.y, r, 0, TAU); break; }
+      case 'snare': {
+        // A snare drum seen from above: a round head (the wires are drawn below).
+        c.arc(e.x, e.y, r, 0, TAU);
+        break;
+      }
       case 'stomp': {
         // A speaker cabinet: a flat-sided octagon.
         for (let i = 0; i < 8; i++) { const aa = ((i + 0.5) / 8) * TAU; c.lineTo(e.x + Math.cos(aa) * r * 1.08, e.y + Math.sin(aa) * r * 1.08); }
@@ -423,6 +460,13 @@ export class Renderer {
     if (e.shape === 'ring') {
       c.strokeStyle = rgba(e.color, 0.6); c.lineWidth = 1.5;
       circle(c, e.x, e.y, r * 0.5); c.stroke();
+    }
+    if (e.shape === 'snare') {
+      // The snare wires across the head, and a bright rim for a moment after it fires.
+      c.strokeStyle = rgba(e.color, 0.8); c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(e.x - r * 0.6, e.y - r * 0.2); c.lineTo(e.x + r * 0.6, e.y - r * 0.2);
+      c.moveTo(e.x - r * 0.6, e.y + r * 0.2); c.lineTo(e.x + r * 0.6, e.y + r * 0.2); c.stroke();
+      if (e.ai.shootT) { c.strokeStyle = rgba('#ffffff', 0.8); c.lineWidth = 2; circle(c, e.x, e.y, r * 1.25); c.stroke(); }
     }
     if (e.shape === 'stomp') {
       // Its cone pumps out while the lane is lit.
@@ -540,6 +584,24 @@ export class Renderer {
   }
 
   // Boss tells and Stomp lanes, drawn wherever the tell is (the boss itself may be off-screen).
+  // Snare marks: a quiet outline where the shell will land, filling toward its beat, with a tick ring closing in.
+  _marks(c, g, inView) {
+    const H = g.hazards;
+    if (!H?.length) return;
+    for (const h of H) {
+      if (!inView(h.x, h.y, h.r)) continue;
+      const k = clamp((g.time - h.t0) / (h.dur || 1), 0, 1);
+      c.fillStyle = `rgba(255,107,154,${0.05 + 0.17 * k})`;
+      circle(c, h.x, h.y, h.r * k); c.fill();
+      c.strokeStyle = `rgba(255,107,154,${0.45 + 0.35 * k})`;
+      c.lineWidth = 1.5;
+      circle(c, h.x, h.y, h.r); c.stroke();
+      c.strokeStyle = `rgba(255,255,255,${0.15 + 0.45 * k})`;
+      c.lineWidth = 1;
+      circle(c, h.x, h.y, h.r * (1.5 - 0.5 * k)); c.stroke();
+    }
+  }
+
   _telegraphs(c, g) {
     for (const e of g.enemies) {
       if (e.dead || (!e.boss && !e.ai.chargeWarn)) continue;
@@ -572,7 +634,7 @@ export class Renderer {
       const cw = e.ai.chargeWarn;
       // A charge lane (the Drone's, a Stomp's) lights up a beat before the dash. A Stomp's stays lit until
       // its downbeat, even when a pause stretched the beat.
-      if (cw && (cw.t > 0 || e.def.charger)) {
+      if (cw && (cw.t > 0 || e.def.charger || cw.hold)) {
         const L = cw.len ?? e.speed * 3.4 * 0.75 + e.r;
         const k = 1 - cw.t / BEAT_SEC;
         c.save();
