@@ -90,6 +90,8 @@ export class Game {
     this.ledger = [];        // per section, for balance sims (_led)
     this.hazards = [];       // Snare marks waiting for their beat (enemies.js)
     this.lastHurtAt = -Infinity;
+    this._godUntil = -1;     // god mode (?god=1): the ledger's own i-frames
+    this._downbeat = -1;     // the last bar whose downbeat ran (onBeat)
     this.perfectDrops = 0;   // Drops that landed on a phrase downbeat
     this.perfectFlash = 0;
     this.dropR = DROP.radius;
@@ -871,6 +873,12 @@ export class Game {
   }
 
   onBeat(ev) {
+    // A bar's downbeat runs once, so its set pieces and attacks never repeat (a pause keeps a queued one for
+    // the first frame after resume).
+    if (ev.beat === 0) {
+      if (ev.bar === this._downbeat) return;
+      this._downbeat = ev.bar;
+    }
     this.beatPulse = 1;
     if (ev.beat === 0) this.barPulse = 1;
     if (this.won) return;   // White Noise is silenced: no more spawns, beats or shots, only the silence wave
@@ -1337,9 +1345,11 @@ export class Game {
   _pause(state) {
     this.state = state;
     this.seq.hold = true;
-    // Drop queued notes and beats, but keep song-structure events (section, build, drop): losing one would
-    // skip a boss, keep a channel shut or leave the Drop stuck. They play out on the first frame after resume.
-    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat');
+    // Drop queued notes and beats, but keep song-structure events (section, build, drop, impact, remix) and
+    // downbeats: losing one would skip a boss, keep a channel shut, leave the Drop stuck or lose a bar's set
+    // pieces (a breather heart, a featured elite's vinyl, an impact ring). The held bar plays on from where the
+    // vamp is, never from its downbeat again, so they play out once, on the first frame after resume.
+    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && (ev.type !== 'beat' || ev.beat === 0));
     if (this.audio?.ready) this.audio.setMuffle(true);
   }
 
