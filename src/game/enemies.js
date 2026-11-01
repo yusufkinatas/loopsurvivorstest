@@ -389,9 +389,11 @@ export function updateEnemies(g, dt) {
       }
     }
   }
-  // A boss shoves you clear of its body after the crowd has pushed, so a crowd can never hold you inside one.
+  // A boss shoves you to its edge after the crowd has pushed, so a crowd can never hold you inside one. It leaves
+  // you just inside contact range (bossGap < 0), so its body still hurts, and a charging boss is never shoved off:
+  // its dash runs through you.
   if (C.bossShove) for (const e of g.enemies) {
-    if (!e.boss || e.dead || e.spawnT > 0) continue;
+    if (!e.boss || e.dead || e.spawnT > 0 || e.ai.charge > 0) continue;
     const rb = e.r + p.r + C.bossGap, dx = p.x - e.x, dy = p.y - e.y, d2 = dx * dx + dy * dy;
     if (d2 < rb * rb && d2 > 0.01) { const d = Math.sqrt(d2); p.x = e.x + (dx / d) * rb; p.y = e.y + (dy / d) * rb; }
   }

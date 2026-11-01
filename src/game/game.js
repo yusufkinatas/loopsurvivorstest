@@ -941,7 +941,7 @@ export class Game {
   // only: what it hits is not launched. Bosses, charging enemies and enemies already in flight cannot be
   // launched (returns false). o.onLand(e, g) runs where it stops. Damage is credited to the current g.src.
   launch(e, angle, speed, dmg, o = {}) {
-    if (!e || e.dead || e.boss || e.ai.charge > 0 || e.launch) return false;
+    if (!e || e.dead || e.boss || e.spawnT > 0 || e.ai.charge > 0 || e.launch) return false;   // never a body still arriving
     e.launch = { t: o.t ?? 0.35, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, dmg, src: this.src, hit: new Set([e]), max: o.max ?? 8, onLand: o.onLand ?? null };
     e.kbx = e.kby = 0;
     return true;

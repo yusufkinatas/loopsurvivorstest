@@ -144,8 +144,9 @@ export const BALANCE = {
   },
   // Bodies: contact knockback on the body that hit you, how hard a crowd blocks you (block x overlap, split by
   // mass against playerMass, `inset` px inside contact range), boss body damage x boss, a boss shoves you clear
-  // `bossGap` px past its body after the crowd pushed, and the crowd yields while you touch a boss.
-  contact: { kb: 140, block: 0.5, inset: 5, playerMass: 2, boss: 0.75, bossShove: true, bossGap: 2, yieldToBoss: true },
+  // to `bossGap` px from its edge after the crowd pushed (negative: still inside contact range, so a boss holding
+  // you keeps hurting at the iframe rate), and the crowd yields while you touch a boss.
+  contact: { kb: 140, block: 0.5, inset: 5, playerMass: 2, boss: 0.75, bossShove: true, bossGap: -5, yieldToBoss: true },
   // Healing is a budget tied to the song, not to kills: choruses test you, verses let you recover.
   hearts: {
     heal: 0.35,             // a heart restores this share of max health

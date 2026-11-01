@@ -39,7 +39,7 @@ const isBowed = (note) => note.k === 'bow' || note.dur >= BOWED * STEP_SEC - 0.0
 // near you, else where you face), and the line keeps that heading all bar, marching out from wherever you are.
 // mem.k counts the ranks the stabs have landed this bar.
 function lineUp(g, note, st, mem) {
-  if (mem.bar !== note.bar || mem.a === undefined) {
+  if ((g.dmgScale === 1 && mem.bar !== note.bar) || mem.a === undefined) {   // an echo never re-lines the bar
     const p = g.player;
     const boss = g.bossInRange(p.x, p.y, st.aim);
     const crowd = boss || g.densest(st.aim);
