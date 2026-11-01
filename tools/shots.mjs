@@ -218,7 +218,7 @@ await snap('icons');
 
 // Every card frame: the five styles, a pedal, a remix and a bonus card, built from describeOffer's shape.
 // Until config.js has a style, the harness lends it a stand-in color.
-await page.evaluate(async () => {
+await page.evaluate(async (phone) => {
   const { STYLES, ROLE_INFO } = await import('/src/config.js');
   STYLES.heavy ||= { name: 'Heavy', color: '#ff7a45' };
   STYLES.orchestra ||= { name: 'Orchestra', color: '#e9d39b' };
@@ -235,10 +235,10 @@ await page.evaluate(async () => {
     card('remix', 'Canon', 'lead', 'organic', 'flute', { level: 5, cells: lane([0, 2, 5, 8, 10, 13]) }),
     { kind: 'heal', title: 'Breather', color: '#ff6f8a', style: null, glyph: 'heal', from: null, level: 0, maxLevel: 0, cells: null, gems: [], slot: null, info: ['Restore 40% of your health.'] },
   ];
-  document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="/styles.css">');
+  document.head.insertAdjacentHTML('beforeend', '<meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/styles.css">');
   await new Promise((r) => setTimeout(r, 300));
-  document.body.innerHTML = `<div id="screens" style="position:static;overflow:visible;padding:24px"><div class="cards-wrap"><div class="cards" style="grid-template-columns:repeat(4,232px)">${descs.map((d, i) => cardHtml(d, i)).join('')}</div></div></div>`;
-});
+  document.body.innerHTML = `<div id="screens" style="position:static;overflow:visible;padding:${phone ? 12 : 24}px"><div class="cards-wrap"><div class="cards"${phone ? '' : ' style="grid-template-columns:repeat(4,232px)"'}>${descs.map((d, i) => cardHtml(d, i)).join('')}</div></div></div>`;
+}, mobile);
 await wait(300);
 await snap('cards');
 console.log(JSON.stringify({ words: Object.fromEntries(Object.entries(words).map(([k, v]) => [k, `${v.n}: ${v.text.join(' | ')}`])), logs: logs.filter((l) => !/Failed to load resource/.test(l)).slice(0, 20) }, null, 2));
