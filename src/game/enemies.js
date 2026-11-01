@@ -37,7 +37,7 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
   const minutes = g.time / 60;
   const elite = !!opts.elite;
   const B = BALANCE.boss;
-  const hpMul = def.boss ? (1 + minutes * B.hpPerMin) * (B.hp?.[type] ?? 1) * g.mods.bossHp : (1 + minutes * 0.25 + minutes * minutes * 0.09) * (elite ? BALANCE.elites.hp : 1) * (opts.hpMul ?? 1) * g.mods.hp;
+  const hpMul = def.boss ? (1 + minutes * B.hpPerMin) * (B.hp?.[type] ?? 1) * g.mods.bossHp : BALANCE.enemy.hp * (1 + minutes * BALANCE.enemy.lin + minutes * minutes * BALANCE.enemy.quad) * (elite ? BALANCE.elites.hp : 1) * (opts.hpMul ?? 1) * g.mods.hp;
   const arrive = opts.telegraph ?? 0.35;
   const e = {
     id: g.nextId++, type, def, x, y, vx: 0, vy: 0,

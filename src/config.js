@@ -72,7 +72,9 @@ export const GAIN = [
 // through the game code. Other lanes add their own keys. Times are in seconds unless a name says bars or beats.
 export const BALANCE = {
   // The player: health before pedals and chemistry, and a master dial on all damage taken (before armor).
-  player: { maxHp: 120, dmgIn: 0.72 },
+  player: { maxHp: 120, dmgIn: 0.72, area: 1 },   // area: a master dial on every attack area of the band (game.area)
+  // The Noise's health: hp x (1 + lin*m + quad*m^2) for song minute m (bosses have their own line under boss).
+  enemy: { hp: 1, lin: 0.25, quad: 0.09 },
   // Healing is a budget tied to the song, not to kills: choruses test you, verses let you recover.
   hearts: {
     heal: 0.35,             // a heart restores this share of max health
