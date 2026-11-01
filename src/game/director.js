@@ -17,8 +17,9 @@ const MIX = {
   drop:    { static: 0.24, buzz: 0.19, hum: 0.19, glitch: 0.1, screech: 0.1, feedback: 0.14, stomp: 0.04 },
   finale:  { static: 0.3, buzz: 0.22, hum: 0.18, screech: 0.14, feedback: 0.16 },
 };
-// The Snare joins the mixes where BALANCE puts it.
+// The Snare joins the mixes where BALANCE puts it, and the Screech's share is scaled.
 for (const [id, w] of Object.entries(BALANCE.snare.mix)) if (MIX[id] && w > 0) MIX[id].snare = w;
+for (const id in MIX) if (MIX[id].screech) MIX[id].screech *= BALANCE.screech.mix;
 const RANGED = ['screech', 'snare'];
 
 export class Director {
@@ -48,7 +49,8 @@ export class Director {
   target(pos) {
     const t = this.g.time;
     const m = t / 60;
-    let n = (12 + t * 0.5 + m * m * 3.4) * this.energy(pos);
+    const C = BALANCE.crowd;
+    let n = (C.base + t * C.perSec + m * m * C.perMin2) * this.energy(pos);
     if (this.g.boss) n *= this.g.boss.def.final ? 0.55 : 0.7;
     return Math.min(WORLD.maxEnemies, Math.floor(n * (this.g.opts.density ?? 1) * this.g.mods.density));
   }

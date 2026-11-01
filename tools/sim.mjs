@@ -11,10 +11,11 @@
 // Exits with 1 when a run crashed, threw, timed out or produced no metrics; the other runs still print.
 //
 // --summary adds `sections` to each run: one line per song section from the game's ledger,
-//   chorus2 t224 -131/+40 c38% min34% lv15+6 p6 k1234@260 n3.1% a180 h1/1 d1*1 m2/9
+//   chorus2 t224 -131/+40 c38% min34% lv15+6 p6 k1234@260 n3.1% a180 h1/1 d1*1 m2/9 f40
 // = section, start time (s), damage taken / healed, contact share (bodies and Snare marks), lowest health,
 //   level at the start + levels gained, cards picked, kills @ mean kill distance (px), share of kills within
-//   120 px, enemies alive on average, hearts spawned/taken, Drops (*perfect), Snare marks that hit/landed.
+//   120 px, enemies alive on average, hearts spawned/taken, Drops (*perfect), Snare marks that hit/landed,
+//   note value that faded on the floor.
 // With --runs > 1 it then prints one AGGREGATE line (wins, where runs died, median lowest health before the
 // Finale, contact share, picks, levels at Chorus II and the Finale, Drops, boss fight lengths, channels at L5).
 // With god=1 the ledger still records the damage you would have taken.
@@ -72,7 +73,7 @@ function sectionLines(m) {
     const close = (L.dmg.contact || 0) + (L.dmg.mark || 0);
     return `${L.sec} t${Math.round(L.t0)} -${Math.round(dmg)}/+${Math.round(heal)} c${dmg ? pct(close / dmg) : '-'} min${pct(L.minHp)} lv${L.lv0}+${L.levels} p${L.picks}`
       + ` k${L.kills}@${Math.round(L.killDist / Math.max(1, L.nd))} n${(100 * L.near120 / Math.max(1, L.nd)).toFixed(1)}% a${Math.round(L.alive / Math.max(1, L.frames))}`
-      + ` h${L.hearts}/${L.heartsTaken} d${L.drops}${L.perfect ? `*${L.perfect}` : ''} m${L.markHits}/${L.marks}`;
+      + ` h${L.hearts}/${L.heartsTaken} d${L.drops}${L.perfect ? `*${L.perfect}` : ''} m${L.markHits}/${L.marks} f${Math.round(L.faded)}`;
   }).filter(Boolean);
 }
 

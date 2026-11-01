@@ -463,7 +463,7 @@ export class Game {
     if (this.state !== 'playing' || this.won) return;
     const god = this.opts.god;
     if (god ? this.time < (this._godUntil ?? -1) : p.iframes > 0) return;
-    const taken = Math.max(1, dmg * this.mods.dmgIn - this.stats.armor);
+    const taken = Math.max(1, dmg * this.mods.dmgIn * BALANCE.player.dmgIn - this.stats.armor);
     const cause = kind || (!from ? 'shots' : from.boss ? 'boss' : 'contact');
     const by = (from || shotFrom)?.def.name;
     const L = this._led();
@@ -687,6 +687,7 @@ export class Game {
     this.hooks.onBoss?.(this.boss);
     if (e.def.final) {
       this.won = true;
+      this.hazards.length = 0;   // no more beats: marks still waiting would never land
       // The song's ending: stop-time on i on the next downbeat, and the win lands as that bar ends.
       this.seq.stopNext(16, true);
       this.victoryT = this._stopLeft();

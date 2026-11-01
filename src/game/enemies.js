@@ -166,7 +166,7 @@ export function enemiesOnBeat(g, ev) {
     if (e.def.ranged && ev.beat === 2 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0) {
       const d2 = dist2(e.x, e.y, p.x, p.y);
       if (d2 < 480 * 480) {
-        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, 14 * (1 + g.time / 60 * 0.06), { color: '#ff7a95', from: e });
+        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, BALANCE.screech.dmg * (1 + g.time / 60 * 0.06), { color: '#ff7a95', from: e });
         e.ai.shootT = 0.2;
       }
     }
@@ -223,7 +223,7 @@ function bossOnBeat(g, e, ev) {
       if (ev.beat === 2 && e.ai.blinkTo) {
         g.fx.particles(e.x, e.y, e.color, 18, 260, 0.5, 3);
         e.x = e.ai.blinkTo.x; e.y = e.ai.blinkTo.y; e.ai.blinkTo = null;
-        radial(g, e, 20, 150, 25, rand(0, TAU), '#8ff3ff');
+        radial(g, e, 20, 150, BALANCE.boss.kingRadialDmg, rand(0, TAU), '#8ff3ff');
         summonRing(g, e, 'glitch', 4, e.r + 40);
       }
       if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, BALANCE.boss.kingTripleDmg, { color: '#b9f7ff', from: e });
@@ -236,7 +236,7 @@ function bossOnBeat(g, e, ev) {
         if (e.ai.phase && phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
         e.ai.phase = phase;
       }
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, 26, ev.bar * 0.21 + ev.beat, '#ffffff');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, BALANCE.boss.noiseRadialDmg, ev.bar * 0.21 + ev.beat, '#ffffff');
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
       // Spiral arms on 8th notes: one set on the beat and one on the 8th after it. A stun holds them.
@@ -252,7 +252,7 @@ function bossOnBeat(g, e, ev) {
 function spiral(g, e) {
   e.ai.spiralA = (e.ai.spiralA || 0) + 0.42;
   const arms = e.ai.phase === 3 ? 4 : 3;
-  for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, 24, { color: '#e6e6ff', r: 5, from: e });
+  for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, BALANCE.boss.noiseSpiralDmg, { color: '#e6e6ff', r: 5, from: e });
 }
 
 // Movement, separation and contact damage.
