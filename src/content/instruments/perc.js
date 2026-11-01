@@ -1,8 +1,7 @@
 // PERC channel ("Groove"): hats and shakers. High, light and busy: many small hits between the beats,
 // off-beat 8ths first, then 16ths and ghost notes. Step 0 belongs to the kick, so low levels stay off it.
 
-import { rand } from '../../util.js';
-import { STEP_SEC, BEAT_SEC, ECHO_STEPS } from '../../config.js';
+import { rand, clamp } from '../../util.js';
 
 // Pattern helpers: step s, velocity v, kind k.
 const H = (s, v = 1) => ({ s, v, k: 'hat' });
@@ -21,6 +20,18 @@ const aimAt = (g, range) => {
   return e ? Math.atan2(e.y - p.y, e.x - p.x) : g.aim();
 };
 
+// Angle to the nearest enemy within `half` radians of `angle` (a side of you), else `angle` itself.
+function aimArc(g, angle, half, range) {
+  const p = g.player, ax = Math.cos(angle), ay = Math.sin(angle), c = Math.cos(half);
+  let best = null, bd = range * range;
+  g.grid.query(p.x, p.y, range, (e) => {
+    if (e.dead || e.spawnT > 0.2) return;
+    const dx = e.x - p.x, dy = e.y - p.y, d = dx * dx + dy * dy;
+    if (d < bd && dx * ax + dy * ay >= c * Math.sqrt(d)) { bd = d; best = e; }
+  });
+  return best ? Math.atan2(best.y - p.y, best.x - p.x) : angle;
+}
+
 // ---------------------------------------------------------------------------- Drum Machine Hats (Synth)
 
 // Each level keeps the one before and adds to it.
@@ -29,6 +40,12 @@ const HATS_2 = [...HATS_1, H(0, 0.4), H(4, 0.5), H(8, 0.45), H(12, 0.5)];
 const HATS_3 = [...HATS_2, O(14, 0.85)];
 const HATS_4 = [...HATS_3, H(3, 0.4), H(7, 0.4), H(11, 0.4), H(15, 0.4)];
 const HATS_5 = [...HATS_4, H(1, 0.35), H(5, 0.35), H(9, 0.35), H(13, 0.35), O(6, 0.8)];
+
+// Ping-Pong Hats: 16ths with accents grouped 3-3-2 (steps 0, 3, 6 and 8, 11, 14), the open hats on the "2"s.
+const PING = [H(0), H(1, 0.35), H(2, 0.4), H(3), H(4, 0.4), H(5, 0.35), O(6, 0.95), H(7, 0.4),
+  H(8), H(9, 0.35), H(10, 0.45), H(11), H(12, 0.4), H(13, 0.35), O(14, 0.95), H(15, 0.45)];
+// Where each step sits in the stereo field: the accents alternate hard left and right, the ghosts half as far.
+const PING_PAN = [-0.9, 0.45, -0.45, 0.9, -0.45, 0.45, -0.9, 0.45, 0.9, -0.45, 0.45, -0.9, 0.45, -0.45, 0.9, -0.45];
 
 const hats909 = {
   id: 'hats909',
@@ -55,14 +72,20 @@ const hats909 = {
       stats: { damage: 34, pierce: 3, speed: 880, range: 460, openDamage: 28, openPierce: 4 } },
   ],
 
-  sound(A, t, note, out) {
+  sound(A, t, note, out, inst) {
     const { ctx, v } = A;
+    // Ping-Pong Hats (remix): every hat is thrown hard left or right, the 3-3-2 accents trading sides.
+    const pan = inst?.remix ? PING_PAN[note.s & 15] : 0;
     if (note.k === 'open') {
       // Open hat: a longer noise hiss plus a metallic shimmer of squares at clashing ratios.
-      v.noise(ctx, out, t, { dur: 0.004, d: 0.34, r: 0.04, gain: 0.24 * note.v, filter: { type: 'highpass', freq: 7200, q: 0.9 } });
+      v.noise(ctx, out, t, { dur: 0.004, d: 0.34, r: 0.04, gain: 0.24 * note.v, pan, filter: { type: 'highpass', freq: 7200, q: 0.9 } });
       for (const f of [317, 465, 634]) {
-        v.tone(ctx, out, t, { freq: f, wave: 'square', dur: 0.004, d: 0.22, s: 0, r: 0.03, gain: 0.05 * note.v, filter: { type: 'highpass', freq: 8200, q: 1.2 } });
+        v.tone(ctx, out, t, { freq: f, wave: 'square', dur: 0.004, d: 0.22, s: 0, r: 0.03, gain: 0.05 * note.v, pan, filter: { type: 'highpass', freq: 8200, q: 1.2 } });
       }
+    } else if (inst?.remix) {
+      // A tighter, glassier closed hat, and a metal ping on the accents.
+      v.noise(ctx, out, t, { dur: 0.003, d: 0.11 + 0.15 * note.v, r: 0.02, gain: 0.95 * note.v, pan, filter: { type: 'bandpass', freq: 10500, q: 0.7 } });
+      if (note.v >= 0.9) v.tone(ctx, out, t, { freq: 589, wave: 'square', dur: 0.003, d: 0.07, s: 0, r: 0.02, gain: 0.06, pan, filter: { type: 'highpass', freq: 7600, q: 2 } });
     } else {
       // Closed hat: a short burst of bright bandpassed noise. Softer ticks are also shorter.
       v.noise(ctx, out, t, { dur: 0.003, d: 0.13 + 0.15 * note.v, r: 0.02, gain: 0.56 * note.v, filter: { type: 'bandpass', freq: 9500, q: 0.55 } });
@@ -88,43 +111,36 @@ const hats909 = {
     }
   },
 
+  // The hats go 3-3-2 across the bar and bounce between the speakers, and the needles bounce with them: they
+  // fly alternately ahead of you and behind you (at the nearest enemy on that side), and every accent fires
+  // both ways at once with needles that ricochet on to new enemies.
   remix: {
     id: 'pingponghats', name: 'Ping-Pong Hats', pedal: 'delay',
-    text: 'Every needle bounces back on the delay: a dotted eighth later, a second needle flies at the nearest enemy behind you.',
-    stats: { pong: 0.7 },
-    fire(g, note, st, inst) {
-      this.fire(g, note, st, inst);
-      if (g.dmgScale !== 1) return;   // an echo does not bounce again
-      const ahead = aimAt(g, st.range);
-      g.later.push({ at: g.time + ECHO_STEPS * STEP_SEC, fn: () => {
-        if (!g.loadout.has(inst)) return;
-        const prev = g.src; g.src = inst;
-        pong(g, note, st, ahead);
-        g.src = prev;
-      } });
+    text: 'Needles fly ahead of you and behind you in turn, and accents ricochet both ways.',
+    sound: 'sixteenth hats in 3-3-2 accents, thrown hard left and right.',
+    pattern: PING,
+    stats: { pierce: 4, accentDamage: 38, pingBounce: 2 },
+    fire(g, note, st) {
+      const face = g.aim();
+      const ahead = aimArc(g, face, 1.3, st.range), behind = aimArc(g, face + Math.PI, 1.3, st.range);
+      if (note.k === 'open') {
+        for (const a of [ahead, behind]) needles(g, a, g.amount(3), 0.2, { speed: 0.9, r: 4, life: 0.5, damage: g.dmg(st.openDamage) * note.v, pierce: st.openPierce, kb: 30, trail: true }, st);
+      } else if (note.v >= 0.9) {
+        for (const a of [ahead, behind]) needles(g, a, g.amount(1), 0.14, { r: 3.5, life: 0.5, damage: g.dmg(st.accentDamage) * note.v, pierce: st.pierce, bounce: st.pingBounce, kb: 16, trail: true }, st);
+      } else {
+        needles(g, note.s & 1 ? behind : ahead, g.amount(1), 0.14, { r: 3, life: 0.42, damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 12 }, st);
+      }
     },
   },
 };
 
-// Ping-Pong Hats: the bounce flies at the nearest enemy behind you (away from where the first needle
-// went), or at the nearest enemy anywhere when nobody is behind you.
-function pong(g, note, st, ahead) {
-  const p = g.player;
-  const open = note.k === 'open';
-  const ax = Math.cos(ahead), ay = Math.sin(ahead), r2 = st.range * st.range;
-  let behind = null, bd = r2;
-  g.grid.query(p.x, p.y, st.range, (e) => {
-    if (e.dead || e.spawnT > 0.2) return;
-    const dx = e.x - p.x, dy = e.y - p.y, d = dx * dx + dy * dy;
-    if (d < bd && dx * ax + dy * ay < 0) { bd = d; behind = e; }
-  });
-  const e = behind || g.nearest(p.x, p.y, st.range);
-  const a = e ? Math.atan2(e.y - p.y, e.x - p.x) : ahead + Math.PI;
-  const n = g.amount(open ? 3 : 1);
+// A fan of n hat needles centered on angle a, `gap` radians apart. o: speed (share of st.speed), r, life, damage,
+// pierce, bounce, kb, trail.
+function needles(g, a, n, gap, o, st) {
+  const p = g.player, color = g.color('perc');
   for (let i = 0; i < n; i++) {
-    g.fx.bullet({ x: p.x, y: p.y, angle: a + (i - (n - 1) / 2) * (open ? 0.2 : 0.14), speed: g.speed(st.speed) * (open ? 0.9 : 1), r: open ? 4 : 3,
-      life: open ? 0.5 : 0.42, damage: g.dmg(open ? st.openDamage : st.damage) * note.v * st.pong, pierce: open ? st.openPierce : st.pierce,
-      kb: open ? 30 : 12, color: g.color('perc'), shape: 'shard', trail: open });
+    g.fx.bullet({ x: p.x, y: p.y, angle: a + rand(-0.05, 0.05) + (i - (n - 1) / 2) * gap, speed: g.speed(st.speed) * (o.speed ?? 1), r: o.r,
+      life: o.life, damage: o.damage, pierce: o.pierce, bounce: o.bounce || 0, kb: o.kb, color, shape: 'shard', trail: !!o.trail });
   }
 }
 
@@ -136,6 +152,8 @@ const SHAKE_2 = [...SHAKE_1, SH(3, 0.45), SH(7, 0.45), SH(11, 0.45), SH(15, 0.45
 const SHAKE_3 = [...SHAKE_2, T(4), T(12)];
 const SHAKE_4 = [...SHAKE_3, SH(1, 0.35), SH(5, 0.35), SH(9, 0.35), SH(13, 0.35)];
 const SHAKE_5 = [...SHAKE_4, SH(0, 0.55), SH(4, 0.6), SH(8, 0.55), SH(12, 0.6)];
+// Rainstick: a shake on every 16th swelling from a whisper to full across the bar, the tambourine on 2 and 4.
+const RAIN = [...Array.from({ length: 16 }, (_, i) => SH(i, Math.round((0.3 + (0.7 * i) / 15) * 100) / 100)), T(4), T(12)];
 
 const shaker = {
   id: 'shaker',
@@ -162,8 +180,18 @@ const shaker = {
       stats: { seeds: 6, orbit: 175, radius: 107, damage: 49, tambDamage: 60, tambRadius: 78, tambKb: 190, tambStun: 0.3 } },
   ],
 
-  sound(A, t, note, out) {
+  sound(A, t, note, out, inst) {
     const { ctx, v } = A;
+    if (inst?.remix && note.k === 'shake') {
+      // Rainstick (remix): pebbles pouring through a tube, three tiny clicks spread across the 16th over a soft
+      // hiss, pitched by where the step sits so the cascade never repeats within the bar.
+      v.noise(ctx, out, t, { a: 0.01, dur: 0.07, d: 0.05, s: 0.35, r: 0.06, gain: 0.5 * note.v, filter: { type: 'bandpass', freq: 6200, q: 1.2 } });
+      for (let i = 0; i < 3; i++) {
+        const f = 5200 + ((note.s * 7 + i * 5) % 11) * 420;
+        v.noise(ctx, out, t + i * 0.037, { dur: 0.002, d: 0.025, gain: 0.55 * note.v * (1 - 0.2 * i), filter: { type: 'bandpass', freq: f, q: 3 } });
+      }
+      return;
+    }
     if (note.k === 'tamb') {
       // Tambourine: a bright slap of noise plus a short metallic jingle.
       v.noise(ctx, out, t, { dur: 0.004, d: 0.14, r: 0.03, gain: 0.26 * note.v, filter: { type: 'highpass', freq: 5200, q: 0.9 } });
@@ -196,25 +224,35 @@ const shaker = {
     }
   },
 
+  // A rain roll that swells across every bar, and seeds that follow your speed: standing still they close in
+  // and spin fast (a shield), running they swing far out (a sweep). At the top of each swell every seed drops
+  // a raindrop on what it is passing over.
   remix: {
     id: 'rainstick', name: 'Rainstick', pedal: 'reverb',
-    text: 'Tambourine hits swing the seeds out to twice their orbit and back over one beat. While they swing, every shake flashes them all.',
-    stats: { swing: 1.1 },
-    // The swing runs on game time from the tambourine note, so it lands back on the next beat.
+    text: 'Seeds hug you when you stand and swing wide when you run, and rain down at every swell.',
+    sound: 'a rainstick pouring a 16th roll that swells across every bar.',
+    pattern: RAIN,
+    stats: { still: 0.7, run: 1.5, rainDamage: 72, rainRadius: 70, rainReach: 170 },
+    // The orbit follows your speed (eased, so it breathes rather than jumps).
     update(g, dt, st, inst) {
-      const S = inst.state;
-      if (!(S.swingT > 0) || !S.orbit) return;
-      S.swingT = Math.max(0, S.swingT - dt);
-      S.orbit.radius = st.orbit * (1 + st.swing * Math.sin(Math.PI * (1 - S.swingT / BEAT_SEC)));
+      const S = inst.state, grp = S.orbit;
+      if (!grp) return;
+      const f = clamp(g.player.speedNow / Math.max(1, g.stats.speed), 0, 1);
+      S.spread = (S.spread ?? f) + (f - (S.spread ?? f)) * Math.min(1, dt * 5);
+      grp.radius = st.orbit * (st.still + (st.run - st.still) * S.spread);
+      grp.speed = 2.6 * (1.8 - 0.9 * S.spread);
     },
     fire(g, note, st, inst) {
-      const S = inst.state;
-      if (note.k === 'tamb') S.swingT = BEAT_SEC;
-      else if (S.swingT > 0 && S.orbit?.items.length) {
-        S.orbit.pulse({ damage: g.dmg(st.damage) * note.v, r: g.area(st.radius), kb: 20, color: g.color(inst) });
-        return;
+      const grp = inst.state.orbit;
+      if (note.k !== 'shake' || note.v < 0.85 || !grp?.items.length) { this.fire(g, note, st, inst); return; }
+      // The crest of the swell: every seed drops a raindrop on a boss under it, else on the closest enemy under
+      // it, else where it is.
+      const color = g.color(inst), reach = g.area(st.rainReach);
+      for (const it of grp.items) {
+        it.glow = 1;
+        const e = g.bossInRange(it.x, it.y, reach) || g.nearest(it.x, it.y, reach);
+        g.fx.strike({ x: e ? e.x : it.x, y: e ? e.y : it.y, target: e, delay: 0.1, r: g.area(st.rainRadius), damage: g.dmg(st.rainDamage) * note.v, kb: 60, color, style: 'drop' });
       }
-      this.fire(g, note, st, inst);
     },
   },
 };
@@ -253,11 +291,19 @@ const chiphat = {
       stats: { damage: 28, chain: 5, range: 340, chainRange: 160, crashDamage: 60, crashChain: 8 } },
   ],
 
-  sound(A, t, note, out) {
+  sound(A, t, note, out, inst) {
     const { ctx, v } = A;
+    const rx = !!inst?.remix;
     if (note.k === 'crash') {
-      // A long burst of coarse console noise.
-      v.noise(ctx, out, t, { dur: 0.01, d: 0.55, r: 0.08, gain: 0.3 * note.v, chip: 2, filter: { type: 'highpass', freq: 4800, q: 0.7 } });
+      // A long burst of coarse console noise (coarser still in the remix, with a falling zap under it).
+      v.noise(ctx, out, t, { dur: 0.01, d: 0.55, r: 0.08, gain: 0.3 * note.v, chip: rx ? 4 : 2, filter: { type: 'highpass', freq: 4800, q: 0.7 } });
+      if (rx) v.tone(ctx, out, t, { freq: 1100, duty: 0.125, dur: 0.02, d: 0.16, s: 0, r: 0.02, gain: 0.07 * note.v, pitchEnv: { from: 3, time: 0.14 }, filter: { type: 'highpass', freq: 3800 } });
+    } else if (rx && note.v >= 0.5) {
+      // Short Circuit (remix): the louder ticks buzz, a clipped pulse sputtering under the noise as the wires fire.
+      v.noise(ctx, out, t, { dur: 0.003, d: 0.12, r: 0.02, gain: 0.34 * note.v, chip: 1, filter: { type: 'highpass', freq: 6800, q: 0.8 } });
+      for (let i = 0; i < 3; i++) {
+        v.tone(ctx, out, t + i * 0.021, { freq: 1480, duty: 0.125, dur: 0.008, d: 0.018, s: 0, gain: 0.06 * note.v, filter: { type: 'highpass', freq: 4200 } });
+      }
     } else {
       // Tick: stepped noise, finer for loud ticks and grainier for soft ones.
       const chip = note.v > 0.8 ? 1 : note.v > 0.45 ? 2 : 3;
@@ -267,22 +313,41 @@ const chiphat = {
 
   fire(g, note, st) { bolt(g, note, st, null); },
 
+  // The crash now comes every bar and hooks live wires onto the enemies its bolt strikes (a wire whose enemy
+  // goes down jumps to the next). Every louder tick fires the wires: each one zaps everything on the line
+  // between you and its enemy, so moving swings the wires through the crowd.
   remix: {
     id: 'shortcircuit', name: 'Short Circuit', pedal: 'bitcrusher',
-    text: 'Bolts fork: every enemy a bolt strikes arcs a spark to its nearest neighbor.',
-    stats: { fork: 0.5, forkReach: 0.8 },
-    fire(g, note, st) {
-      struck.length = 0;
-      bolt(g, note, st, strike);
-      const dmg = g.dmg(note.k === 'crash' ? st.crashDamage : st.damage) * note.v * st.fork;
-      const reach = g.area(st.chainRange) * st.forkReach;
-      seen.clear();
-      for (const e of struck) seen.add(e);
-      for (const e of struck) {
-        const t = g.nearest(e.x, e.y, reach, seen);
-        if (!t) continue;
-        seen.add(t);
-        g.fx.zap({ x: e.x, y: e.y, target: t, chain: 1, damage: dmg, color: g.color('perc'), width: 1.5, life: 0.14 });
+    text: 'Every crash hooks live wires to the crowd, and they zap everything they cross.',
+    sound: 'a crash of static on every bar, and ticks that buzz.',
+    pattern: [...TICK_5, C(16, 0.9)],
+    stats: { wires: 8, wireLife: 2.4, wirePull: 30, wireDamage: 17 },
+    fire(g, note, st, inst) {
+      const id = inst.def.id, color = g.color('perc'), p = g.player;
+      const hook = (e) => g.fx.tether(id, e, { life: st.wireLife, pull: st.wirePull, color });
+      if (note.k === 'crash') {
+        struck.length = 0;
+        bolt(g, note, st, strike);
+        if (g.dmgScale !== 1) return;   // an echo does not hook
+        // The wires hook the enemies the crash struck that are still standing.
+        for (let i = 0, n = 0; i < struck.length && n < st.wires; i++) if (!struck[i].dead) { hook(struck[i]); n++; }
+        return;
+      }
+      bolt(g, note, st, null);
+      if (note.v < 0.5) return;
+      const wires = g.fx.tethersOf(id);
+      // A wire whose enemy went down jumps on: each louder tick hooks the nearest free enemy, up to the most wires.
+      if (g.dmgScale === 1 && wires.length < st.wires) {
+        hooked.clear();
+        for (const t of wires) hooked.add(t.e);
+        const e = g.nearest(p.x, p.y, st.range, hooked);
+        if (e) wires.push(hook(e));
+      }
+      for (const t of wires) {
+        const e = t.e, dx = e.x - p.x, dy = e.y - p.y;
+        t.glow = 1;
+        g.fx.beam({ x: p.x, y: p.y, angle: Math.atan2(dy, dx), length: Math.hypot(dx, dy) + e.r, width: 12,
+          damage: g.dmg(st.wireDamage) * note.v, kb: 30, color, life: 0.12 });
       }
     },
   },
@@ -302,9 +367,9 @@ function bolt(g, note, st, onHit) {
   }
 }
 
-// Short Circuit scratch, reused so a note allocates nothing: who the bolt struck, and who is hit already.
+// Short Circuit scratch, reused so a note allocates nothing: who the crash's bolt struck, who is hooked.
 const struck = [];
-const seen = new Set();
+const hooked = new Set();
 const strike = (e) => { struck.push(e); };
 
 export default [hats909, shaker, chiphat];

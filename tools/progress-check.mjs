@@ -2,8 +2,10 @@
 // and Gain unlocks.
 //   node tools/progress-check.mjs
 import assert from 'node:assert/strict';
-import { DEFAULT_STARTS, GOALS, RECORDS, newMeta, normalizeMeta, unlockedStarts, applyRun } from '../src/game/progress.js';
-import { BY_ID } from '../src/content/instruments/index.js';
+import { DEFAULT_STARTS, GOALS, RECORDS, newMeta, normalizeMeta, unlockedStarts, unlocksOf, unlockLabel, applyRun } from '../src/game/progress.js';
+import { BY_ID, INSTRUMENTS } from '../src/content/instruments/index.js';
+import { genreName, isFusion } from '../src/game/loadout.js';
+import { STYLES } from '../src/config.js';
 
 const now = Date.UTC(2026, 9, 19);
 const sheet = [{ index: 0, band: [['kick808', 1, 0]], pedals: [] }];
@@ -37,13 +39,50 @@ assert.equal(odd.records['Live band'].sh.length, 9);
 assert.deepEqual(normalizeMeta(JSON.parse(JSON.stringify(odd))), odd);
 assert.equal(normalizeMeta({ gainMax: 3, gainSel: 5 }).gainSel, 3);
 
-// The 15 goals unlock 15 distinct real sounds, none of them a default start, so all 18 open up.
-assert.equal(GOALS.length, 15);
-const unlocks = GOALS.map((g) => g.unlock);
-assert.equal(new Set(unlocks).size, 15);
+// The 17 goals unlock 27 distinct real sounds (one each, and all six of a style for Heavy and Orchestra), none
+// of them a default start, so all 30 open up.
+assert.equal(GOALS.length, 17);
+const unlocks = GOALS.flatMap(unlocksOf);
+assert.equal(new Set(unlocks).size, 27);
 for (const id of unlocks) assert.ok(BY_ID[id] && !DEFAULT_STARTS.includes(id), id);
 assert.equal(new Set([...DEFAULT_STARTS, ...unlocks]).size, Object.keys(BY_ID).length);
-assert.equal(RECORDS.length, 13);
+assert.equal(Object.keys(BY_ID).length, 30);
+for (const id of ['heavy4', 'orch4']) {
+  const g = GOALS.find((x) => x.id === id);
+  const style = id === 'heavy4' ? 'heavy' : 'orchestra';
+  assert.deepEqual([...unlocksOf(g)].sort(), INSTRUMENTS.filter((d) => d.style === style).map((d) => d.id).sort(), id);
+  assert.equal(unlockLabel(g), `all six ${STYLES[style].name} sounds`);
+}
+assert.equal(unlockLabel(GOALS[0]), 'Taiko Drums');
+
+// The 30 records: unique, every one is a genre some six-channel band ends as (any mix of the five styles), and
+// every genre a six-channel band can end as has its sleeve.
+assert.equal(RECORDS.length, 30);
+assert.equal(new Set(RECORDS.map((r) => r.genre)).size, 30);
+const styles = Object.keys(STYLES);
+const fullBands = [];
+const fill = (i, left, c) => {
+  if (i === styles.length - 1) { fullBands.push({ ...c, [styles[i]]: left }); return; }
+  for (let n = 0; n <= left; n++) fill(i + 1, left - n, { ...c, [styles[i]]: n });
+};
+fill(0, 6, {});
+assert.equal(fullBands.length, 210);
+const genres = new Set(fullBands.map((c) => genreName({ styleCounts: () => c })));
+for (const r of RECORDS) assert.ok(genres.has(r.genre), `no band presses ${r.genre}`);
+for (const g of genres) assert.ok(RECORDS.some((r) => r.genre === g), `${g} has no sleeve`);
+const counts = (o) => ({ ...Object.fromEntries(styles.map((s) => [s, 0])), ...o });
+const named = (o) => genreName({ styleCounts: () => counts(o) });
+assert.equal(named({}), 'Silence');
+assert.equal(named({ heavy: 6 }), 'Pure metal');
+assert.equal(named({ heavy: 5, synth: 1 }), 'Heavy metal');
+assert.equal(named({ orchestra: 3, chip: 2, synth: 1 }), 'Chamber orchestra');
+assert.equal(named({ orchestra: 6 }), 'Full symphony');
+assert.equal(named({ heavy: 3, orchestra: 3 }), 'Symphonic metal');
+assert.equal(named({ orchestra: 3, chip: 3 }), 'Boss theme');
+assert.equal(named({ synth: 3, organic: 3 }), 'Indietronica');
+assert.equal(named({ heavy: 2, orchestra: 2, chip: 2 }), 'Fusion');
+assert.equal(named({ heavy: 2, orchestra: 2, chip: 1, synth: 1 }), 'Symphonic metal');
+assert.ok(isFusion(counts({ synth: 2, organic: 2, heavy: 2 })) && !isFusion(counts({ synth: 2, organic: 2, heavy: 1, chip: 1 })));
 
 // A Chorus II death unlocks only what it earned and presses nothing.
 let m = newMeta();
@@ -107,5 +146,35 @@ for (const sum of [{}, { won: true }, { sectionIndex: 8 }, { remixes: [null, { i
   assert.equal(news.record, null);
   assert.deepEqual(news.remixes, []);
 }
+
+// Four Heavy sounds at once opens all six Heavy first sounds; the Orchestra goal waits for its own four.
+m = newMeta();
+news = applyRun(m, run({ peak: { synth: 1, organic: 0, chip: 0, heavy: 4, orchestra: 3 } }), { now });
+assert.deepEqual(ids(news), ['heavy4']);
+assert.deepEqual(unlockedStarts(m), [...DEFAULT_STARTS, 'doublekick', 'ride', 'dropd', 'powerchords', 'shred', 'pinch']);
+news = applyRun(m, run({ peak: { orchestra: 5 } }), { now });
+assert.deepEqual(ids(news), ['orch4']);
+assert.equal(unlockedStarts(m).length, 15);
+// A Pure metal win presses its record and earns Concept album (5+ of one style, here Heavy).
+const metal = ['doublekick', 'ride', 'dropd', 'powerchords', 'shred', 'pinch'];
+news = applyRun(m, run({ won: true, sectionIndex: 8, genre: 'Pure metal', band: band(metal), peak: { heavy: 6 } }), { now });
+assert.deepEqual(news.record, { genre: 'Pure metal', fresh: true, gold: true, upgraded: false });
+assert.ok(ids(news).includes('concept'));
+// The new styles' remixes go in the crate under their instrument ids.
+assert.deepEqual(applyRun(m, rx('doublekick', 'harp'), { now }).remixes, ['doublekick', 'harp']);
+
+// An old save (three styles, no Heavy or Orchestra anywhere) loads unchanged, keeps its starts, and a
+// save from a later version with goals, sounds or remixes this one does not know drops just those.
+const old = {
+  v: 1, runs: 12, wins: 3, kills: 50000, secs: 4000, goals: { drone: 1, synth4: 2, fusion: 3 }, gainMax: 1, gainSel: 1,
+  records: { Synthwave: { s: 90000, k: 'A minor', kp: 9, w: 1, g: 0, sh: sheet, d: '2026-10-01' } }, remixes: { flute: 5 },
+};
+const loaded = normalizeMeta(JSON.parse(JSON.stringify(old)));
+assert.deepEqual(loaded, old);
+assert.deepEqual(unlockedStarts(loaded), [...DEFAULT_STARTS, 'taiko', 'supersaw', 'musicbox']);
+const later = normalizeMeta({ ...old, goals: { ...old.goals, heavy4: 4, kazoo9: 5 }, remixes: { flute: 5, doublekick: 6, kazoo: 7 } });
+assert.deepEqual(Object.keys(later.goals), ['drone', 'synth4', 'fusion', 'heavy4']);
+assert.deepEqual(Object.keys(later.remixes), ['flute', 'doublekick']);
+assert.equal(unlockedStarts(later).length, 12);
 
 console.log('progress-check: ok');

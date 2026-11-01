@@ -1,9 +1,11 @@
 import { rng } from './util.js';
+import { RULES } from './game/loadout.js';
 
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It plays roughly like a careful but ordinary human: a few times a second it tries a handful of
 // directions, looks a fraction of a second ahead, and takes the one that keeps it out of enemy shots
-// and bodies, stays a safe distance from bosses, and still drifts toward notes, hearts and vinyl.
+// and bodies, stays a safe distance from bosses and out of lit lanes and Snare marks, and still drifts toward
+// notes, hearts and vinyl.
 // Like a person it reacts late (REACT), only keeps track of the closest few shots (FOCUS), and
 // sticks with a decision for a moment (REPLAN), so dense bullet patterns still catch it.
 
@@ -13,6 +15,12 @@ const REACT = 0.3;      // reaction time: a decision takes effect this long afte
 const REPLAN = 0.2;     // how often it rethinks
 const FOCUS = 5;        // how many of the nearest shots it can watch at once
 const LAG = REACT + 0.08; // until the new heading actually moves the player
+// It also plays the band's style rules (g.stats.rules) the way a player would: close to the crowd for the Mosh
+// pit, at arm's length for Long throw, standing its ground for In the pocket and dodging harder for a Combo
+// streak. ?botrules=0 turns that off and leaves the plain kiting bot, to see how hard the rules are without it.
+const RULES_ON = (() => {
+  try { return String(window.LOOP_SURVIVORS_OPTS?.botrules ?? new URLSearchParams(window.location.search).get('botrules')) !== '0'; } catch (e) { return true; }
+})();
 
 // Closest approach of two points moving linearly, relative offset r0 and relative velocity w, over [0, T].
 function closest(rx, ry, wx, wy, T) {
@@ -41,6 +49,10 @@ function plan(g) {
   const p = g.player;
   const speed = g.stats.speed;
   const hurt = p.hp / p.maxHp;
+  // The style rules it plays (see RULES_ON). On a Combo streak it watches more shots and gives them a wider berth.
+  const rules = RULES_ON ? g.stats.rules : null;
+  const mosh = rules?.near > 0, kite = rules?.far > 0, plant = rules?.stillHeal > 0, careful = rules?.combo > 0;
+  const focus = careful ? FOCUS + 3 : FOCUS, berth = careful ? 30 : 14, missW = careful ? 2.2 : 1.2, shotW = careful ? 1.4 : 1;
 
   // What it is watching: the closest shots that can reach it within the horizon, enemies close enough to touch.
   let shots = [];
@@ -50,7 +62,7 @@ function plan(g) {
     const d2 = dx * dx + dy * dy;
     if (d2 < reach * reach) shots.push([d2, s]);
   }
-  if (shots.length > FOCUS) { shots.sort((a, b) => a[0] - b[0]); shots.length = FOCUS; }
+  if (shots.length > focus) { shots.sort((a, b) => a[0] - b[0]); shots.length = focus; }
   shots = shots.map((x) => x[1]);
   const foes = [];
   let crowd = 0;
@@ -63,6 +75,13 @@ function plan(g) {
     if (!e.boss && d2 < 220 * 220) crowd++;
   }
 
+  // Snare marks that can land on it: it treats them like lit lanes and does not end a move inside one.
+  const marks = [];
+  for (const h of g.hazards || []) {
+    const dx = h.x - p.x, dy = h.y - p.y, reach = h.r + speed * HORIZON + 40;
+    if (dx * dx + dy * dy < reach * reach) marks.push(h);
+  }
+
   // Something to walk toward when it is safe: hearts when hurt, vinyl, magnets, else the nearest notes.
   let goal = null, goalW = 0;
   for (const gm of g.gems) {
@@ -70,10 +89,11 @@ function plan(g) {
     const d = Math.hypot(gm.x - p.x, gm.y - p.y);
     let w;
     if (gm.kind === 'heal') w = hurt < 0.75 ? 3 : 0.3;
+    else if (gm.kind === 'tape') w = 4;   // a Master Tape: worth walking into the fight for
     else if (gm.kind === 'vinyl') w = 2.5;
     else if (gm.kind === 'magnet') w = 1.6;
     else w = 1.1;
-    const lim = gm.kind === 'xp' ? 420 : 700;
+    const lim = gm.kind === 'xp' ? 420 : gm.kind === 'tape' ? 1000 : 700;
     if (d > lim) continue;
     const s = w / (1 + d / 160);
     if (s > goalW) { goalW = s; goal = gm; }
@@ -101,8 +121,30 @@ function plan(g) {
     if (d < nearD) { nearD = d; nearE = e; }
   }
 
-  let best = null, bestScore = Infinity;
+  // The crowd the distance rules read: the nearest 60 enemies within 420 px.
+  let crowdNear = null, closeNow = 0;
+  if (mosh || kite || plant) {
+    const arr = [];
+    for (const e of g.enemies) {
+      if (e.dead || e.boss) continue;
+      const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy;
+      if (d2 < 420 * 420) arr.push([d2, e]);
+    }
+    if (arr.length > 60) { arr.sort((a, b) => a[0] - b[0]); arr.length = 60; }
+    crowdNear = arr.map((x) => x[1]);
+    for (const e of crowdNear) if (Math.hypot(e.x - p.x, e.y - p.y) - e.r < RULES.near) closeNow++;
+  }
+  // How close it walks in before it stops closing on the nearest enemy.
+  const approach = mosh ? 110 : kite ? 280 : 170;
   const pvx = p.vx, pvy = p.vy;
+  // In the pocket stands still only with nothing close, off every Snare mark (standing still is where a mark
+  // lands), and with nothing it wants to fetch: a heart while hurt, a tape, vinyl or notes close by.
+  const stillX = p.x + pvx * LAG, stillY = p.y + pvy * LAG;   // where standing still ends up
+  const onMark = marks.some((h) => Math.hypot(stillX - h.x, stillY - h.y) < h.r + p.r + 6);
+  const wantGoal = !!goal && (goal.kind === 'heal' ? hurt < 0.75 : goalW > 0.5);
+  const planting = plant && closeNow === 0 && !onMark && !wantGoal;
+
+  let best = null, bestScore = Infinity;
   for (let k = 0; k <= DIRS; k++) {
     const ux = k === DIRS ? 0 : Math.cos((k / DIRS) * Math.PI * 2);
     const uy = k === DIRS ? 0 : Math.sin((k / DIRS) * Math.PI * 2);
@@ -121,9 +163,9 @@ function plan(g) {
         const sx = s.x + s.vx * LAG, sy = s.y + s.vy * LAG;
         [d2, t] = closest(mx - sx, my - sy, vx - s.vx, vy - s.vy, HORIZON - LAG);
         if (d2 < R * R) hitT = LAG + t;
-        else if (d2 < (R + 14) * (R + 14)) cost += 1.2;   // too close for comfort
+        else if (d2 < (R + berth) * (R + berth)) cost += missW;   // too close for comfort
       }
-      if (hitT >= 0) cost += 14 * (1.4 - hitT / HORIZON);
+      if (hitT >= 0) cost += 14 * shotW * (1.4 - hitT / HORIZON);
     }
 
     for (const e of foes) {
@@ -164,6 +206,25 @@ function plan(g) {
       }
     }
 
+    // Deeper in a mark costs more, so stepping toward its edge always beats staying in its middle.
+    for (const h of marks) {
+      const d = Math.hypot(endX - h.x, endY - h.y), R = h.r + p.r + 6;
+      if (d < R) cost += 4 + 6 * (1 - d / R);
+    }
+    // The style rules: Mosh pit wants bodies inside its reach, Long throw wants them outside its circle, and
+    // In the pocket stands still when nothing is close (shots and bodies still cost more than it pays).
+    if (crowdNear && (mosh || kite)) {
+      let inNear = 0, inFar = 0;
+      for (const e of crowdNear) {
+        const gap = Math.hypot(e.x - endX, e.y - endY) - e.r;
+        if (gap < RULES.near) inNear++;
+        if (gap < RULES.far) inFar++;
+      }
+      if (mosh) cost -= 0.1 * Math.min(inNear, 10);
+      if (kite) cost += 0.08 * Math.min(inFar, 12);
+    }
+    if (planting && k === DIRS) cost -= 0.9;
+
     if (pack.length >= 25) {
       // Count who would be within the Drop's trigger range from where this heading leads.
       const fx = p.x + ux * 220, fy = p.y + uy * 220;
@@ -176,16 +237,16 @@ function plan(g) {
       const d0 = Math.hypot(goal.x - p.x, goal.y - p.y);
       const d1 = Math.hypot(goal.x - endX, goal.y - endY);
       cost -= goalW * 1.6 * (d0 - d1) / (speed * HORIZON);
-    } else if (nearE && nearD > 170) {
+    } else if (nearE && nearD > approach) {
       const d1 = Math.hypot(nearE.x - endX, nearE.y - endY);
-      cost -= 0.5 * (nearD - d1) / (speed * HORIZON);
+      cost -= (mosh ? 0.8 : 0.5) * (nearD - d1) / (speed * HORIZON);
     } else if (!nearE) {
       // Drift in a lazy circle so the bot does not stand still.
       const a = g.time * 0.35;
       cost -= 0.3 * (ux * Math.cos(a) + uy * Math.sin(a));
     }
-    // Keep moving: standing still in a crowd is how you get cornered.
-    if (k === DIRS && crowd > 6) cost += 0.4;
+    // Keep moving: standing still in a crowd is how you get cornered (unless planting with nothing close).
+    if (k === DIRS && crowd > 6 && !planting) cost += 0.4;
     // A little inertia so the bot does not jitter between equal choices.
     const vl = Math.hypot(pvx, pvy);
     if (vl > 1 && k !== DIRS) cost -= 0.35 * (ux * pvx + uy * pvy) / vl;
@@ -195,16 +256,34 @@ function plan(g) {
   return { x: best[0], y: best[1] };
 }
 
-// Card choice for autopilot runs. 'smart' fills the band, then levels it; 'random' is uniform.
+// The channels a focused build deepens first: the highest levels (ties: the most damage), best first.
+function focus(g) {
+  return g.loadout.instruments().slice().sort((a, b) => b.level - a.level || b.dmg - a.dmg);
+}
+
+// Card choice for autopilot runs. 'smart' fills the band, then plays a focused build: once four channels are
+// filled, level cards on its two highest channels come first (the third next), so a level 5 is ready for a Master
+// Tape by the second boss. 'random' is uniform. A tape's remix cards (all 'remix'): the channel with the most damage.
 export function autopick(offers, g, mode = 'smart') {
+  if (offers.length && offers.every((o) => o.kind === 'remix')) {
+    let best = 0;
+    offers.forEach((o, i) => { if ((o.inst?.dmg || 0) > (offers[best].inst?.dmg || 0)) best = i; });
+    return mode === 'random' ? Math.floor(rng() * offers.length) : best;
+  }
   if (mode === 'random') return Math.floor(rng() * offers.length);
   if (mode === 'first') return 0;
+  const top = g.loadout.filled() >= 4 ? focus(g) : null;
   let best = 0, bs = -Infinity;
   offers.forEach((o, i) => {
     let s = 0;
     switch (o.kind) {
       case 'new': s = 6 + (g.loadout.filled() < 3 ? 2 : 0); break;
-      case 'up': s = 4 + o.level * 0.6; break;
+      case 'up': {
+        const rank = top ? top.indexOf(o.inst) : -1;
+        s = !top ? 4 + o.level * 0.6 : rank >= 0 && rank < 2 ? 7.5 + o.level * 0.3 : rank === 2 ? 6.2 : 3 + o.level * 0.2;
+        if (o.level >= 5 && g.tapes?.banked > 0) s = 9.5;   // a banked Master Tape is waiting for this level 5
+        break;
+      }
       case 'swap': {
         const c = g.loadout.styleCounts();
         s = c[o.def.style] >= c[o.from.def.style] ? 2.5 : 0.5;

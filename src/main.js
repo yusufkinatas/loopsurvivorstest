@@ -3,7 +3,7 @@
 // Test hooks (query string, local only): ?sim=1 runs without audio on a simulated clock.
 // Also: speed=N (sim steps per frame), bot=1, autopick=smart|random|first, god=1, seed=N,
 // start=<instrumentId>, give=id:level,id:level, pedals=id:level, remix=id,id (remix given instruments),
-// gain=N (Gain tier), minutes=N (stop the sim), key=N, solo=1 (no level-ups).
+// tapes=N (Master Tapes banked at the start), gain=N (Gain tier), minutes=N (stop the sim), key=N, solo=1 (no level-ups).
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
@@ -39,6 +39,7 @@ function parseOpts() {
     give: list(get('give')),
     givePedals: list(get('pedals')),
     remix: (get('remix') || '').split(',').filter(Boolean),
+    tapes: Number(get('tapes')) || 0,
     gain: Number(get('gain')) || 0,
     minutes: Number(get('minutes')) || 0,
     key: get('key') !== null ? Number(get('key')) : undefined,
@@ -73,10 +74,12 @@ const hooks = {
   onResume: () => { screens.hide(); input.releaseStick(); },
   onGameOver: (sum) => endRun(sum),
   onVictory: (sum) => endRun(sum),
-  onBanner: (t, s, compact) => hud.showBanner(t, s, compact),
+  onBanner: (t, s, compact, style) => hud.showBanner(t, s, compact, style),
   onBoss: (e) => hud.setBoss(e, game.mods.wnPhase),
+  onBossCue: (kind, e, n) => hud.bossCue(kind, e, n, settings.flashes),
+  onJoin: (role) => hud.onJoin(role),
+  onRemix: (def) => hud.onRemix(def.role),
   onLoadout: () => { if (mode === 'run') hud.refreshLoadout(game); },
-  onDrop: (state) => { if (state === 'queued') hud.tip(''); },
   autopick: (offers) => autopick(offers, game, opts.autopick),
 };
 
@@ -85,6 +88,13 @@ const game = new Game({ audio, clock, seq, opts: { ...opts, autopick: opts.sim &
 const hud = new Hud(hudRoot, {
   onDrop: () => game.requestDrop(),
   onPause: () => pauseRun(),
+  // A style's chemistry tier rose: a short chime on the chord, an octave over the level-up chime.
+  onChime: () => {
+    const c = seq.position?.chord;
+    if (!c || !audio.ready) return;
+    const base = 84 + ((c.rootPc % 12) + 12) % 12;
+    audio.levelUpChime([base, base + c.intervals[1], base + c.intervals[2]]);
+  },
 });
 
 const screens = new Screens(screensRoot, {
@@ -99,6 +109,7 @@ const screens = new Screens(screensRoot, {
     game.choose(i);
   },
   onPreview: (i) => game.previewOffer(i === null ? null : game.offers?.[i] ?? null),
+  onTarget: (slot, d) => hud.target(slot, d),
   onReroll: () => { const o = game.reroll(); if (o) screens.levelUp(game, o); },
   onBanish: (i) => { const o = game.banish(i); if (o) screens.levelUp(game, o); },
   onSkip: () => skipLevel(),
@@ -146,7 +157,7 @@ function showTitle() {
   game.state = 'idle';
   hudRoot.hidden = true;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
-  screens.title(loadBest(), loadMeta());
+  screens.title(loadBest());
 }
 
 // The radio edit of a track sheet (src/music/replay.js), from the end screen or a Discography sleeve. One plays
@@ -210,20 +221,20 @@ function startRun(id) {
   screens.hide();
   hudRoot.hidden = false;
   game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain });
+  hud.reset();
   hud.refreshLoadout(game);
   hud.setBoss(null);
-  dropTipShown = false;
-  hud.tip(`${byDevice('Drag anywhere to move.', 'Move with the left stick.', 'Move with WASD or the arrow keys.')} Your sounds attack on their own.`, 7);
+  // The first runs show how to move as a glyph under the player, for the device used last.
+  moveHint = loadMeta().runs < 3 ? 0 : -1;
+  if (moveHint === 0) hud.hint(input.device === 'touch' ? 'finger' : input.device === 'pad' ? 'stick' : 'keys');
 }
 
-let dropTipShown = false;
-// Prompts in the words of the device used last (touch, gamepad, or keyboard and mouse).
-const byDevice = (touch, pad, keys) => (input.device === 'touch' ? touch : input.device === 'pad' ? pad : keys);
-function tips() {
-  if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState && !game.won) {
-    dropTipShown = true;
-    hud.tip(`The Drop is ready. ${byDevice('Tap the Drop meter.', 'Press A.', 'Press Space.')}`, 6);
-  }
+// The move hint: seconds of movement so far (it goes after 0.3 s), or -1 once it is gone.
+let moveHint = -1;
+function hintTick(dt, mv) {
+  if (moveHint < 0 || game.state !== 'playing') return;
+  if (Math.hypot(mv.x, mv.y) > 0.1) moveHint += dt;
+  if (moveHint > 0.3) { moveHint = -1; hud.hint(null); }
 }
 
 function pauseRun() {
@@ -258,6 +269,7 @@ function recordRun(sum) {
 
 // Skip a level-up: a lower blip (the chord's root) than a pick, and the notes go to the Drop meter.
 function skipLevel() {
+  if (game.tapeOffers) return;   // a Master Tape's remix cards cannot be skipped
   const c = seq.position?.chord;
   audio.uiBlip(c ? 440 * Math.pow(2, (72 + (c.rootPc % 12) - 69) / 12) : 523, 0.12);
   game.skip();
@@ -268,15 +280,19 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ta
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
-  // Space and E are the Drop keys: on menus they must never press a focused button by accident.
-  if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
+  // Space and E are the Drop keys: on menus they must never press a focused button by accident. Space still
+  // toggles a focused checkbox (Settings).
+  const box = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'checkbox';
+  if (screens.current && screens.current !== 'title' && (k === 'e' || (k === ' ' && !box))) return true;
   // Escape and B leave banish mode. B is no other level-up action, so it never banishes or skips.
   if (screens.current === 'levelup' && screens.banishing && (k === 'Escape' || k === 'pad-b')) { screens.toggleBanish(false); return true; }
   // B is Back (or Resume) on every screen that has one. Escape too on the Discography.
   if (screens.current && (k === 'pad-b' || (k === 'Escape' && screens.current === 'disco'))) { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
+    if (screens.current === 'select') screens.stopAttract();
     if (!screens.armed() && !NAV_KEYS.has(k)) return true;
+    if (k === 'i' || k === 'pad-y') { screens.toggleInfo(); return true; }
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
     if (k === 'x' && screens.current === 'levelup') { screens.toggleBanish(); return true; }
     if (k === 'q' && screens.current === 'levelup') { skipLevel(); return true; }
@@ -352,6 +368,7 @@ function frame(ts) {
       game.view = renderer.viewSize();
       if (opts.bot) botDrop();
       const mv = opts.bot ? botMove(game) : input.move();
+      hintTick(dt, mv);
       game.step(dt, mv);
       // After a run ends the band keeps playing; its note events are no longer attacks.
       // (While paused the sequencer is held and emits nothing, and structural events must survive.)
@@ -361,8 +378,12 @@ function frame(ts) {
     }
   }
 
+  // Card screens: the auditioned card's lane follows the audio. The pause sheet: the live step grid.
+  if (screens.current === 'levelup' || screens.current === 'select' || screens.current === 'pause') {
+    const now = clock.now() - (opts.sim ? 0 : audio.latency);
+    screens.tick(seq.sounding(now), seq, game, now);
+  }
   if (mode === 'run' && game.player) {
-    if (!opts.sim) tips();
     renderer.draw(game, dt);
     hud.update(game, clock.now() - (opts.sim ? 0 : audio.latency), seq);
   } else {
@@ -370,13 +391,22 @@ function frame(ts) {
   }
 }
 
-// Autopilot uses the Drop when the meter is full and a crowd (or a boss) is close, or once it has sat full a while.
+// Autopilot uses the Drop like a sensible player: when it is swamped, or hurt with things close, right away;
+// when crowded or with a boss close, it waits for a press that lands on a phrase downbeat (a perfect drop). A
+// boss showing up is no reason on its own, and a meter that has sat full a long while goes on the next phrase.
 let dropFullSince = null;
 function botDrop() {
   if (game.state !== 'playing' || game.dropCharge < game.dropMax || game.dropState) { dropFullSince = null; return; }
   if (dropFullSince === null || dropFullSince > game.time) dropFullSince = game.time;
   const p = game.player;
-  if (game.boss || game.inRadius(p.x, p.y, 320).length >= 12 || game.time - dropFullSince > 10) game.requestDrop();
+  const near = game.inRadius(p.x, p.y, 300).length;
+  let shots = 0;
+  for (const s of game.shots) if ((s.x - p.x) ** 2 + (s.y - p.y) ** 2 < 260 * 260) shots++;
+  const low = p.hp / p.maxHp < 0.4;
+  const b = game.boss && !game.boss.dead ? game.boss : null;
+  const bossClose = b && Math.hypot(b.x - p.x, b.y - p.y) < 380;
+  if ((low && (near >= 8 || shots >= 6)) || near >= 32) { game.requestDrop(); return; }
+  if (game.dropPerfectNow() && (near >= 14 || bossClose || low || game.time - dropFullSince > 40)) game.requestDrop();
 }
 
 function pulseFromSeq() {
@@ -440,7 +470,7 @@ window.__LS = {
   metrics() {
     return {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
-      damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
+      damageTaken: game.damageTaken, drops: game.drops, perfectDrops: game.perfectDrops, bossesAlive: game.boss ? game.boss.type : null,
       damageBy: game.damageBy, lastHitBy: game.lastHitBy, bossLog: game.bossLog,
       // What the career's goals read.
       bossKills: game.bossKills, staggers: game.staggers, peak: game.peak, fullBand: game.fullBand, fused: game.fused, maxedAll: game.maxedAll,
@@ -449,10 +479,16 @@ window.__LS = {
       genre: game.genre, key: game.key?.name, gain: game.gain,
       // Remixes taken (ids, in order) and card screens with no real choice (only bonus cards).
       remixes: game.remixed || [], deadScreens: game.deadScreens || 0, cardScreens: game.cardScreens || 0,
+      // Master Tapes (dropped by silenced bosses, collected, banked now, spent, lost on the floor) and each remix as it
+      // landed: game time, instrument, bar and section.
+      tapes: game.tapes || null, remixLog: game.remixLog || [],
       loadout: game.loadout ? game.loadout.instruments().map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg), kills: i.kills, notes: i.notes })) : [],
       retired: (game.retired || []).map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg) })),
       pedals: game.loadout ? game.loadout.pedals.map((p) => ({ id: p.def.id, level: p.level })) : [],
       samples,
+      // Per section: damage by cause and by enemy, healing by source, lowest health, levels, picks, kills and how
+      // close they died, the crowd, hearts, Drops and Snare marks (Game._led; tools/sim.mjs --summary prints it).
+      ledger: game.ledger || [], maxHp: game.player?.maxHp,
     };
   },
 };

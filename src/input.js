@@ -2,8 +2,8 @@
 // The device used last is kept on body[data-input] (key, mouse, touch or pad), so prompts can match it.
 
 // Gamepad buttons (W3C standard mapping) and the keys they send. LB and RB step the Gain on the
-// first-sound screen.
-const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 4: 'gain-down', 5: 'gain-up', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
+// first-sound screen. Y toggles the card info layer.
+const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 3: 'pad-y', 4: 'gain-down', 5: 'gain-up', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
 
 export class Input {
   constructor(canvas, stickEl, onKey) {
@@ -32,13 +32,17 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
 
     const R = 56;
-    canvas.addEventListener('pointerdown', (e) => {
+    const startStick = (e) => {
       if (e.pointerType === 'mouse') return;
       if (this.stick.active) return;
       this.stick = { active: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
       try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
       this._drawStick(R);
-    });
+    };
+    canvas.addEventListener('pointerdown', startStick);
+    // The mixer strips and pedals take mouse hover (for their names) on hover-capable screens, so a touch that
+    // lands on one still steers: the canvas captures the pointer and the rest of the gesture.
+    document.addEventListener('pointerdown', (e) => { if (e.target?.closest?.('#hud .strip, #hud .pedal')) startStick(e); });
     canvas.addEventListener('pointermove', (e) => {
       if (!this.stick.active || e.pointerId !== this.stick.id) return;
       let dx = e.clientX - this.stick.ox, dy = e.clientY - this.stick.oy;
@@ -98,7 +102,7 @@ export class Input {
     document.body.dataset.input = d;
   }
 
-  // Edge-triggered gamepad buttons: A = drop / confirm, B = back, X = reroll, Start = pause, d-pad = menus.
+  // Edge-triggered gamepad buttons: A = drop / confirm, B = back, X = reroll, Y = card info, Start = pause, d-pad = menus.
   // Any button press, or a stick pushed past 0.5, makes the pad the current device.
   pollPad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];

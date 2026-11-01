@@ -1,35 +1,48 @@
 // Level-up offers. Each card is a musical decision: add a new sound to an empty channel, push an
-// existing one further, swap a channel to a different style, add a pedal, or remix a finished part.
+// existing one further, swap a channel to a different style, or add a pedal. Remixes are not level-up cards:
+// a Master Tape from a silenced boss spends on a channel at level 5 (game.js), and when two or more are ready
+// it deals remix cards of its own (describeOffer still draws them).
 
-import { ROLES, ROLE_INFO, STYLES, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, FADER } from '../config.js';
+import { ROLES, ROLE_INFO, STYLES, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, FADER, BALANCE } from '../config.js';
 import { rng, weightedPick, shuffle } from '../util.js';
 import { INSTRUMENTS } from '../content/instruments/index.js';
 import { PEDALS, PEDAL_BY_ID } from '../content/pedals.js';
-import { CHEMISTRY, FUSION } from './loadout.js';
+import { CHEMISTRY, FUSION, isFusion } from './loadout.js';
 
-// A level 5 instrument can be remixed once its remix pedal is on the board, at any level.
-const remixReady = (L, inst) => !!(inst.def.remix && !inst.remix && inst.level >= MAX_INSTRUMENT_LEVEL && L.pedal(inst.def.remix.pedal));
+// A Master Tape can remix an instrument at level 5 that has a remix and is not remixed yet. Its remix pedal is
+// what opens up on the strip once it is, not a requirement.
+export const remixReady = (inst) => !!(inst?.def?.remix && !inst.remix && inst.level >= MAX_INSTRUMENT_LEVEL);
 
 function candidates(g) {
   const L = g.loadout;
   const filled = L.filled();
   const room = filled < g.channelCap();
   const out = [];
+  // A banked Master Tape waits for a channel at level 5: meanwhile the level cards of the channels nearest a remix
+  // (the highest level among those not remixed yet) come up at least this often (BALANCE.remix.tapeUp, about a
+  // first level's weight), so a boss's tape is worth finishing a channel for.
+  const tapeUp = g.tapes?.banked > 0 ? BALANCE.remix.tapeUp || 0 : 0;
+  const nearest = tapeUp ? Math.max(0, ...L.instruments().filter((i) => i.def.remix && !i.remix && i.level < MAX_INSTRUMENT_LEVEL).map((i) => i.level)) : 0;
   for (const role of ROLES) {
     const cur = L.channels[role];
     const inRole = INSTRUMENTS.filter((d) => d.role === role);
+    // A channel's new and swap cards share the weight three styles gave them, however many styles there are,
+    // so more sounds never crowd out level and pedal cards.
+    const newW = 3 / inRole.length, swapW = 2 / Math.max(1, inRole.length - 1);
     if (!cur) {
       if (!room) continue;
-      const w = filled < 3 ? 1.1 : 0.8;
+      const w = (filled < 3 ? 1.1 : 0.8) * newW;
       for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w });
     } else {
-      if (remixReady(L, cur)) out.push({ kind: 'remix', def: cur.def, role, inst: cur, level: MAX_INSTRUMENT_LEVEL, w: 3 });
-      if (cur.remix) continue;   // a remixed channel is never swapped by a card
-      if (cur.level < MAX_INSTRUMENT_LEVEL) out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: 1.1 - 0.25 * cur.level });
+      if (cur.remix || g.remixQueued?.(cur)) continue;   // a remixed (or remix-queued) channel is never swapped by a card
+      if (cur.level < MAX_INSTRUMENT_LEVEL) {
+        const w = 1.1 - 0.25 * cur.level;
+        out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: tapeUp && cur.level === nearest ? Math.max(w, tapeUp) : w });
+      }
       // A swap keeps the channel's level: it changes the style, not the strength.
       for (const d of inRole) {
         if (d === cur.def) continue;
-        out.push({ kind: 'swap', def: d, role, from: cur, level: cur.level, w: 0.32 });
+        out.push({ kind: 'swap', def: d, role, from: cur, level: cur.level, w: 0.32 * swapW });
       }
     }
   }
@@ -60,9 +73,6 @@ export function buildOffers(g, count = 3) {
     if (c.role && picked.filter((p) => p.role === c.role).length >= 2) return false;
     return true;
   };
-  // A ready remix is always on the next screen.
-  const remixes = pool.filter((c) => c.kind === 'remix');
-  if (remixes.length) take(weightedPick(remixes, (c) => c.w));
   // Keep the band growing early. Upgrades are no longer forced onto the offer (chance 0): they come
   // up by weight, rarer the higher the level, so early picks also go to pedals and levels 5 land late.
   // Once the pedals are full, upgrades are most of what is left, so they still come.
@@ -93,7 +103,6 @@ export function applyOffer(g, o) {
     case 'new': g.addInstrument(o.def, 1); break;
     case 'up': g.setInstrumentLevel(o.inst, o.level); break;
     case 'swap': g.addInstrument(o.def, o.level); break;
-    case 'remix': g.remixInstrument(o.inst); break;
     case 'fader': L.faders[o.role] = o.level; break;
     case 'pedal-new': L.pedals.push({ def: o.pedal, level: 1 }); g.onLoadoutChanged(); break;
     case 'pedal-up': o.own.level = o.level; g.onLoadoutChanged(); break;
@@ -103,49 +112,30 @@ export function applyOffer(g, o) {
   }
 }
 
-// How a card changes your style chemistry, as a short line (or null).
-function chemistryLine(g, style, delta) {
+// How a card changes the band's play rules, as short lines: a rule tier gained ("Heavy x2: Mosh pit, +20% up
+// close"), lost, or a step toward the next one. Each line carries its style and rule for the card's gems.
+export function chemistryLine(g, style, delta) {
   const c = g.loadout.styleCounts();
   const before = { ...c };
-  c[style] += delta.add || 0;
-  if (delta.remove) c[delta.remove] -= 1;
+  if (style in c) c[style] += delta.add || 0;
+  if (delta.remove in c) c[delta.remove] -= 1;
   const lines = [];
   for (const st of Object.keys(CHEMISTRY)) {
     if (c[st] === before[st]) continue;
-    const tiers = CHEMISTRY[st];
+    const { tiers, name, rule } = CHEMISTRY[st];
     const gained = tiers.filter((t) => c[st] >= t.n && before[st] < t.n);
     const lost = tiers.filter((t) => c[st] < t.n && before[st] >= t.n);
-    if (gained.length) lines.push({ good: true, text: `${STYLES[st].name} x${c[st]}: ${gained[gained.length - 1].text}` });
-    else if (lost.length) lines.push({ good: false, text: `Loses ${STYLES[st].name} x${before[st]} bonus` });
+    const base = { style: st, rule };
+    if (gained.length) lines.push({ ...base, good: true, text: `${STYLES[st].name} x${c[st]}: ${name}, ${gained[gained.length - 1].text}` });
+    else if (lost.length) lines.push({ ...base, good: false, text: `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
     else if (c[st] > before[st]) {
       const next = tiers.find((t) => t.n > c[st]);
-      lines.push({ good: null, text: next ? `${STYLES[st].name} ${c[st]}/${next.n} toward ${next.text.toLowerCase()}` : `${STYLES[st].name} x${c[st]}` });
+      const goal = next && (next === tiers[0] ? name : next.text);
+      lines.push({ ...base, good: null, text: next ? `${STYLES[st].name} ${c[st]}/${next.n} toward ${goal}` : `${STYLES[st].name} x${c[st]}` });
     }
   }
-  const fusedBefore = before.synth >= 2 && before.organic >= 2 && before.chip >= 2;
-  const fusedAfter = c.synth >= 2 && c.organic >= 2 && c.chip >= 2;
-  if (fusedAfter && !fusedBefore) lines.push({ good: true, text: FUSION.text });
+  if (isFusion(c) && !isFusion(before)) lines.push({ good: true, text: FUSION.text });
   return lines;
-}
-
-// The remix a level 5 instrument leads to: unlocked when its pedal is on the board, otherwise the recipe
-// (only while that pedal can still join the board).
-function recipeLine(g, def) {
-  const rm = def.remix;
-  if (!rm) return [];
-  const pd = PEDAL_BY_ID[rm.pedal];
-  if (g.loadout.pedal(pd.id)) return [{ good: true, remix: true, text: `Unlocks the ${rm.name} remix` }];
-  return g.loadout.pedalSlotsFree() > 0 && !g.banished.has(pd.id) ? [{ good: null, remix: true, text: `+ ${pd.name} pedal = ${rm.name} remix` }] : [];
-}
-
-// The remixes a new pedal unlocks for instruments already in your band (not one banished below level 5:
-// its level cards are gone, so it never gets there).
-function pedalRecipes(g, pd) {
-  return g.loadout.instruments()
-    .filter((i) => i.def.remix?.pedal === pd.id && !i.remix && (i.level >= MAX_INSTRUMENT_LEVEL || !g.banished.has(i.def.id)))
-    .map((i) => (i.level >= MAX_INSTRUMENT_LEVEL
-      ? { good: true, remix: true, text: `Unlocks the ${i.def.remix.name} remix` }
-      : { good: null, remix: true, text: `+ ${i.def.name} at Lv 5 = ${i.def.remix.name} remix` }));
 }
 
 const STAT_NAMES = {
@@ -169,84 +159,109 @@ function statDiff(a, b) {
   return out.slice(0, 2).map((d) => d.text).join(' · ') || null;
 }
 
-// Everything the level-up card shows.
+// The style thresholds (2/4/6 sounds) from CHEMISTRY, read in either shape: { style: [{ n, text }] } or
+// { style: { rule, name, text, tiers: [{ n, text }] } }.
+export const chemTiers = (style) => { const c = CHEMISTRY[style]; return (Array.isArray(c) ? c : c?.tiers) || []; };
+const tierOf = (style, n) => chemTiers(style).filter((t) => n >= t.n).length;
+
+// How a card moves the style counts, as gems for the card's foot row: one entry per style whose count
+// changes, { style, n (count after), delta (+1 or -1), tier (+1 gained, -1 lost, 0) }, and { style: 'fusion' }
+// when the card turns Fusion on (2+ sounds in three different styles).
+function styleGems(g, add, remove) {
+  const before = g.loadout.styleCounts();
+  const after = { ...before };
+  if (add) after[add] = (after[add] || 0) + 1;
+  if (remove) after[remove] = (after[remove] || 0) - 1;
+  const gems = [];
+  for (const st of new Set([add, remove])) {
+    if (!st || after[st] === (before[st] || 0)) continue;
+    const t0 = tierOf(st, before[st] || 0), t1 = tierOf(st, after[st]);
+    gems.push({ style: st, n: after[st], delta: Math.sign(after[st] - (before[st] || 0)), tier: Math.sign(t1 - t0) });
+  }
+  const fused = (c) => Object.values(c).filter((n) => n >= 2).length >= 3;
+  if (fused(after) && !fused(before)) gems.push({ style: 'fusion', n: 0, delta: 0, tier: 1 });
+  return gems;
+}
+
+// A level's step lane: one cell per step, lit where the part plays, `isNew` where it plays and `prev` did not.
+function laneCells(pattern, steps, prev) {
+  const prevSteps = new Set(prev ? prev.map((n) => n.s) : []);
+  const cells = Array.from({ length: steps }, () => ({ on: false, isNew: false, v: 0 }));
+  for (const n of pattern || []) {
+    const c = cells[n.s];
+    if (!c) continue;
+    c.on = true;
+    c.v = Math.max(c.v, n.v ?? 1);
+    if (prev && !prevSteps.has(n.s)) c.isNew = true;
+  }
+  return cells;
+}
+
+const texts = (lines) => (lines || []).map((l) => (typeof l === 'string' ? l : l?.text)).filter(Boolean);
+
+// Everything a level-up card needs. The card itself draws only the glyph, title, pips, step lane and gems;
+// every sentence that explains the card is in `info` (shown by the info layer and read by screen readers).
+//   kind: new | up | swap | remix | pedal-new | pedal-up | fader | heal | hype | score
+//   glyph: an icon id (instrument, pedal or bonus); slot: { role } or { pedal: index } it plugs into.
+//   style: a STYLES id or null. from: the swapped-out instrument id. gems: see styleGems.
 export function describeOffer(g, o) {
+  const base = { kind: o.kind, style: null, from: null, level: o.level || 0, maxLevel: 0, cells: null, gems: [], slot: null, info: [] };
   if (o.def) {
     const def = o.def;
     const role = ROLE_INFO[def.role];
     const lv = def.levels[o.level - 1];
     const prev = o.kind === 'up' ? def.levels[o.level - 2] : null;
-    const prevSteps = new Set(prev ? prev.pattern.map((n) => n.s) : []);
     const steps = def.steps || 16;
-    const cells = Array.from({ length: steps }, () => ({ on: false, isNew: false, v: 0 }));
-    for (const n of lv.pattern) {
-      const c = cells[n.s];
-      c.on = true;
-      c.v = Math.max(c.v, n.v ?? 1);
-      if (prev && !prevSteps.has(n.s)) c.isNew = true;
-    }
-    let tag, chem = [];
-    if (o.kind === 'new') { tag = 'New sound'; chem = chemistryLine(g, def.style, { add: 1 }); }
-    else if (o.kind === 'up') { tag = `Level ${o.level - 1} → ${o.level}`; if (o.level === MAX_INSTRUMENT_LEVEL) chem = recipeLine(g, def); }
-    else if (o.kind === 'swap') {
-      tag = `Swap · replaces ${o.from.def.name}, keeps Lv ${o.level}`;
-      chem = o.from.def.style === def.style ? [] : chemistryLine(g, def.style, { add: 1, remove: o.from.def.style });
-      if (o.level === MAX_INSTRUMENT_LEVEL) chem = [...chem, ...recipeLine(g, def)];
-    } else {
-      // Remix: the same level 5 part (the pattern shown), a new attack, and its pedal opened up on the strip.
+    const out = { ...base, title: def.name, color: role.color, style: def.style, glyph: def.id, level: o.level, maxLevel: MAX_INSTRUMENT_LEVEL, slot: { role: def.role } };
+    if (o.kind === 'remix') {
+      // A tape's remix card: its own part where it has one (else the level 5 part), a new attack, and its pedal
+      // opened up on the strip.
       const rm = def.remix, pd = PEDAL_BY_ID[rm.pedal];
       return {
-        title: rm.name, eyebrow: `Remix · ${role.name}`, color: role.color, style: STYLES[def.style], tag: `${def.name} + ${pd.name}`,
-        level: o.level, maxLevel: MAX_INSTRUMENT_LEVEL, body: rm.text, detail: `You hear it: ${rm.sound || `${pd.name} opens up on your ${role.name} channel.`}`,
-        cells, chem: [], role: def.role, icon: def.role, remix: true,
+        ...out, title: rm.name,
+        cells: rm.pattern ? laneCells(rm.pattern, rm.steps || steps, null) : laneCells(lv.pattern, steps, null),
+        info: [rm.text, `You hear it: ${rm.sound || `${pd?.name || 'Its pedal'} opens up on your ${role.name} channel.`}`],
       };
     }
-    return {
-      title: def.name,
-      eyebrow: `${role.name} channel`,
-      color: role.color,
-      style: STYLES[def.style],
-      tag,
-      level: o.level,
-      maxLevel: MAX_INSTRUMENT_LEVEL,
-      body: o.kind === 'up' ? lv.text : def.blurb,
-      detail: o.kind === 'up' ? statDiff(prev.stats, lv.stats) : lv.text,
-      cells,
-      chem,
-      role: def.role,
-      icon: def.role,
-    };
+    out.cells = laneCells(lv.pattern, steps, prev?.pattern);
+    if (o.kind === 'new') {
+      out.gems = styleGems(g, def.style, null);
+      out.info = [def.blurb, lv.text, ...texts(chemistryLine(g, def.style, { add: 1 }))];
+    } else if (o.kind === 'up') {
+      out.info = [`Level ${o.level - 1} → ${o.level}`, lv.text, statDiff(prev.stats, lv.stats)];
+    } else {
+      out.from = o.from.def.id;
+      const restyle = o.from.def.style !== def.style;
+      out.gems = restyle ? styleGems(g, def.style, o.from.def.style) : [];
+      out.info = [`Swap · replaces ${o.from.def.name}, keeps Lv ${o.level}`, def.blurb, lv.text,
+        ...(restyle ? texts(chemistryLine(g, def.style, { add: 1, remove: o.from.def.style })) : [])];
+    }
+    out.info = out.info.filter(Boolean);
+    return out;
   }
   if (o.pedal) {
     const pd = o.pedal;
     const st = pd.levels[o.level - 1];
+    const own = g.loadout.pedals.indexOf(o.own);
+    const free = g.loadout.pedalSlotsFree();
     return {
-      title: pd.name,
-      eyebrow: 'Effect pedal',
-      color: pd.color,
-      style: null,
-      tag: o.kind === 'pedal-new' ? `New pedal · ${g.loadout.pedalSlotsFree()} slot${g.loadout.pedalSlotsFree() === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`,
-      level: o.level,
-      maxLevel: MAX_PEDAL_LEVEL,
-      body: pd.text(st),
-      detail: pd.sound,
-      cells: null,
-      chem: o.kind === 'pedal-new' ? pedalRecipes(g, pd) : [],
-      icon: 'pedal',
+      ...base, title: pd.name, color: pd.color, glyph: pd.id, level: o.level, maxLevel: MAX_PEDAL_LEVEL,
+      slot: { pedal: o.kind === 'pedal-new' ? g.loadout.pedals.length : Math.max(0, own) },
+      info: [pd.text(st), pd.sound, o.kind === 'pedal-new' ? `New pedal · ${free} slot${free === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`],
     };
   }
   if (o.kind === 'fader') {
     const role = ROLE_INFO[o.role];
     return {
-      title: o.inst.remix ? o.inst.def.remix.name : o.inst.def.name, eyebrow: `Fader · ${role.name} channel`, color: role.color, style: null,
-      tag: `Push the fader · ${o.level - 1} → ${o.level}`, level: o.level, maxLevel: FADER.max,
-      body: `Every ${role.name} attack deals ${Math.round(o.level * FADER.step * 100)}% more damage.`, detail: null, cells: null, chem: [], icon: 'fader',
+      ...base, title: o.inst.remix ? o.inst.def.remix.name : o.inst.def.name, color: role.color, glyph: 'fader', level: o.level, maxLevel: FADER.max,
+      slot: { role: o.role },
+      info: [`Push the fader · ${o.level - 1} → ${o.level}`, `Every ${role.name} attack deals ${Math.round(o.level * FADER.step * 100)}% more damage.`],
     };
   }
   const extra = {
-    heal: { title: 'Breather', tag: 'Catch your breath', body: 'Restore 40% of your health.', color: '#ff6f8a', icon: 'heal' },
-    hype: { title: 'Crowd Surge', body: 'Fill the Drop meter instantly.', color: '#ffd166', icon: 'drop' },
-    score: { title: 'Royalties', body: '+500 score.', color: '#c7c2ff', icon: 'score' },
-  }[o.kind];
-  return { ...extra, eyebrow: 'Bonus', tag: extra.tag || 'Everything else is maxed', style: null, cells: null, chem: [], level: 0, maxLevel: 0 };
+    heal: { title: 'Breather', info: ['Catch your breath', 'Restore 40% of your health.'], color: '#ff6f8a', glyph: 'heal' },
+    hype: { title: 'Crowd Surge', info: ['Fill the Drop meter instantly.'], color: '#f3eeff', glyph: 'drop' },
+    score: { title: 'Royalties', info: ['+500 score.'], color: '#c7c2ff', glyph: 'score' },
+  }[o.kind] || { title: String(o.kind), info: [], color: '#f3eeff', glyph: 'speaker' };
+  return { ...base, ...extra, info: [...extra.info, 'Everything else is maxed'] };
 }

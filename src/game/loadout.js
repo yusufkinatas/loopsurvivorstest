@@ -1,29 +1,78 @@
 // Your band: one instrument per mixer channel plus a pedalboard. Also computes the stats that come
-// from pedals and from "chemistry", the bonus for instruments whose styles belong together.
+// from pedals, and the play rules that come from style chemistry (how many sounds of a style you have).
 
-import { ROLES, PLAYER_BASE, PEDAL_SLOTS } from '../config.js';
+import { ROLES, STYLES, PLAYER_BASE, PEDAL_SLOTS } from '../config.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
-// Style chemistry. Each tier's mods add on top of the tiers below it.
+// Style chemistry is a play rule, not a stat: each style rewards one way of moving, for the whole band.
+// Two, four and six sounds of a style turn its rule up (tier values are totals, not steps). The rules run
+// in src/game/game.js (hit, area, onBeat) and show as floor tells in src/render/renderer.js.
+//   far    Synth: hits on an enemy entirely beyond RULES.far px deal +far damage
+//   near   Heavy: hits on an enemy reaching inside RULES.near px deal +near damage
+//   still  Live: planted (moved under RULES.plant px since the last beat) adds stillArea to areas, and
+//          each beat heals stillHeal while planted and not hit for RULES.calm bars
+//   combo  8-Bit: +1 combo per beat without a hit (up to RULES.comboCap), a hit resets it,
+//          damage x(1 + combo * its share of the cap)
+//   swell  Orchestra: damage x(1 + swell * (2 * phrase - 1)), phrase 0..1 across each 8-bar phrase (mean 1)
 export const CHEMISTRY = {
-  synth: [
-    { n: 2, mods: { damage: 0.12 }, text: '+12% damage' },
-    { n: 4, mods: { damage: 0.13 }, text: '+25% damage' },
-    { n: 6, mods: { damage: 0.15, crit: 0.08 }, text: '+40% damage, +8% crit' },
-  ],
-  organic: [
-    { n: 2, mods: { regen: 0.6 }, text: 'Heal 0.6 HP/s' },
-    { n: 4, mods: { regen: 0.6, area: 0.15 }, text: 'Heal 1.2 HP/s, +15% area' },
-    { n: 6, mods: { regen: 0.8, area: 0.15, maxHp: 25 }, text: 'Heal 2 HP/s, +30% area, +25 max HP' },
-  ],
-  chip: [
-    { n: 2, mods: { projSpeed: 0.15, moveSpeed: 0.08 }, text: '+15% projectile speed, +8% move speed' },
-    { n: 4, mods: { amount: 0.25 }, text: 'Also 25% more projectiles' },
-    { n: 6, mods: { amount: 0.25, crit: 0.08 }, text: 'Also 50% more projectiles, +8% crit' },
-  ],
+  synth: {
+    rule: 'far', name: 'Long throw', text: 'Hits far from you deal more damage.',
+    tiers: [
+      { n: 2, far: 0.2, text: '+20% far away' },
+      { n: 4, far: 0.4, text: '+40% far away' },
+      { n: 6, far: 0.65, text: '+65% far away' },
+    ],
+  },
+  organic: {
+    rule: 'still', name: 'In the pocket', text: 'Stand still: wider attacks, and you heal on the beat.',
+    tiers: [
+      { n: 2, stillHeal: 0.5, stillArea: 0.12, text: '+12% area, heal 0.5 a beat' },
+      { n: 4, stillHeal: 1, stillArea: 0.24, text: '+24% area, heal 1 a beat' },
+      { n: 6, stillHeal: 1.5, stillArea: 0.4, text: '+40% area, heal 1.5 a beat' },
+    ],
+  },
+  chip: {
+    rule: 'combo', name: 'Combo streak', text: 'Each beat without a hit adds damage. A hit resets it.',
+    tiers: [
+      { n: 2, combo: 0.25, text: 'Up to +25% damage' },
+      { n: 4, combo: 0.5, text: 'Up to +50% damage' },
+      { n: 6, combo: 0.8, text: 'Up to +80% damage' },
+    ],
+  },
+  heavy: {
+    rule: 'near', name: 'Mosh pit', text: 'Hits close to you deal more damage.',
+    tiers: [
+      { n: 2, near: 0.2, text: '+20% up close' },
+      { n: 4, near: 0.4, text: '+40% up close' },
+      { n: 6, near: 0.65, text: '+65% up close' },
+    ],
+  },
+  orchestra: {
+    rule: 'swell', name: 'Ride the swell', text: 'Damage swells through every 8 bars and peaks at the fill.',
+    tiers: [
+      { n: 2, swell: 0.2, text: '±20% with the swell' },
+      { n: 4, swell: 0.35, text: '±35% with the swell' },
+      { n: 6, swell: 0.5, text: '±50% with the swell' },
+    ],
+  },
 };
-export const FUSION = { mods: { damage: 0.1, area: 0.1, xpGain: 0.15 }, text: 'Fusion: 2+ of every style. +10% damage, +10% area, +15% XP' };
-export const FULL_BAND = { mods: { damage: 0.1 }, text: 'Full band: all six channels. +10% damage' };
+
+// The rules' distances and timings, in one place for tuning.
+export const RULES = {
+  far: 240,        // Long throw: px, an enemy whose body is entirely beyond this
+  near: 140,       // Mosh pit: px, an enemy whose body reaches inside this
+  plant: 24,       // In the pocket: px moved since the last beat that still counts as planted
+  calm: 1,         // In the pocket: bars without a hit before a planted beat heals
+  comboCap: 16,    // Combo streak: clean beats to the full bonus
+  phraseBars: 8,   // Ride the swell: the phrase length (the song puts a fill on every 8th bar)
+};
+
+// The rule values computeStats writes into stats.rules (all 0 when no tier is on).
+export const RULE_KEYS = ['far', 'near', 'stillHeal', 'stillArea', 'combo', 'swell'];
+
+// Fusion: 2+ sounds in three different styles. A genre name only: it turns three rules on, nothing more.
+export const FUSION = { text: 'Fusion: two sounds each in three styles' };
+export const isFusion = (counts) => Object.values(counts).filter((n) => n >= 2).length >= 3;
 
 // remix: true once the instrument has been remixed (it stays at level 5 and plays its remix's attack).
 export function makeInst(def, level = 1) {
@@ -53,9 +102,10 @@ export class Loadout {
     return inst;
   }
 
+  // style -> sounds of that style in the band, for every style.
   styleCounts() {
-    const c = { synth: 0, organic: 0, chip: 0 };
-    for (const inst of this.instruments()) c[inst.def.style]++;
+    const c = emptyCounts();
+    for (const inst of this.instruments()) if (inst.def.style in c) c[inst.def.style]++;
     return c;
   }
 
@@ -71,6 +121,8 @@ export class Loadout {
   remixBoost() { return remixBoost(this.instruments()); }
 }
 
+export const emptyCounts = () => Object.fromEntries(Object.keys(STYLES).map((st) => [st, 0]));
+
 // role -> pedal id for every remixed channel: the desk runs that pedal at full on the channel's strip.
 // A played-back track sheet comes from storage, so a remix flag on a sound without a remix is skipped.
 export function remixBoost(insts) {
@@ -79,9 +131,10 @@ export function remixBoost(insts) {
   return out;
 }
 
+// How many tiers of a style's rule are on (0 to 3).
 export function chemistryTier(style, count) {
   let tier = 0;
-  for (const t of CHEMISTRY[style]) if (count >= t.n) tier++;
+  for (const t of CHEMISTRY[style]?.tiers || []) if (count >= t.n) tier++;
   return tier;
 }
 
@@ -98,36 +151,48 @@ export function computeStats(loadout, override = null) {
     const def = PEDAL_BY_ID[id];
     if (def && levels[id] > 0) add(def.levels[levels[id] - 1]);
   }
+  // The play rules at their active tier. rules.on: any rule at all.
   const counts = loadout.styleCounts();
+  const rules = Object.fromEntries(RULE_KEYS.map((k) => [k, 0]));
   for (const style in CHEMISTRY) {
-    for (const t of CHEMISTRY[style]) if (counts[style] >= t.n) add(t.mods);
+    const tier = chemistryTier(style, counts[style]);
+    if (!tier) continue;
+    const t = CHEMISTRY[style].tiers[tier - 1];
+    for (const k of RULE_KEYS) if (t[k]) rules[k] += t[k];
   }
-  if (counts.synth >= 2 && counts.organic >= 2 && counts.chip >= 2) add(FUSION.mods);
-  if (loadout.filled() === ROLES.length) add(FULL_BAND.mods);
+  rules.on = RULE_KEYS.some((k) => rules[k] > 0);
+  s.rules = rules;
   s.pickup = PLAYER_BASE.pickup * s.pickup;
   s.speed = PLAYER_BASE.speed * s.moveSpeed;
   return s;
 }
 
+// Genre names by style, for one sound to six of the band's top style.
+const LADDERS = {
+  synth: ['Synth solo', 'Synthpop', 'Synthwave', 'Synthwave', 'Neon Synthwave', 'Pure Synthwave'],
+  organic: ['Solo act', 'Acoustic duo', 'Live band', 'Live band', 'Full live band', 'Pure live band'],
+  chip: ['Chip solo', 'Chiptune', 'Chiptune', 'Chiptune', 'Console chiptune', 'Pure chiptune'],
+  heavy: ['Riff', 'Garage rock', 'Hard rock', 'Hard rock', 'Heavy metal', 'Pure metal'],
+  orchestra: ['Solo recital', 'Duet', 'Chamber orchestra', 'Chamber orchestra', 'Symphony', 'Full symphony'],
+};
+// Crossovers: the top two styles tied (3 and 3 in a full band). Keyed by the two style ids, sorted.
+const CROSSOVERS = {
+  'organic+synth': 'Indietronica', 'chip+synth': 'Electro chip', 'chip+organic': 'Lo-fi chip',
+  'heavy+synth': 'Industrial', 'heavy+organic': 'Grunge', 'chip+heavy': 'Chip metal', 'heavy+orchestra': 'Symphonic metal',
+  'orchestra+synth': 'Film score', 'orchestra+organic': 'Chamber pop', 'chip+orchestra': 'Boss theme',
+};
+export const GENRES = { ladders: LADDERS, crossovers: CROSSOVERS };
+
 // A short name for the genre your band has become. Shown on the HUD and the end screen.
 export function genreName(loadout) {
   const c = loadout.styleCounts();
-  const total = c.synth + c.organic + c.chip;
+  const total = Object.values(c).reduce((a, n) => a + n, 0);
   if (total === 0) return 'Silence';
-  if (c.synth >= 2 && c.organic >= 2 && c.chip >= 2) return 'Fusion';
+  if (isFusion(c)) return 'Fusion';
   const top = Object.entries(c).sort((a, b) => b[1] - a[1]);
   const [style, n] = top[0];
-  const names = {
-    synth: ['Synth solo', 'Synthpop', 'Synthwave', 'Synthwave', 'Neon Synthwave', 'Pure Synthwave'],
-    organic: ['Solo act', 'Acoustic duo', 'Live band', 'Live band', 'Full live band', 'Pure live band'],
-    chip: ['Chip solo', 'Chiptune', 'Chiptune', 'Chiptune', 'Console chiptune', 'Pure chiptune'],
-  };
-  if (top[1][1] === n && n > 0 && total > 1) {
-    const pair = [style, top[1][0]].sort().join('+');
-    const mixes = { 'organic+synth': 'Indietronica', 'chip+synth': 'Electro chip', 'chip+organic': 'Lo-fi chip' };
-    return mixes[pair] || 'Crossover';
-  }
-  return names[style][Math.min(5, n - 1)];
+  if (top[1][1] === n && total > 1) return CROSSOVERS[[style, top[1][0]].sort().join('+')] || 'Crossover';
+  return LADDERS[style][Math.min(5, n - 1)];
 }
 
 export { PEDAL_SLOTS };

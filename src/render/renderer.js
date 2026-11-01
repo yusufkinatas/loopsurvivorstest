@@ -2,9 +2,13 @@
 // color follows the song section. Music is color: every attack wears its channel's color.
 
 import { TAU, clamp, lerp, rgba, hexToRgb } from '../util.js';
-import { BEAT_SEC } from '../config.js';
-import { ROLE_INFO, ROLES } from '../config.js';
+import { BEAT_SEC, BALANCE } from '../config.js';
+import { ROLE_INFO, ROLES, STYLES } from '../config.js';
 import { ITEM_INFO } from '../game/pickups.js';
+import { CHEMISTRY, RULES } from '../game/loadout.js';
+
+// rule -> the color of the style it belongs to, for the floor tells.
+const RULE_COLOR = Object.fromEntries(Object.entries(CHEMISTRY).map(([st, c]) => [c.rule, STYLES[st].color]));
 
 export class Renderer {
   constructor(canvas) {
@@ -17,6 +21,7 @@ export class Renderer {
     this.scale = 1;
     this.zoom = 1;               // the Drop camera, on top of scale (see draw)
     this.waveAt = -Infinity;     // when the last section wave started
+    this.dim = 0;                // the arena dims in quiet phrases (0.25) and flashes back on an impact (< 0)
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -120,19 +125,20 @@ export class Renderer {
     this._background(c, 258, pulse, pulse * 0.6);
   }
 
-  _background(c, hue, beat, bar, sx = 0, sy = 0, s = this.scale) {
+  // k: the arena's brightness (quiet phrases dim it, an impact flashes it back).
+  _background(c, hue, beat, bar, sx = 0, sy = 0, s = this.scale, k = 1) {
     const w = this.w, h = this.h;
     const camX = this.cam.x + sx, camY = this.cam.y + sy;
-    c.fillStyle = `hsl(${hue}, 38%, 6.5%)`;
+    c.fillStyle = `hsl(${hue}, 38%, ${(6.5 * Math.min(1, k)).toFixed(2)}%)`;
     c.fillRect(0, 0, w, h);
     const hq = Math.round(hue);   // a section's color fade repaints the floor once per degree
-    this._shade(c, 'floor', 0.35 + beat * 0.12, 0, Math.max(w, h) * 0.7, `hsl(${hq}, 60%, 20%)`, `hsla(${hq}, 50%, 3%, 0)`);
+    this._shade(c, 'floor', (0.35 + beat * 0.12) * k, 0, Math.max(w, h) * 0.7, `hsl(${hq}, 60%, 20%)`, `hsla(${hq}, 50%, 3%, 0)`);
     // Grid in world space
     const step = 64 * s;
     const ox = (-camX * s + w / 2) % step;
     const oy = (-camY * s + h / 2) % step;
     c.lineWidth = 1;
-    c.strokeStyle = `hsla(${hue}, 70%, 70%, ${0.04 + beat * 0.14})`;
+    c.strokeStyle = `hsla(${hue}, 70%, 70%, ${(0.04 + beat * 0.14) * k})`;
     c.beginPath();
     for (let x = ox; x < w; x += step) { c.moveTo(Math.round(x) + 0.5, 0); c.lineTo(Math.round(x) + 0.5, h); }
     for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(w, Math.round(y) + 0.5); }
@@ -141,7 +147,7 @@ export class Renderer {
     const big = step * 4;
     const bx = (-camX * s + w / 2) % big;
     const by = (-camY * s + h / 2) % big;
-    c.strokeStyle = `hsla(${hue}, 80%, 72%, ${0.08 + bar * 0.24})`;
+    c.strokeStyle = `hsla(${hue}, 80%, 72%, ${(0.08 + bar * 0.24) * k})`;
     c.lineWidth = 1.5;
     c.beginPath();
     for (let x = bx; x < w; x += big) { c.moveTo(Math.round(x), 0); c.lineTo(Math.round(x), h); }
@@ -171,11 +177,19 @@ export class Renderer {
     const prog = cur ? cur.sib / 16 : 0;
     if (g.drops > this._drops) this.zoom = 0.94;
     this._drops = g.drops;
+    // A remix landing punches out the same way.
+    const remixes = g.remixLog?.length || 0;
+    if (remixes > this._remixes) this.zoom = 0.95;
+    this._remixes = remixes;
     if (!g.settings.shake) this.zoom = 1;
     else this.zoom += ((building && g.state === 'playing' ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
     const s = this.scale * this.zoom;
 
-    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy, s);
+    // A quiet phrase dims the arena by a quarter; the band slamming back in (a song impact) flashes it back.
+    const heard = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
+    if (g.impactAt !== this._impactAt) { if (this._impactAt !== undefined && g.impactAt > 0) this.dim = -0.3; this._impactAt = g.impactAt; }
+    this.dim += ((heard?.quiet && g.state === 'playing' ? 0.25 : 0) - this.dim) * Math.min(1, dt * 2.5);
+    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy, s, 1 - this.dim);
 
     c.setTransform(this.dpr * s, 0, 0, this.dpr * s, this.dpr * (this.w / 2 - (this.cam.x + sx) * s), this.dpr * (this.h / 2 - (this.cam.y + sy) * s));
     const vw = this.w / s / 2 + 80, vh = this.h / s / 2 + 80;
@@ -202,14 +216,19 @@ export class Renderer {
       circle(c, p.x, p.y, lerp(40, 0.75 * Math.max(this.w, this.h), 1 - (1 - wt) * (1 - wt)) / s); c.stroke();
     }
 
+    this._ruleTells(c, g);
     this._pickups(c, g, inView);
     this._mines(c, g, inView);
     this._strikes(c, g, inView);
     this._enemies(c, g, inView);
     c.globalCompositeOperation = 'lighter';
     this._orbits(c, g);
+    this._followers(c, g);
+    this._tethers(c, g);
+    this._walls(c, g, inView);
     this._bullets(c, g, inView);
     this._rings(c, g, inView);
+    this._cones(c, g, inView);
     // The silence wave's front, until it has passed the far corner of the view.
     const sw = g.won && g.silence;
     if (sw && sw.r < Math.hypot(Math.abs(sw.x - cx) + vw, Math.abs(sw.y - cy) + vh)) {
@@ -223,7 +242,8 @@ export class Renderer {
     c.globalCompositeOperation = 'source-over';
     // The player and everything that can hurt them go on top of the band's effects, so they stay readable.
     if (g.state === 'dying') this._shatter(c, g);
-    else if (g.state !== 'gameover') this._player(c, g);   // after the death beat the speaker is gone
+    else if (g.state !== 'gameover') { this._shield(c, g); this._player(c, g); }   // after the death beat the speaker is gone
+    this._marks(c, g, inView);
     this._telegraphs(c, g);
     this._shots(c, g, inView);
     this._texts(c, g, inView);
@@ -254,12 +274,49 @@ export class Renderer {
       }
     }
     if (g.dropFlash > 0.02 && g.settings.flashes) {
+      // The flash covers the blast, not the whole screen: the Drop is local.
+      const R = (g.dropR || 460) * s * 1.1;
       c.globalCompositeOperation = 'lighter';
-      const fl = c.createRadialGradient(px, py, 0, px, py, Math.max(this.w, this.h) * 0.8);
+      const fl = c.createRadialGradient(px, py, 0, px, py, R);
       fl.addColorStop(0, `rgba(255,255,255,${g.dropFlash * 0.5})`);
-      fl.addColorStop(1, `rgba(255,240,255,${g.dropFlash * 0.15})`);
+      fl.addColorStop(0.8, `rgba(255,240,255,${g.dropFlash * 0.2})`);
+      fl.addColorStop(1, 'rgba(255,240,255,0)');
       c.fillStyle = fl;
       c.fillRect(0, 0, this.w, this.h);
+      c.globalCompositeOperation = 'source-over';
+    }
+    // A perfect drop (on a phrase downbeat): a gold wash and a gold rim at the blast's edge that hold a moment longer.
+    if (g.perfectFlash > 0.02) {
+      const R = (g.dropR || 460) * s;
+      c.globalCompositeOperation = 'lighter';
+      if (g.settings.flashes) {
+        const fl = c.createRadialGradient(px, py, R * 0.2, px, py, R * 1.15);
+        fl.addColorStop(0, 'rgba(255,209,102,0)');
+        fl.addColorStop(0.85, `rgba(255,209,102,${g.perfectFlash * 0.28})`);
+        fl.addColorStop(1, 'rgba(255,209,102,0)');
+        c.fillStyle = fl;
+        c.fillRect(0, 0, this.w, this.h);
+      }
+      c.strokeStyle = `rgba(255,209,102,${g.perfectFlash * 0.9})`;
+      c.lineWidth = 3 + 5 * g.perfectFlash;
+      circle(c, px, py, R * (1.02 + 0.04 * (1 - g.perfectFlash))); c.stroke();
+      c.globalCompositeOperation = 'source-over';
+    }
+    // A remix lands: a gold wash over its ring (flashes on) and a gold rim that holds at the ring's edge.
+    if (g.remixFlash > 0.02) {
+      const R = (g.remixR || 520) * s;
+      c.globalCompositeOperation = 'lighter';
+      if (g.settings.flashes) {
+        const fl = c.createRadialGradient(px, py, 0, px, py, R * 1.1);
+        fl.addColorStop(0, `rgba(255,209,102,${g.remixFlash * 0.32})`);
+        fl.addColorStop(0.8, `rgba(255,209,102,${g.remixFlash * 0.16})`);
+        fl.addColorStop(1, 'rgba(255,209,102,0)');
+        c.fillStyle = fl;
+        c.fillRect(0, 0, this.w, this.h);
+      }
+      c.strokeStyle = `rgba(255,209,102,${g.remixFlash * 0.85})`;
+      c.lineWidth = 2 + 6 * g.remixFlash;
+      circle(c, px, py, R * (1 + 0.05 * (1 - g.remixFlash))); c.stroke();
       c.globalCompositeOperation = 'source-over';
     }
   }
@@ -268,14 +325,20 @@ export class Renderer {
 
   _pickups(c, g, inView) {
     const t = this.time;
+    // A note about to fade blinks on 16ths through its last BALANCE.notes.blink seconds.
+    const N = BALANCE.notes, T = BALANCE.remix;
+    // A Master Tape blinks the same way through its last BALANCE.remix.tapeBlink seconds.
+    const fading = (gm) => !gm.pull && (gm.kind === 'xp' ? gm.age > N.life - N.blink : gm.kind === 'tape' && gm.age > T.tapeLife - T.tapeBlink)
+      && Math.floor(gm.age / (BEAT_SEC / 4)) % 2 === 1;
     c.globalCompositeOperation = 'lighter';
     for (const gm of g.gems) {
-      if (!inView(gm.x, gm.y, 20)) continue;
-      this.drawGlow(gm.x, gm.y, gm.r * 2.2, gm.color, gm.kind === 'xp' ? 0.25 : 0.5);
+      if (!inView(gm.x, gm.y, 20) || fading(gm)) continue;
+      if (gm.kind === 'tape') this.drawGlow(gm.x, gm.y, gm.r * (3.4 + g.beatPulse * 0.8), gm.color, 0.7);
+      else this.drawGlow(gm.x, gm.y, gm.r * 2.2, gm.color, gm.kind === 'xp' ? 0.25 : 0.5);
     }
     c.globalCompositeOperation = 'source-over';
     for (const gm of g.gems) {
-      if (!inView(gm.x, gm.y, 20)) continue;
+      if (!inView(gm.x, gm.y, 20) || fading(gm)) continue;
       if (gm.kind === 'xp') {
         drawNote(c, gm.x, gm.y + Math.sin(t * 4 + gm.x) * 1.2, gm.r, gm.color);
       } else if (gm.kind === 'vinyl') {
@@ -285,6 +348,8 @@ export class Renderer {
         c.fillStyle = ITEM_INFO.vinyl.color; circle(c, 0, 0, gm.r * 0.38); c.fill();
         c.fillStyle = '#121016'; circle(c, 0, 0, 1.6); c.fill();
         c.restore();
+      } else if (gm.kind === 'tape') {
+        this._tape(c, gm, t, g.beatPulse);
       } else if (gm.kind === 'heal') {
         c.fillStyle = ITEM_INFO.heal.color;
         heart(c, gm.x, gm.y, gm.r * (1 + Math.sin(t * 6) * 0.08));
@@ -293,6 +358,72 @@ export class Renderer {
         c.beginPath(); c.arc(gm.x, gm.y, gm.r * 0.7, Math.PI, 0, true); c.stroke();
         c.lineCap = 'round';
       }
+    }
+  }
+
+  // A Master Tape: a gold reel spinning on the floor (wound tape, three windows in the flange, a hub), and a
+  // ring that pulses out from it on the beat so it reads from across a fight.
+  _tape(c, gm, t, pulse) {
+    const r = gm.r, col = ITEM_INFO.tape.color;
+    c.strokeStyle = rgba(col, 0.25 + 0.45 * pulse);
+    c.lineWidth = 2;
+    circle(c, gm.x, gm.y, r * (1.5 + 0.9 * (1 - pulse))); c.stroke();
+    c.save(); c.translate(gm.x, gm.y); c.rotate(t * 2.4);
+    c.fillStyle = col; circle(c, 0, 0, r); c.fill();
+    c.fillStyle = '#3a2a0c'; circle(c, 0, 0, r * 0.66); c.fill();   // the wound tape
+    c.fillStyle = '#121016';
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * TAU;
+      c.beginPath(); c.arc(0, 0, r * 0.56, a + 0.35, a + 1.75); c.arc(0, 0, r * 0.3, a + 1.75, a + 0.35, true); c.closePath(); c.fill();
+    }
+    c.fillStyle = col; circle(c, 0, 0, r * 0.22); c.fill();
+    c.fillStyle = '#121016'; circle(c, 0, 0, r * 0.08); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.55)'; c.lineWidth = 1.2; circle(c, 0, 0, r); c.stroke();
+    c.restore();
+  }
+
+  // The band's play rules, as quiet tells on the floor in their style's color (no text): Long throw's dotted
+  // circle, the Mosh pit's disc, In the pocket's ring that fills over the beat while you stand still, the
+  // Combo streak's 16 ticks, and a halo that swells through the 8-bar phrase.
+  _ruleTells(c, g) {
+    const R = g.stats?.rules, S = g.rules;
+    if (!R?.on || !S || g.state === 'dying' || g.state === 'gameover') return;
+    const p = g.player, pulse = g.beatPulse;
+    if (R.far) {
+      c.strokeStyle = rgba(RULE_COLOR.far, 0.2 + 0.12 * pulse);
+      c.lineWidth = 2;
+      c.setLineDash([2, 12]);
+      circle(c, p.x, p.y, RULES.far); c.stroke();
+      c.setLineDash([]);
+    }
+    if (R.near) {
+      c.fillStyle = rgba(RULE_COLOR.near, 0.03 + 0.03 * pulse);
+      circle(c, p.x, p.y, RULES.near); c.fill();
+      c.strokeStyle = rgba(RULE_COLOR.near, 0.26);
+      c.lineWidth = 2;
+      c.stroke();
+    }
+    if (R.stillHeal || R.stillArea) {
+      const k = S.planted ? 1 : S.broke ? 0 : clamp((g.time - S.beatAt) / BEAT_SEC, 0, 1);
+      if (k > 0) {
+        const rr = p.r + 30;
+        c.strokeStyle = rgba(RULE_COLOR.still, S.planted ? 0.5 + 0.3 * pulse : 0.3);
+        c.lineWidth = 3;
+        c.beginPath(); c.arc(p.x, p.y, rr, -Math.PI / 2, -Math.PI / 2 + k * TAU); c.stroke();
+        if (S.planted) { c.fillStyle = rgba(RULE_COLOR.still, 0.07 + 0.05 * pulse); circle(c, p.x, p.y, rr); c.fill(); }
+      }
+    }
+    if (R.combo) {
+      const n = RULES.comboCap, w = 3, gap = 1.5, x0 = p.x - (n * (w + gap) - gap) / 2, y = p.y + p.r + 34;
+      for (let i = 0; i < n; i++) {
+        c.fillStyle = i < S.combo ? RULE_COLOR.combo : rgba(RULE_COLOR.combo, 0.16);
+        c.fillRect(x0 + i * (w + gap), y, w, 3);
+      }
+    }
+    if (R.swell) {
+      c.globalCompositeOperation = 'lighter';
+      this.drawGlow(p.x, p.y, 36 + 54 * S.phrase, RULE_COLOR.swell, 0.08 + 0.3 * S.phrase);
+      c.globalCompositeOperation = 'source-over';
     }
   }
 
@@ -307,12 +438,91 @@ export class Renderer {
       circle(c, m.x, m.y, m.r * k); c.stroke();
       c.setLineDash([]);
       c.globalCompositeOperation = 'lighter';
-      this.drawGlow(m.x, m.y, m.size * 3.5 * pulse, m.color, 0.7);
+      this.drawGlow(m.x, m.y, m.size * 3.5 * pulse * (1 + (m.glow || 0)), m.color, 0.7);
       c.globalCompositeOperation = 'source-over';
+      // A persistent mine spins, and rings out from its center when it is rung.
+      if (m.glow > 0.02) {
+        c.strokeStyle = rgba(m.color, 0.6 * m.glow);
+        c.lineWidth = 2;
+        circle(c, m.x, m.y, m.r * (1 - 0.5 * m.glow)); c.stroke();
+      }
       c.fillStyle = m.color;
-      c.save(); c.translate(m.x, m.y); c.rotate(Math.PI / 4 + m.age);
+      c.save(); c.translate(m.x, m.y); c.rotate(Math.PI / 4 + m.age * (m.persist ? 4 : 1));
       c.fillRect(-m.size * 0.6 * k, -m.size * 0.6 * k, m.size * 1.2 * k, m.size * 1.2 * k);
       c.restore();
+    }
+  }
+
+  // Cones: a wedge flash that snaps out and fades.
+  _cones(c, g, inView) {
+    for (const k of g.fx.cones) {
+      if (!inView(k.x, k.y, k.r)) continue;
+      const t = k.age / k.life, a = 1 - t, r = k.r * (0.75 + 0.25 * Math.min(1, t * 4));
+      c.beginPath(); c.moveTo(k.x, k.y); c.arc(k.x, k.y, r, k.angle - k.half, k.angle + k.half); c.closePath();
+      c.fillStyle = rgba(k.color, 0.2 * a); c.fill();
+      c.strokeStyle = rgba(k.color, 0.85 * a); c.lineWidth = 3;
+      c.beginPath(); c.arc(k.x, k.y, r, k.angle - k.half, k.angle + k.half); c.stroke();
+    }
+  }
+
+  // Walls: a bright arc with a white core, fading in and out.
+  _walls(c, g, inView) {
+    c.lineCap = 'round';
+    for (const w of g.fx.walls) {
+      if (!inView(w.x, w.y, w.r + 20)) continue;
+      const a = Math.min(1, w.t / 0.08) * Math.min(1, (w.dur - w.t) / 0.15);
+      c.strokeStyle = rgba(w.color, 0.7 * a);
+      c.lineWidth = w.width;
+      c.beginPath(); c.arc(w.x, w.y, w.r, w.angle - w.half, w.angle + w.half); c.stroke();
+      c.strokeStyle = rgba('#ffffff', 0.45 * a);
+      c.lineWidth = Math.max(1.5, w.width * 0.3);
+      c.stroke();
+    }
+  }
+
+  // Tethers: a crackling line from you to each hooked enemy, brighter when it strikes.
+  _tethers(c, g) {
+    const p = g.player;
+    for (const t of g.fx.tethers) {
+      const e = t.e;
+      if (e.dead) continue;
+      c.strokeStyle = rgba(t.color, 0.3 + 0.55 * t.glow);
+      c.lineWidth = 1.5 + 1.5 * t.glow;
+      c.beginPath(); c.moveTo(p.x, p.y);
+      for (let s = 1; s <= 4; s++) {
+        const k = s / 4, j = s < 4 ? 10 : 0;
+        c.lineTo(p.x + (e.x - p.x) * k + (Math.random() - 0.5) * j, p.y + (e.y - p.y) * k + (Math.random() - 0.5) * j);
+      }
+      c.stroke();
+    }
+  }
+
+  // Followers: drawn like orbiters, marching on your path.
+  _followers(c, g) {
+    for (const grp of g.fx.trails.values()) {
+      for (const it of grp.items) {
+        const sz = grp.size * (1 + it.glow * 0.6);
+        this.drawGlow(it.x, it.y, sz * 3 + it.glow * 12, grp.color, 0.5 + it.glow * 0.5);
+        c.fillStyle = it.glow > 0.3 ? '#ffffff' : grp.color;
+        shape(c, grp.shape, it.x, it.y, sz, this.time * 2);
+      }
+    }
+  }
+
+  // A shield: a bubble around the speaker in its channel color, one arc per hit it can still take.
+  _shield(c, g) {
+    const s = g.shield;
+    if (!s || !(s.n > 0)) return;
+    const p = g.player, col = g.color(s.src), left = s.until - g.time;
+    const a = left < 0.5 ? 0.4 + 0.6 * (Math.sin(this.time * 30) * 0.5 + 0.5) : 1;
+    const rr = p.r + 24, n = Math.min(3, Math.ceil(s.n)), gap = n > 1 ? 0.35 : 0;
+    c.fillStyle = rgba(col, 0.07 * a);
+    circle(c, p.x, p.y, rr); c.fill();
+    c.strokeStyle = rgba(col, 0.75 * a);
+    c.lineWidth = 3;
+    for (let i = 0; i < n; i++) {
+      const a0 = -Math.PI / 2 + (i / n) * TAU + gap / 2;
+      c.beginPath(); c.arc(p.x, p.y, rr, a0, a0 + TAU / n - gap); c.stroke();
     }
   }
 
@@ -340,7 +550,15 @@ export class Renderer {
     const t = this.time;
     for (const e of g.enemies) {
       if (e.dead || !inView(e.x, e.y, e.r + 10)) continue;
-      const spawnK = e.spawnT > 0 ? 1 - e.spawnT / 0.35 : 1;
+      const spawnK = e.spawnT > 0 ? 1 - e.spawnT / (e.spawnDur || 0.35) : 1;
+      // A telegraphed arrival (a drop-in, a close ring): a ring in its color closes in on the spot for its beat.
+      if (e.spawnT > 0 && e.spawnDur > 0.4) {
+        c.strokeStyle = rgba(e.color, 0.35 + 0.55 * spawnK);
+        c.lineWidth = 2;
+        circle(c, e.x, e.y, e.r * (1 + 2.6 * (1 - spawnK))); c.stroke();
+        c.fillStyle = rgba(e.color, 0.1 * spawnK);
+        circle(c, e.x, e.y, e.r); c.fill();
+      }
       const r = e.r * (e.boss ? 1 + g.beatPulse * 0.04 : bob) * spawnK;
       if (r <= 0.5) continue;
       c.globalAlpha = spawnK;
@@ -388,6 +606,11 @@ export class Renderer {
         break;
       }
       case 'ring': { c.arc(e.x, e.y, r, 0, TAU); break; }
+      case 'snare': {
+        // A snare drum seen from above: a round head (the wires are drawn below).
+        c.arc(e.x, e.y, r, 0, TAU);
+        break;
+      }
       case 'stomp': {
         // A speaker cabinet: a flat-sided octagon.
         for (let i = 0; i < 8; i++) { const aa = ((i + 0.5) / 8) * TAU; c.lineTo(e.x + Math.cos(aa) * r * 1.08, e.y + Math.sin(aa) * r * 1.08); }
@@ -418,6 +641,13 @@ export class Renderer {
       c.strokeStyle = rgba(e.color, 0.6); c.lineWidth = 1.5;
       circle(c, e.x, e.y, r * 0.5); c.stroke();
     }
+    if (e.shape === 'snare') {
+      // The snare wires across the head, and a bright rim for a moment after it fires.
+      c.strokeStyle = rgba(e.color, 0.8); c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(e.x - r * 0.6, e.y - r * 0.2); c.lineTo(e.x + r * 0.6, e.y - r * 0.2);
+      c.moveTo(e.x - r * 0.6, e.y + r * 0.2); c.lineTo(e.x + r * 0.6, e.y + r * 0.2); c.stroke();
+      if (e.ai.shootT) { c.strokeStyle = rgba('#ffffff', 0.8); c.lineWidth = 2; circle(c, e.x, e.y, r * 1.25); c.stroke(); }
+    }
     if (e.shape === 'stomp') {
       // Its cone pumps out while the lane is lit.
       const k = e.ai.chargeWarn ? 1 - e.ai.chargeWarn.t / BEAT_SEC : 0;
@@ -441,8 +671,14 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
     // A boss the Drop knocked off the beat (enemies.js knockOffBeat) glows dim and stops pulsing until its bar is heard.
     const heard = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
-    this.drawGlow(e.x, e.y, r * 2.6, e.color, heard && heard.bar < e.ai.offbeatUntil ? 0.12 : 0.35 + g.beatPulse * 0.25);
+    const staggered = heard && heard.bar < e.ai.offbeatUntil;
+    this.drawGlow(e.x, e.y, r * 2.6, e.color, staggered ? 0.12 : 0.35 + g.beatPulse * 0.25);
     c.globalCompositeOperation = 'source-over';
+    // ...and wears a white ring, so the stagger reads without a word.
+    if (staggered) {
+      c.strokeStyle = `rgba(255,255,255,${0.55 + 0.35 * Math.sin(t * 9) ** 2})`; c.lineWidth = 2.5;
+      circle(c, e.x, e.y, r * 1.4 + 6); c.stroke();
+    }
     // Bosses are hit constantly: keep the silhouette dark and flash only the outline.
     c.fillStyle = 'rgba(14,10,22,0.95)';
     c.strokeStyle = col;
@@ -534,6 +770,24 @@ export class Renderer {
   }
 
   // Boss tells and Stomp lanes, drawn wherever the tell is (the boss itself may be off-screen).
+  // Snare marks: a quiet outline where the shell will land, filling toward its beat, with a tick ring closing in.
+  _marks(c, g, inView) {
+    const H = g.hazards;
+    if (!H?.length) return;
+    for (const h of H) {
+      if (!inView(h.x, h.y, h.r)) continue;
+      const k = clamp((g.time - h.t0) / (h.dur || 1), 0, 1);
+      c.fillStyle = `rgba(255,107,154,${0.05 + 0.17 * k})`;
+      circle(c, h.x, h.y, h.r * k); c.fill();
+      c.strokeStyle = `rgba(255,107,154,${0.45 + 0.35 * k})`;
+      c.lineWidth = 1.5;
+      circle(c, h.x, h.y, h.r); c.stroke();
+      c.strokeStyle = `rgba(255,255,255,${0.15 + 0.45 * k})`;
+      c.lineWidth = 1;
+      circle(c, h.x, h.y, h.r * (1.5 - 0.5 * k)); c.stroke();
+    }
+  }
+
   _telegraphs(c, g) {
     for (const e of g.enemies) {
       if (e.dead || (!e.boss && !e.ai.chargeWarn)) continue;
@@ -566,7 +820,7 @@ export class Renderer {
       const cw = e.ai.chargeWarn;
       // A charge lane (the Drone's, a Stomp's) lights up a beat before the dash. A Stomp's stays lit until
       // its downbeat, even when a pause stretched the beat.
-      if (cw && (cw.t > 0 || e.def.charger)) {
+      if (cw && (cw.t > 0 || e.def.charger || cw.hold)) {
         const L = cw.len ?? e.speed * 3.4 * 0.75 + e.r;
         const k = 1 - cw.t / BEAT_SEC;
         c.save();
@@ -586,9 +840,15 @@ export class Renderer {
   }
 
   // An arrow pointing at a boss that is off-screen or hidden under the HUD, drawn inside the clear play area.
+  // An arrow at the edge of the view toward the boss, and toward a Master Tape lying off screen (gold).
   _bossArrow(c, g, s) {
+    for (const gm of g.gems) if (gm.kind === 'tape') this._edgeArrow(c, gm, ITEM_INFO.tape.color, s, 12);
     const e = g.boss;
     if (!e || e.dead) return;
+    this._edgeArrow(c, e, e.color, s, 15);
+  }
+
+  _edgeArrow(c, e, color, s, sz) {
     // Clear of the HUD: the top bar, the boss bar and the fight note under it (styles.css), and the mixer.
     const top = this.w < 760 ? 140 : 152, bottom = this.w < 760 ? 150 : 104, side = 24;
     const sxp = (e.x - this.cam.x) * s + this.w / 2, syp = (e.y - this.cam.y) * s + this.h / 2;
@@ -603,8 +863,7 @@ export class Renderer {
     c.save();
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.translate(x, y); c.rotate(a);
-    const sz = 15;
-    c.fillStyle = e.color;
+    c.fillStyle = color;
     c.strokeStyle = 'rgba(8,4,12,0.9)'; c.lineWidth = 3;
     c.beginPath(); c.moveTo(sz, 0); c.lineTo(-sz * 0.7, sz * 0.75); c.lineTo(-sz * 0.35, 0); c.lineTo(-sz * 0.7, -sz * 0.75); c.closePath();
     c.stroke(); c.fill();
@@ -629,6 +888,7 @@ export class Renderer {
       circle(c, p.x, p.y, rr + k * 2); c.stroke();
       i++;
     }
+    this._dropRing(c, g, p, r + 9 + i * 3.8);
     // Speaker body
     c.fillStyle = '#16121f';
     circle(c, p.x, p.y, r); c.fill();
@@ -647,6 +907,41 @@ export class Renderer {
     c.lineTo(p.x + Math.cos(a - 0.35) * (r + 1), p.y + Math.sin(a - 0.35) * (r + 1));
     c.closePath(); c.fill();
     c.globalAlpha = 1;
+  }
+
+  // The Drop meter: the outermost arc around the speaker, filling clockwise from 12 o'clock. White, or the
+  // section's hue through the build bar (gold is kept for remixes). Full, it closes and pulses on the beat,
+  // and the first time it fills in a run a key cap shows beside it (Space, or A on a pad; touch has a button).
+  _dropRing(c, g, p, rr) {
+    const frac = g.dropState ? 1 : clamp(g.dropCharge / (g.dropMax || 1), 0, 1);
+    const full = frac >= 1 && !g.dropState && !g.won;
+    if (g.time < (this._dropT ?? 0)) this._dropCap = 0;   // a new run
+    this._dropT = g.time;
+    if (full && !this._dropCap) this._dropCap = 1;
+    if (g.dropState && this._dropCap === 1) this._dropCap = 2;   // used once: the cap is not shown again this run
+    c.lineCap = 'round';
+    c.strokeStyle = 'rgba(244,239,255,0.08)'; c.lineWidth = 2;
+    circle(c, p.x, p.y, rr); c.stroke();
+    if (frac > 0.002) {
+      const pulse = full ? g.beatPulse : 0;
+      c.strokeStyle = g.dropState ? `hsla(${g.section?.hue ?? 260}, 85%, 72%, 0.95)` : full ? `rgba(255,255,255,${0.75 + 0.25 * pulse})` : 'rgba(244,239,255,0.6)';
+      c.lineWidth = full || g.dropState ? 2.6 + pulse * 2.2 : 2;
+      c.beginPath(); c.arc(p.x, p.y, rr + pulse * 2, -Math.PI / 2, -Math.PI / 2 + frac * TAU); c.stroke();
+    }
+    c.lineCap = 'butt';
+    if (!(full && this._dropCap === 1) || typeof document === 'undefined') return;
+    const dev = document.body.dataset.input;
+    if (dev === 'touch') return;
+    const x = p.x + rr * 0.78 + 16, y = p.y - rr * 0.78 - 10;
+    c.fillStyle = 'rgba(13,10,23,0.85)'; c.strokeStyle = `rgba(255,255,255,${0.7 + 0.3 * g.beatPulse})`; c.lineWidth = 1.5;
+    if (dev === 'pad') {
+      circle(c, x, y, 9); c.fill(); c.stroke();
+      c.fillStyle = '#ffffff'; c.font = '700 11px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('A', x, y + 0.5);
+    } else {
+      c.beginPath(); c.roundRect ? c.roundRect(x - 17, y - 8, 34, 16, 3) : c.rect(x - 17, y - 8, 34, 16); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(x - 9, y - 2); c.lineTo(x - 9, y + 2.5); c.lineTo(x + 9, y + 2.5); c.lineTo(x + 9, y - 2); c.stroke();
+    }
   }
 
   // The death beat: the channel rings break into arcs that fly off and fade, and the speaker splits into four
@@ -690,7 +985,29 @@ export class Renderer {
         c.fillStyle = it.glow > 0.3 ? '#ffffff' : grp.color;
         shape(c, grp.shape, it.x, it.y, sz, this.time * 2);
       }
+      if (grp.src?.remix) this._goldRims(c, grp.items, (it) => grp.size * 1.15 + 1.5);
     }
+  }
+
+  // Remixed attacks wear a thin gold rim around their core, so a remix reads from across the room. One path
+  // and one stroke per batch (bullets are the hottest loop): no glow sprite, no per-item state change.
+  _goldRims(c, items, radius, inView = null) {
+    let n = 0;
+    c.beginPath();
+    for (const it of items) {
+      if (inView && !inView(it.x, it.y, 20)) continue;
+      const rr = radius(it);
+      if (!(rr > 0)) continue;
+      c.moveTo(it.x + rr, it.y); c.arc(it.x, it.y, rr, 0, TAU);
+      n++;
+    }
+    if (!n) return;
+    const op = c.globalCompositeOperation;
+    c.globalCompositeOperation = 'source-over';
+    c.globalAlpha = 0.9; c.strokeStyle = '#ffd166'; c.lineWidth = 1.5;
+    c.stroke();
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = op;
   }
 
   _bullets(c, g, inView) {
@@ -721,8 +1038,10 @@ export class Renderer {
         shape(c, b.shape, b.x, b.y, b.r * 0.8, b.rot);
         if (b.r >= 6) { c.fillStyle = '#ffffff'; circle(c, b.x, b.y, b.r * 0.22); c.fill(); }
       }
+      if (b.src?.remix && fade > 0.3) (this._rimmed || (this._rimmed = [])).push(b);
     }
     c.globalAlpha = 1;
+    if (this._rimmed?.length) { this._goldRims(c, this._rimmed, (b) => b.r * 1.05 + 1); this._rimmed.length = 0; }
     c.globalCompositeOperation = 'lighter';
   }
 
@@ -734,7 +1053,7 @@ export class Renderer {
       c.strokeStyle = rgba(r.color, a);
       c.lineWidth = r.width * (1 - k * 0.6);
       circle(c, r.x, r.y, r.r); c.stroke();
-      c.strokeStyle = rgba('#ffffff', a * 0.2);
+      c.strokeStyle = r.src?.remix ? rgba('#ffd166', a * 0.9) : rgba('#ffffff', a * 0.2);   // a remix's ring has a gold core
       c.lineWidth = 1.5;
       circle(c, r.x, r.y, r.r); c.stroke();
     }
@@ -755,7 +1074,7 @@ export class Renderer {
       c.strokeStyle = rgba(b.color, 0.35 * k);
       c.lineWidth = b.width * 2.2 * k;
       c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
-      c.strokeStyle = rgba('#ffffff', 0.9 * k);
+      c.strokeStyle = b.src?.remix ? rgba('#ffd166', 0.95 * k) : rgba('#ffffff', 0.9 * k);   // a remix's beam has a gold core
       c.lineWidth = Math.max(1, b.width * 0.45 * k);
       c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
     }

@@ -1,23 +1,33 @@
 // The run. Owns the world, turns sequencer note events into attacks, and exposes the small API
 // that instrument fire() functions use (see docs/INSTRUMENTS.md).
 
-import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
+import { ROLES, ROLE_INFO, STYLES, STEP_SEC, BAR_SEC, ECHO_STEPS, PLAYER_BASE, DROP, BALANCE, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
 import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
-import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat, BOSS_TYPES } from './enemies.js';
+import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat } from './enemies.js';
 import { bossCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
-import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
-import { buildOffers, applyOffer, banKey, deadScreen } from './upgrades.js';
+import { Loadout, computeStats, makeInst, genreName, isFusion, RULES } from './loadout.js';
+import { buildOffers, applyOffer as applyCard, banKey, deadScreen, remixReady } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
 // Channels with a send into the tape delay: only these echo, so every echo attack is also heard.
 const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
+// A shield blocks at most this many hits, however many charges a sound gives it.
+const SHIELD_MAX = 3;
+
+// A card taken: the sims' ledger counts picks per section and what the Breather card healed.
+function applyOffer(g, o) {
+  const L = g._led(), hp = g.player.hp;
+  L.picks++;
+  applyCard(g, o);
+  if (o.kind === 'heal') L.heal.card += g.player.hp - hp;
+}
 
 export class Game {
   constructor({ audio, clock, seq, opts = {}, settings = {}, hooks = {} }) {
@@ -34,9 +44,11 @@ export class Game {
     this.state = 'idle';
     this.src = null;
     this.dmgScale = 1;
+    this.noteW = 1;          // the arrangement's damage weight for the note being fired (note.w)
     this._errs = new Set();
     this._evbuf = [];
     seq.getInstruments = () => (this.loadout ? this.loadout.instruments() : []);
+    seq.getFeatured = () => this.featured();
   }
 
   // ------------------------------------------------------------------ run lifecycle
@@ -52,6 +64,9 @@ export class Game {
     this.song = new Song(this.key.pc);
     this.seq.reset(this.song);
     this.seq.getInstruments = () => (this.loadout ? this.loadout.instruments() : []);
+    this.seq.getFeatured = () => this.featured();
+    this.seq.onRemix = (inst, bar) => this._remixFlipped(inst, bar);
+    this.seq.onRemixLost = (inst) => this._remixLost(inst);
     // The sequencer asks a beat ahead which boss cues to play on it (sound only, while playing).
     const cues = [];
     this.seq.getBossCues = (bar, beat) => {
@@ -70,14 +85,26 @@ export class Game {
     };
     this.enemies = [];
     this.nextId = 1;         // enemy ids pace Stomps and Screeches, so each run counts from 1
-    this.damageTaken = { contact: 0, shots: 0, boss: 0 };
+    this.damageTaken = { contact: 0, shots: 0, boss: 0, mark: 0 };
     this.damageBy = {};      // enemy name -> damage taken from it (bodies and shots)
+    this.ledger = [];        // per section, for balance sims (_led)
+    this.hazards = [];       // Snare marks waiting for their beat (enemies.js)
+    this.lastHurtAt = -Infinity;
+    this._godUntil = -1;     // god mode (?god=1): the ledger's own i-frames
+    this._downbeat = -1;     // the last bar whose downbeat ran (onBeat)
+    this.perfectDrops = 0;   // Drops that landed on a phrase downbeat
+    this.perfectFlash = 0;
+    this.dropR = DROP.radius;
     this.lastHitBy = null;
     this.bossLog = [];       // { type, spawn, end, how: 'silenced' | 'faded' } in game seconds
     this.shots = [];
     this.gems = [];
     this.later = [];
-    this.joinLines = [];     // "joins the band" lines waiting for play to resume
+    // The play rules' live state (CHEMISTRY in loadout.js): the clean-beat combo, planted (stood within
+    // RULES.plant of where the last beat found you), phrase (0..1 through the 8-bar phrase), the last beat's
+    // spot and time, and broke (moved off that spot since). Tracked whatever the band, applied by its tiers.
+    this.rules = { combo: 0, planted: false, phrase: 0, lastBeatX: 0, lastBeatY: 0, beatAt: 0, broke: false };
+    this.shield = null;      // { n, until, src, onBreak }: blocks the next n hits until game time `until`
     this.fx.reset();
     this.director.reset();
     this.loadout = new Loadout();
@@ -92,6 +119,18 @@ export class Game {
     this.banishes = BANISHES_PER_RUN;
     this.banished = new Set();   // ids of the sounds and pedals banished from the cards
     this.remixed = [];           // ids of the instruments remixed this run, in order
+    // Master Tapes (BALANCE.remix): dropped by silenced bosses, collected, banked (no channel ready yet), spent
+    // on a remix, or lost (left on the floor). remixQueue waits for the sequencer's one queued remix to land.
+    this.tapes = { dropped: 0, collected: 0, banked: 0, spent: 0, lost: 0 };
+    this.remixQueue = [];
+    this.remixLog = [];          // { t, id, bar, sec } each remix as it lands
+    this.tapePick = false;       // two or more channels were ready: the remix cards open when play allows
+    this.tapeOffers = false;     // the cards up are a tape's remix cards (no reroll, banish or skip)
+    this._remixLanding = 0;      // remixes flipped by the sequencer whose downbeat has not been heard yet
+    this._remixHold = 0;         // card screens wait until this game time (a remix's ring landing)
+    this._remixBanner = null;    // the last remix name shown, re-shown after a card screen that covered it
+    this.remixFlash = 0;
+    this.remixR = BALANCE.remix.radius;
     this.cardScreens = 0;
     this.deadScreens = 0;
     this.dropCharge = 0;
@@ -99,6 +138,11 @@ export class Game {
     this.dropMax = DROP.charge * this.mods.drop;
     this.dropState = null;
     this.drops = 0;
+    this.songImpacts = 0;        // the song's own impacts that hit (songImpact)
+    this.impactAt = -Infinity;   // game time of the last one (the arena flashes back)
+    this.solos = 0;              // solo phrases featured so far
+    this.soloN = {};             // instrument id -> solo phrases it took (remixes take turns)
+    this._dropBar = -1;          // the bar the player's last Drop landed on
     this.bonusScore = 0;
     this.beatPulse = 0;
     this.barPulse = 0;
@@ -111,7 +155,7 @@ export class Game {
     this.bossKills = [];         // boss types silenced, in order
     this.staggers = 0;           // Drops that knocked a boss off the beat
     // The career's goals read the band at its peak, not only at the end (src/game/progress.js).
-    this.peak = { synth: 0, organic: 0, chip: 0 };
+    this.peak = Object.fromEntries(Object.keys(STYLES).map((st) => [st, 0]));
     this.fullBand = this.fused = this.maxedAll = false;
     this.chanPulse = Object.fromEntries(ROLES.map((r) => [r, 0]));
     this.sectionIndex = 0;
@@ -136,16 +180,51 @@ export class Game {
       const pd = PEDAL_BY_ID[p.id];
       if (pd && !this.loadout.pedal(p.id)) this.loadout.pedals.push({ def: pd, level: clamp(p.level || 1, 1, 3) });
     }
+    // Sims: tapes=N starts with N Master Tapes banked (spent as soon as a channel is ready).
+    this.tapes.banked = clamp(this.opts.tapes | 0, 0, 9);
     this.onLoadoutChanged();
     this.player.hp = this.player.maxHp;
     this.state = 'playing';
     this.seq.hold = false;
     this.seq.start(this.clock.now() + 0.12);
     if (this.audio?.ready) { this.audio.setMuffle(false); this.audio.setPreviewRole(null); }
-    this.banner(this.section.name, `${this.key.name} · ${Math.round(60 / (STEP_SEC * 4))} BPM`);
+    this.banner(this.section.name);
   }
 
-  xpFor(level) { return Math.round(Math.min(200, 5 + level * 0.34 + level * level * 0.44) * this.mods.xp); }
+  // A level costs more the higher you are, up to a cap: about 30 card screens a run, so a band cannot max out.
+  xpFor(level) {
+    const X = BALANCE.xp;
+    return Math.round(Math.min(X.cap, X.base + level * X.lin + level * level * X.quad) * this.mods.xp);
+  }
+
+  // ------------------------------------------------------------------ ledger (balance sims)
+
+  // This section's entry: what happened in it, for tools/sim.mjs --summary.
+  _led() {
+    const i = this.sectionIndex ?? 0;
+    return (this.ledger ||= [])[i] ||= {
+      sec: this.section?.id, t0: this.time, lv0: this.level, levels: 0, picks: 0,
+      dmg: { contact: 0, shots: 0, boss: 0, mark: 0 }, by: {}, hits: 0,
+      heal: { regen: 0, inst: 0, drop: 0, card: 0 }, hearts: 0, heartsTaken: 0,
+      minHp: 1, kills: 0, nd: 0, killDist: 0, near120: 0, alive: 0, frames: 0,
+      drops: 0, perfect: 0, marks: 0, markHits: 0, faded: 0,
+    };
+  }
+
+  // Once a frame, before regen: lowest health, crowd size and regen healing.
+  _ledFrame(dt) {
+    const L = this._led(), p = this.player;
+    if (this.stats.regen > 0) L.heal.regen += Math.min(p.maxHp - p.hp, this.stats.regen * dt);
+    L.minHp = Math.min(L.minHp, p.hp / p.maxHp);
+    L.alive += this.enemies.length;
+    L.frames++;
+  }
+
+  // A heart on the floor (a breather, a timed elite, a silenced boss).
+  dropHeart(x, y) {
+    dropItem(this, x, y, 'heal');
+    this._led().hearts++;
+  }
 
   // ------------------------------------------------------------------ loadout
 
@@ -156,12 +235,11 @@ export class Game {
     inst.since = this.time;
     this._setupInst(inst);
     this.onLoadoutChanged();
-    // A sound that joins mid-song gets a line and a ring in its channel color, once play resumes after the pick.
-    // Picks from one chained level-up share one line.
+    // A sound that joins mid-song gets a ring in its channel color and pops its strip on the HUD, once play
+    // resumes after the pick.
     if (this.time > 0) {
-      this.joinLines.push(old ? `${def.name} takes over ${ROLE_INFO[def.role].name}` : `${def.name} joins the band`);
       this.later.push({ at: this.time, fn: () => {
-        if (this.joinLines.length) this.banner(this.joinLines.splice(0).join(' · '), '', true);
+        this.hooks.onJoin?.(def.role);
         this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 14, r1: 200, dur: 0.6, damage: 0, kb: 0, width: 6, color: this.color(def.role) });
       } });
     }
@@ -174,18 +252,143 @@ export class Game {
     this.onLoadoutChanged();
   }
 
-  // Remix: the level 5 part keeps playing, its notes become the remix's attack, and the remix pedal opens up
-  // on that channel's strip so the change is heard. Taken from a card, the banner waits until play resumes.
-  remixInstrument(inst) {
-    if (!inst.def.remix || inst.remix) return;
+  // ------------------------------------------------------------------ Master Tapes and remixes
+  //
+  // A non-final boss silenced in its own section drops a Master Tape where it fell (onBossDeath). Walking into
+  // it spends it on a channel at level 5 that is not remixed yet (remixReady): none ready banks it (the HUD shows
+  // a reel), one is queued, two or more open the remix cards. A queued remix lands on the song's next free
+  // 4-bar line (Sequencer.remixBar): the channel drops out for a bar under a riser, then on the downbeat the
+  // remix's own part comes in with an impact ring (landRemix).
+
+  // Channels a tape can remix: level 5, a remix of their own, not remixed or queued yet.
+  remixReady() { return this.loadout.instruments().filter((i) => remixReady(i) && !this.remixQueued(i)); }
+  remixQueued(inst) { return this.seq.remixAt?.inst === inst || this.remixQueue.includes(inst); }
+
+  // A tape reached you.
+  _collectTape() {
+    this.tapes.collected++;
+    this.tapes.banked++;
+    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 16, r1: 140, dur: 0.5, damage: 0, kb: 0, width: 8, color: '#ffd166' });
+    this._spendTape();
+  }
+
+  // A tape left on the floor too long (pickups.js).
+  tapeLost() { this.tapes.lost++; }
+
+  // Spend banked tapes while channels are ready: one ready is queued at once, two or more wait for the cards.
+  _spendTape() {
+    if (!(this.tapes?.banked > 0) || this.won || this.state === 'dying') return;
+    const ready = this.remixReady();
+    if (ready.length === 1) {
+      this.tapes.banked--;
+      this.tapes.spent++;
+      this.queueRemix(ready[0]);
+    } else if (ready.length > 1) this.tapePick = true;
+  }
+
+  // Queue a remix: the sequencer holds one at a time, the rest wait their turn (each on the next free line).
+  queueRemix(inst) {
+    if (!remixReady(inst) || this.remixQueued(inst)) return;
+    if (this.seq.remixAt) { this.remixQueue.push(inst); return; }
+    this.seq.remixAt = { inst, bar: this.seq.remixBar(this.seq.bar + BALANCE.remix.lead, BALANCE.remix.line), out: false };
+  }
+
+  // The next queued remix goes to the sequencer once the last one has landed. One whose channel left the band
+  // (or can no longer be remixed) gives its tape back.
+  _nextRemix() {
+    let refund = false;
+    while (!this.seq.remixAt && this.remixQueue.length) {
+      const inst = this.remixQueue.shift();
+      if (this.loadout.has(inst) && remixReady(inst)) this.queueRemix(inst);
+      else { this.tapes.banked++; this.tapes.spent--; refund = true; }
+    }
+    if (refund) this._spendTape();
+  }
+
+  // The sequencer flips inst.remix as it schedules the remix's downbeat, so the remix part is what plays there.
+  // The game follows at once (the remix's setup and stats, its pedal on the strip) and the moment itself waits
+  // for that downbeat to be heard (the 'remix' event, landRemix). The strip turns gold then too.
+  _remixFlipped(inst) {
     inst.level = MAX_INSTRUMENT_LEVEL;
-    inst.remix = true;
     this.remixed.push(inst.def.id);
-    this.onLoadoutChanged();
-    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 300, dur: 0.6, damage: 0, kb: 0, width: 12, color: '#ffd166' });
-    if (this.state === 'levelup') (this._remixNames ||= []).push(inst.def.remix.name);
-    else this.banner('Remix!', inst.def.remix.name);
-    this.hooks.onRemix?.(inst.def);
+    this._remixLanding++;
+    this.onLoadoutChanged(true);
+    this._nextRemix();
+  }
+
+  // A queued remix whose channel was swapped out before it landed: the tape comes back.
+  _remixLost() {
+    this.tapes.banked++;
+    this.tapes.spent--;
+    this._nextRemix();
+    this._spendTape();
+  }
+
+  // Spend a tape on the remix card picked: it queues like any other.
+  _takeRemix(o) {
+    if (!o?.inst || !remixReady(o.inst) || this.remixQueued(o.inst) || !(this.tapes.banked > 0)) return;
+    this.tapes.banked--;
+    this.tapes.spent++;
+    this.queueRemix(o.inst);
+  }
+
+  // The remix cards for a banked tape (the channels with the most damage first, at most three), or false when
+  // fewer than two channels are ready any more (then one ready is queued at once).
+  _dealTape() {
+    this.tapePick = false;
+    const ready = this.remixReady();
+    if (ready.length < 2 || !(this.tapes.banked > 0)) { this._spendTape(); return false; }
+    this.offers = ready.sort((a, b) => b.dmg - a.dmg).slice(0, 3)
+      .map((inst) => ({ kind: 'remix', def: inst.def, role: inst.def.role, inst, level: MAX_INSTRUMENT_LEVEL }));
+    this.tapeOffers = true;
+    return true;
+  }
+
+  // Open the remix cards (the run pauses, like a level-up). With autopick (sims) the pick is made at once.
+  openTapePick() {
+    if (!this._dealTape()) return;
+    if (this.opts.autopick) {
+      const i = this.hooks.autopick ? this.hooks.autopick(this.offers) : 0;
+      this._takeRemix(this.offers[i] || this.offers[0]);
+      this.offers = null;
+      this.tapeOffers = false;
+      this._spendTape();
+      return;
+    }
+    this._pause('levelup');
+    this._cardChime();
+    this.hooks.onLevelUp?.(this.offers);
+  }
+
+  // The remix's downbeat, as it is heard: the band slams back in with the new part. A gold ring (BALANCE.remix)
+  // hits and knocks back the crowd, erases enemy shots inside it and knocks a boss in it off the beat; the strip
+  // flips gold with the remix's name as the banner.
+  landRemix(ev) {
+    this._remixLanding = Math.max(0, this._remixLanding - 1);
+    const inst = ev.inst, def = inst.def;
+    this.remixLog.push({ t: this.time, id: def.id, bar: ev.bar, sec: this.section?.id });
+    this.hooks.onLoadout?.();
+    this.hooks.onRemix?.(def);
+    if (this.state !== 'playing' || this.won) return;
+    const K = BALANCE.remix, p = this.player;
+    const dmg = K.damage * DROP.damage * (1 + this.level * K.perLevel) * this.stats.damage;
+    this.remixFlash = 1;
+    this.remixR = K.radius;
+    this.shake = Math.max(this.shake, 12);
+    this.chanPulse[def.role] = 1;
+    const prev = this.src; this.src = null;
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: K.radius, dur: K.dur, damage: dmg, kb: K.kb, stun: K.stun, erase: 1, width: 16, color: '#ffd166' });
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 14, r1: K.radius * 0.8, dur: K.dur * 1.3, damage: 0, kb: 0, width: 8, color: this.color(def.role) });
+    this.src = prev;
+    // A boss can arrive on the same downbeat: index this frame's spawns before the query.
+    this.grid.clear();
+    for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
+    const b = this.bossInRange(p.x, p.y, K.radius);
+    if (b) knockOffBeat(this, b, ev.bar);
+    this.banner(def.remix.name, '', false, 'gold');
+    // Cards wait for the ring to land, and a card screen that opens over the gold name shows it again on resume.
+    this._remixHold = this.time + BALANCE.remix.dur;
+    this._remixBanner = { name: def.remix.name, t: this.time };
   }
 
   // A remixed instrument plays with its remix's stats, and its remix's fire/setup/update where it has them.
@@ -209,7 +412,8 @@ export class Game {
     if (inst.notes > 0 || inst.dmg > 0) (this.retired ||= []).push(inst);
   }
 
-  onLoadoutChanged() {
+  // quiet: the HUD waits (a remix flips its strip when its downbeat is heard, landRemix).
+  onLoadoutChanged(quiet = false) {
     const oldMax = this.player?.maxHp ?? PLAYER_BASE.maxHp;
     this.stats = computeStats(this.loadout);
     if (this.player) {
@@ -221,24 +425,29 @@ export class Game {
     for (const inst of this.loadout.instruments()) this._setupInst(inst);
     if (this.audio?.ready) {
       this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost());
-      this.audio.setActiveCount(this.loadout.filled());
+      // The desk levels by the channels actually playing in the bar (the sequencer re-levels every downbeat).
+      this.seq.deskNow();
     }
     this.genre = genreName(this.loadout);
     const counts = this.loadout.styleCounts();
     for (const st in counts) this.peak[st] = Math.max(this.peak[st], counts[st]);
     const full = this.loadout.filled() === ROLES.length;
     this.fullBand ||= full;
-    this.fused ||= this.genre === 'Fusion';
+    this.fused ||= isFusion(counts);
     this.maxedAll ||= full && this.loadout.instruments().every((i) => i.level >= MAX_INSTRUMENT_LEVEL);
-    this.hooks.onLoadout?.();
+    // A channel that just reached level 5 takes a banked tape.
+    this._spendTape();
+    if (!quiet) this.hooks.onLoadout?.();
   }
 
   // ------------------------------------------------------------------ API for instruments
 
-  // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards).
-  dmg(base) { return base * this.stats.damage * this.dmgScale * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
-  area(r) { return r * this.stats.area; }
-  // Counts scale by a percentage (Chorus pedal, 8-Bit chemistry), so a one-shot weapon and a
+  // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards) x the
+  // arrangement's weight for the note being fired (a thinner part hits harder, a solo hardest).
+  dmg(base) { return base * this.stats.damage * this.dmgScale * this.noteW * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
+  // In the pocket (Live): a planted player's areas grow by the rule's stillArea.
+  area(r) { return r * (this.stats.area + (this.rules?.planted ? this.stats.rules.stillArea : 0)); }
+  // Counts scale by a percentage (the Chorus pedal), so a one-shot weapon and a
   // six-shot weapon gain the same share. Fractions round by chance per note, and deterministically
   // inside setup() so orbiter counts do not flicker.
   amount(n) {
@@ -254,6 +463,7 @@ export class Game {
     if (!(n > 0) || p.hp >= p.maxHp) return 0;
     const amt = Math.min(p.maxHp - p.hp, n * this.dmgScale);
     p.hp += amt;
+    this._led().heal.inst += amt;
     return amt;
   }
   speed(v) { return v * this.stats.projSpeed; }
@@ -331,6 +541,7 @@ export class Game {
     let crit = false;
     if (rng() < this.stats.crit) { dmg *= this.stats.critMult; crit = true; }
     if (e.vulnUntil > this.time) dmg *= 1 + e.vuln;   // marked by Lullaby: takes more from every source
+    if (this.stats.rules.on) dmg *= this.ruleMul(e);  // the band's play rules (echoes too)
     const src = o.src || this.src;
     if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
@@ -361,11 +572,33 @@ export class Game {
     if (e.hp <= 0) this.kill(e, src);
   }
 
+  // The damage multiplier from the band's play rules on a hit on `e` (1 with no rule on). Long throw and Mosh
+  // pit read where the enemy's body is (one distance per hit), Combo streak and Ride the swell the rule state.
+  ruleMul(e) {
+    const R = this.stats.rules, S = this.rules;
+    let m = 1;
+    if (R.far || R.near) {
+      const d2 = dist2(e.x, e.y, this.player.x, this.player.y);
+      if (R.far && d2 > (RULES.far + e.r) ** 2) m *= 1 + R.far;
+      if (R.near && d2 < (RULES.near + e.r) ** 2) m *= 1 + R.near;
+    }
+    if (R.combo) m *= 1 + R.combo * Math.min(1, S.combo / RULES.comboCap);
+    if (R.swell) m *= 1 + R.swell * (2 * S.phrase - 1);
+    return m;
+  }
+
   kill(e, src) {
     if (e.dead) return;
     e.dead = true;
     this.kills++;
     if (src) src.kills++;
+    const L = this._led();
+    L.kills++;
+    if (!e.boss) {
+      const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
+      L.nd++; L.killDist += d;
+      if (d < 120) L.near120++;
+    }
     // A kill pops in the color of the hit that landed it. Off-screen kills skip the pop, so a Drop's far
     // kills leave the particle budget to the ones you can see.
     if (e.boss || this.onScreen(e)) {
@@ -377,12 +610,11 @@ export class Game {
       if (e.boss) { for (let i = 0; i < 12; i++) dropGem(this, e.x + rand(-50, 50), e.y + rand(-50, 50), Math.ceil(e.xp / 12)); }
       else dropGem(this, e.x, e.y, e.xp);
     }
+    // Hearts come on the song's schedule (BALANCE.hearts), never from ordinary kills: featured elites drop a
+    // vinyl, timed elites a heart, and now and then an ordinary kill leaves a magnet.
     if (e.vinyl) dropItem(this, e.x, e.y, 'vinyl');
-    else if (!e.boss && !e.elite) {
-      const r = rng();
-      if (r < 0.005) dropItem(this, e.x, e.y, 'heal');
-      else if (r < 0.0065) dropItem(this, e.x, e.y, 'magnet');
-    }
+    else if (e.heart) this.dropHeart(e.x, e.y);
+    else if (!e.boss && !e.elite && rng() < BALANCE.hearts.killMagnet) dropItem(this, e.x, e.y, 'magnet');
     if (e.def.splits && !e.elite && !this.won) {   // nothing new spawns once White Noise is silenced
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * TAU + rand(0, 1);
@@ -402,14 +634,26 @@ export class Game {
   // ------------------------------------------------------------------ player
 
   // from: the enemy body that touched the player (null for a shot). shotFrom: the enemy that fired the shot.
-  hurt(dmg, from, shotFrom) {
+  // kind: the cause when it is neither (a Snare's 'mark'). With god=1 nothing is taken, but the ledger still
+  // records what would have been (with the usual invulnerability window), so one run maps the whole threat curve.
+  hurt(dmg, from, shotFrom, kind) {
     const p = this.player;
-    if (this.state !== 'playing' || this.won || p.iframes > 0 || this.opts.god) return;
-    const taken = Math.max(1, dmg * this.mods.dmgIn - this.stats.armor);
-    p.hp -= taken;
-    const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
-    this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
+    if (this.state !== 'playing' || this.won) return;
+    const god = this.opts.god;
+    if (god ? this.time < (this._godUntil ?? -1) : p.iframes > 0) return;
+    if (!god && this.shield && this._blockHit(from)) return;   // a shield takes the hit
+    const taken = Math.max(1, dmg * this.mods.dmgIn * BALANCE.player.dmgIn - this.stats.armor);
+    const cause = kind || (!from ? 'shots' : from.boss ? 'boss' : 'contact');
     const by = (from || shotFrom)?.def.name;
+    const L = this._led();
+    L.dmg[cause] = (L.dmg[cause] || 0) + taken;
+    L.hits++;
+    if (by) L.by[by] = (L.by[by] || 0) + taken;
+    if (god) { this._godUntil = this.time + PLAYER_BASE.iframes; return; }
+    p.hp -= taken;
+    this.lastHurtAt = this.time;
+    this.rules.combo = 0;
+    this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
     if (by) { this.damageBy[by] = (this.damageBy[by] || 0) + taken; this.lastHitBy = by; }
     p.iframes = PLAYER_BASE.iframes;
     p.hurtT = 0.3;
@@ -433,15 +677,22 @@ export class Game {
         this.level++;
         this.xpNeed = this.xpFor(this.level);
         if (!this.opts.solo) this.pendingLevels++;
+        this._led().levels++;
       }
     } else if (gm.kind === 'heal') {
-      this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player.maxHp * 0.3);
+      const L = this._led(), hp = this.player.hp;
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player.maxHp * BALANCE.hearts.heal);
+      L.heal.drop += this.player.hp - hp;
+      L.heartsTaken++;
       this.fx.text(this.player.x, this.player.y - 26, 'Breather!', '#ff8fa3', 14);
     } else if (gm.kind === 'magnet') {
       magnetAll(this);
     } else if (gm.kind === 'vinyl') {
       if (!this.opts.solo) this.pendingLevels++;
+      this._led().levels++;
       this.fx.text(this.player.x, this.player.y - 26, 'Vinyl!', '#ffd166', 14);
+    } else if (gm.kind === 'tape') {
+      this._collectTape();
     }
     this._ping(gm.kind === 'xp' ? 'note' : 'run');
   }
@@ -451,51 +702,159 @@ export class Game {
 
   // ------------------------------------------------------------------ the Drop
 
+  // A press during a phrase's fill bar (bar % 8 === 7, nothing else waiting on the next downbeat) lets the fill
+  // be the build: the Drop lands on the phrase downbeat. Otherwise it builds through the next bar.
+  _fillBuild() {
+    const s = this.seq;
+    return !s.hold && !s.pendingStop && !s.dropState && !this._remixDue() && (s.bar + 1) % DROP.phrase === 0;
+  }
+
+  // The fill is judged by ear: the sequencer schedules lookahead plus output latency ahead of what is heard, so
+  // a press on the fill's last hits can come once the phrase downbeat is already scheduled. The Drop still lands
+  // on that downbeat while it is not heard yet and is free (Sequencer.dropDownbeat). Returns that bar, else -1.
+  _lateFill() {
+    const s = this.seq, now = this._heardNow();
+    if (s.bar % DROP.phrase !== 0) return -1;
+    const heard = s.sounding(now);
+    if (!heard || heard.bar !== s.bar - 1) return -1;
+    // The downbeat's own events (its beat, impact, boss attack) must not have run yet: _processEvents drains one
+    // frame ahead of what is heard, so judge against that horizon too.
+    if (this._downbeat === s.bar) return -1;
+    const d = s.dropDownbeat(s.bar);
+    return d && d.time > now && d.time > this._drainNow() ? s.bar : -1;
+  }
+
+  // Audio time _processEvents drains up to (one frame ahead of what is heard, so attacks draw on time).
+  _drainNow() { return this.clock.now() - (this.opts.sim ? 0 : (this.audio?.latency || 0) - 1 / 60); }
+
+  // Audio time of what is heard now (the output latency behind the audio clock; none in a sim).
+  _heardNow() { return this.clock.now() - (this.opts.sim ? 0 : this.audio?.latency || 0); }
+
+  // The bar a Drop pressed now would land on. A perfect drop lands on a phrase downbeat (dropPerfectNow), so the
+  // HUD and the autopilot can read the window. The same rules as requestDrop.
+  dropLandsOn() {
+    const s = this.seq;
+    if (this._fillBuild()) return s.bar + 1;
+    const late = this._lateFill();
+    return late >= 0 ? late : s.bar + 2 + (s.pendingStop || this._remixDue() ? 1 : 0);
+  }
+  dropPerfectNow() { return this.dropLandsOn() % DROP.phrase === 0; }
+
+  // A remix whose dropout is playing lands on the next downbeat, and a Drop pressed meanwhile waits a bar for
+  // it (Sequencer._step): queued now, it builds on the bar after the remix and lands on the one after that.
+  _remixDue() { const R = this.seq.remixAt; return !!R && R.out; }
+
   requestDrop() {
     // Safety net: if the game still thinks a Drop is building but the sequencer has none pending, clear it.
     if (this.dropState && !this.seq.dropState && !this.seq.events.some((ev) => ev.type === 'drop')) this.dropState = null;
     if (this.state !== 'playing' || this.won || this.dropCharge < this.dropMax || this.dropState) return false;
-    if (!this.seq.requestDrop()) return false;
+    const fill = this._fillBuild();
+    const late = fill ? -1 : this._lateFill();
+    // A late press lands on the downbeat already scheduled (its 'drop' event is queued, nothing is left to build).
+    if (late >= 0 ? !this.seq.landDropAt(late) : !this.seq.requestDrop()) return false;
     this.dropCharge = 0;
     this.dropState = 'queued';
     this.hooks.onDrop?.('queued');
+    if (fill || late >= 0) {
+      if (fill) this.seq.dropState = 'building';
+      this.dropState = 'building';
+      this.hooks.onDrop?.('building');
+    }
     return true;
   }
 
-  // The Drop lands on the downbeat of `bar`.
+  // The Drop lands on the downbeat of `bar`: a blast around you (BALANCE.drop) that erases the shots and Snare
+  // marks inside it. A perfect drop (on a phrase downbeat) hits harder and wider and knocks a boss in it off
+  // the beat.
   doDrop(bar) {
-    const p = this.player;
+    const p = this.player, D = DROP;
+    const perfect = bar % D.phrase === 0;
     this.dropState = null;
     this.drops++;
+    const L = this._led();
+    L.drops++;
+    if (perfect) { L.perfect++; this.perfectDrops++; }
     this.dropFlash = 1;
-    this.shake = Math.max(this.shake, 16);
-    const dmg = DROP.damage * (1 + this.level * 0.08) * this.stats.damage;
+    this.perfectFlash = perfect ? 1 : 0;
+    this.shake = Math.max(this.shake, perfect ? 18 : 13);
+    const R = this.dropR = D.radius * (perfect ? D.perfectRadius : 1);
+    const dmg = D.damage * (1 + this.level * D.perLevel) * this.stats.damage * (perfect ? D.perfectDmg : 1);
     const prev = this.src; this.src = null;
     // Kills color by distance as a spectrum of your band: Beat nearest, Sparkle outermost.
     const band = ROLES.filter((r) => this.loadout.channels[r]).map((r) => ROLE_INFO[r].color);
-    const colorAt = (e) => band[Math.min(band.length - 1, Math.floor(Math.hypot(e.x - p.x, e.y - p.y) / (720 / band.length)))];
+    const colorAt = (e) => band[Math.min(band.length - 1, Math.floor(Math.hypot(e.x - p.x, e.y - p.y) / (R / band.length)))];
     // A boss can arrive on the same downbeat as the Drop: index this frame's spawns before the query.
     this.grid.clear();
     for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
-    for (const e of this.inRadius(p.x, p.y, DROP.radius)) {
-      this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6, color: colorAt(e) });
-      if (e.boss && !e.dead) knockOffBeat(this, e, bar);
+    for (const e of this.inRadius(p.x, p.y, R)) {
+      this.hit(e, e.boss ? dmg * D.boss : dmg, { kb: D.kb, fx: p.x, fy: p.y, stun: D.stun, color: colorAt(e) });
+      if (perfect && e.boss && !e.dead) knockOffBeat(this, e, bar);
     }
     this.src = prev;
-    this.shots.length = 0;
-    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
+    this.fx._erase(p.x, p.y, R);
+    this.hazards = this.hazards.filter((h) => dist2(h.x, h.y, p.x, p.y) > R * R);
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: R, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
     // One ring per channel in its color. The outer channels run faster, so the rings spread into the same order
     // as the kill spectrum (Sparkle outermost). Cosmetic.
-    band.forEach((color, i) => this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.42 + 0.06 * (band.length - 1 - i), damage: 0, kb: 0, width: 8, color }));
-    magnetAll(this);
-    this.hooks.onDrop?.('done');
+    band.forEach((color, i) => this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: R, dur: 0.42 + 0.06 * (band.length - 1 - i), damage: 0, kb: 0, width: 8, color }));
+    // A perfect drop: a gold ring that lingers at the edge of the blast, and a second one a 16th later.
+    if (perfect) {
+      this.fx.ring({ x: p.x, y: p.y, follow: true, r0: R * 0.9, r1: R * 1.04, dur: 0.5, damage: 0, kb: 0, width: 10, color: '#ffd166' });
+      this.later.push({ at: this.time + STEP_SEC, fn: () => this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 30, r1: R, dur: 0.5, damage: 0, kb: 0, width: 6, color: '#ffd166' }) });
+    }
+    this.hooks.onDrop?.('done', perfect);
+  }
+
+  // ------------------------------------------------------------------ the song's own impacts and solos
+
+  // The arrangement's impact downbeats (chorus starts, the Bridge's return, The Drop, each Finale cycle):
+  // the band slams back in around you. A moderate ring: it knocks back and stuns the crowd and erases enemy
+  // shots near you, but never knocks a boss off its beat and pulls no notes. The sequencer never sends one
+  // on a downbeat the player's Drop lands on (that Drop is the hit), and on the song's ending it only sounds.
+  songImpact(bar) {
+    if (this.state !== 'playing' || this.won || bar === this._dropBar) return;
+    const p = this.player;
+    const K = BALANCE.songImpact;
+    const dmg = K.damage * DROP.damage * (1 + this.level * 0.05) * this.stats.damage;
+    this.songImpacts++;
+    this.impactAt = this.time;
+    this.shake = Math.max(this.shake, 8);
+    const prev = this.src; this.src = null;
+    // A boss can arrive on the same downbeat: index this frame's spawns before the query.
+    this.grid.clear();
+    for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
+    for (const e of this.inRadius(p.x, p.y, K.radius)) this.hit(e, dmg, { kb: K.kb, fx: p.x, fy: p.y, stun: e.boss ? 0 : K.stun, color: '#ffffff' });
+    this.src = prev;
+    const er = K.radius * K.erase;
+    for (let i = this.shots.length - 1; i >= 0; i--) {
+      const s = this.shots[i];
+      if (dist2(s.x, s.y, p.x, p.y) < er * er) { this.fx.particles(s.x, s.y, '#ffffff', 2, 80, 0.25, 2); swapRemove(this.shots, i); }
+    }
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: K.radius, dur: 0.45, damage: 0, kb: 0, width: 10, color: '#ffffff' });
+    this.hooks.onImpact?.(bar);
+  }
+
+  // Who takes a solo phrase (the sequencer asks on its first bar): a remix, the remixes taking turns across
+  // solos (the one that has soloed least, ties: the most damage, so a new remix gets the next one); else the
+  // highest level (ties: the most damage). It hits about 1.8x its full part, held to 1.4x while the final boss plays.
+  featured() {
+    const band = this.loadout?.instruments() || [];
+    if (!band.length) return null;
+    const n = (i) => this.soloN[i.def.id] || 0;
+    const remixed = band.filter((i) => i.remix).sort((a, b) => n(a) - n(b) || b.dmg - a.dmg);
+    const inst = remixed.length ? remixed[0]
+      : band.reduce((a, b) => (b.level > a.level || (b.level === a.level && b.dmg > a.dmg) ? b : a));
+    if (inst.remix) this.soloN[inst.def.id] = n(inst) + 1;
+    this.solos++;
+    const finalBoss = this.boss && !this.boss.dead && this.boss.def?.final;
+    return { inst, gain: finalBoss ? 1.4 : 1.8 };
   }
 
   // ------------------------------------------------------------------ events
 
   _processEvents() {
     // Fire when the note is heard (output latency), one frame early since the attack is drawn next frame.
-    const now = this.clock.now() - (this.opts.sim ? 0 : (this.audio?.latency || 0) - 1 / 60);
+    const now = this._drainNow();
     const evs = this.seq.drain(now, this._evbuf);
     for (const ev of evs) {
       switch (ev.type) {
@@ -503,7 +862,9 @@ export class Game {
         case 'beat': this.onBeat(ev); break;
         case 'section': this.onSection(ev); break;
         case 'build': this.dropState = 'building'; this.hooks.onDrop?.('building'); break;
-        case 'drop': if (this.won) this.dropState = null; else this.doDrop(ev.bar); break;   // on the ending it only sounds
+        case 'drop': this._dropBar = ev.bar; if (this.won) this.dropState = null; else this.doDrop(ev.bar); break;   // on the ending it only sounds
+        case 'impact': this.songImpact(ev.bar); break;
+        case 'remix': this.landRemix(ev); break;
       }
     }
     evs.length = 0;
@@ -513,9 +874,11 @@ export class Game {
     if (!this.loadout.has(inst)) return;
     this.src = inst;
     this.dmgScale = scale;
+    this.noteW = note.w ?? 1;
     try { this._fn(inst, 'fire').call(inst.def, this, note, this._st(inst), inst); } catch (e) { this._report(inst.def.id + '.fire', e); }
     this.src = null;
     this.dmgScale = 1;
+    this.noteW = 1;
     inst.notes++;
     this.chanPulse[inst.def.role] = Math.max(this.chanPulse[inst.def.role], 0.4 + 0.6 * note.v);
     if (scale === 1 && this.stats.echo > 0 && ECHO_ROLES.has(inst.def.role) && rng() < this.stats.echo) {
@@ -524,11 +887,116 @@ export class Game {
   }
 
   onBeat(ev) {
+    // A bar's downbeat runs once, so its set pieces and attacks never repeat (a pause keeps a queued one for
+    // the first frame after resume).
+    if (ev.beat === 0) {
+      if (ev.bar === this._downbeat) return;
+      this._downbeat = ev.bar;
+    }
     this.beatPulse = 1;
     if (ev.beat === 0) this.barPulse = 1;
     if (this.won) return;   // White Noise is silenced: no more spawns, beats or shots, only the silence wave
+    this._rulesOnBeat(ev);
     enemiesOnBeat(this, ev);
     this.director.onBeat(ev);
+  }
+
+  // The play rules on each beat. Combo streak counts a beat with no hit since the last one. In the pocket:
+  // a beat that finds you where the last one did (never more than RULES.plant away in between) plants you,
+  // and a planted beat heals once you have not been hit for RULES.calm bars. Ride the swell: the phrase
+  // runs 0..1 from the bar after each 8-bar fill to the fill itself.
+  _rulesOnBeat(ev) {
+    const S = this.rules, R = this.stats.rules, p = this.player;
+    if (this.lastHurtAt < S.beatAt) S.combo = Math.min(RULES.comboCap, S.combo + 1);
+    S.planted = !S.broke;
+    S.broke = false;
+    S.lastBeatX = p.x; S.lastBeatY = p.y;
+    S.beatAt = this.time;
+    if (S.planted && R.stillHeal > 0 && this.time - this.lastHurtAt >= RULES.calm * BAR_SEC) this.heal(R.stillHeal);
+    const pos = this.song.position(ev.bar);
+    const b = pos.barInSection + (pos.section.from || 0);
+    S.phrase = ((b % RULES.phraseBars) * 4 + ev.beat) / (RULES.phraseBars * 4 - 1);
+  }
+
+  // ------------------------------------------------------------------ crowd control and defense (attack API)
+
+  // Pull every enemy within r toward (x, y): an impulse on its knockback, scaled by mass and never past the
+  // point. Bosses and charging enemies hold their ground. Returns how many moved.
+  pull(x, y, r, strength) {
+    let n = 0;
+    for (const e of this.inRadius(x, y, r)) {
+      if (e.boss || e.ai.charge > 0 || e.spawnT > 0) continue;
+      const dx = x - e.x, dy = y - e.y, d = Math.hypot(dx, dy);
+      if (d < 1) continue;
+      // An impulse k travels about k / 7 before it decays (updateEnemies), so cap it to stop short of the point.
+      const k = Math.min((strength * 3) / Math.max(0.5, e.mass), d * 6);
+      e.kbx += (dx / d) * k; e.kby += (dy / d) * k;
+      n++;
+    }
+    return n;
+  }
+
+  // Launch an enemy: it flies at `speed` px/s along `angle` for o.t seconds (default 0.35), deaf to its own
+  // steering and harmless to touch, and hits every other enemy it crashes into once for `dmg`. One generation
+  // only: what it hits is not launched. Bosses, charging enemies and enemies already in flight cannot be
+  // launched (returns false). o.onLand(e, g) runs where it stops. Damage is credited to the current g.src.
+  launch(e, angle, speed, dmg, o = {}) {
+    if (!e || e.dead || e.boss || e.ai.charge > 0 || e.launch) return false;
+    e.launch = { t: o.t ?? 0.35, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, dmg, src: this.src, hit: new Set([e]), max: o.max ?? 8, onLand: o.onLand ?? null };
+    e.kbx = e.kby = 0;
+    return true;
+  }
+
+  // One frame of a launched enemy's flight (updateEnemies). Returns true while it is in the air.
+  _flyLaunched(e, dt) {
+    const L = e.launch;
+    L.t -= dt;
+    e.x += L.vx * dt; e.y += L.vy * dt;
+    const drag = Math.pow(0.15, dt);
+    L.vx *= drag; L.vy *= drag;
+    const prev = this.src; this.src = L.src;
+    if (L.hit.size <= L.max) {
+      this.grid.query(e.x, e.y, e.r + 12, (o) => {
+        if (o.dead || L.hit.has(o) || o.spawnT > 0) return;
+        const rr = e.r + o.r + 4;
+        if (dist2(o.x, o.y, e.x, e.y) > rr * rr) return;
+        L.hit.add(o);
+        this.hit(o, L.dmg, { kb: 140, fx: e.x, fy: e.y });
+        this.fx.particles(o.x, o.y, this.color(L.src), 4, 160, 0.3, 2.5);
+        if (L.hit.size > L.max) return false;
+      });
+    }
+    if (L.t <= 0 || e.dead) {
+      e.launch = null;
+      if (L.onLand && !e.dead) { try { L.onLand(e, this); } catch (err) { this._report('launch.onLand', err); } }
+    }
+    this.src = prev;
+    return !!e.launch;
+  }
+
+  // A shield (this.shield = { n, until, src, onBreak }) blocks a hit: the player gets the usual iframes and the
+  // body that touched it is pushed off. When the last charge goes, onBreak(g, shield) runs with g.src = src.
+  _blockHit(from) {
+    const s = this.shield, p = this.player;
+    if (!(s.n > 0) || this.time > s.until) { this.shield = null; return false; }
+    s.n = Math.min(s.n, SHIELD_MAX) - 1;
+    p.iframes = PLAYER_BASE.iframes;
+    if (from && !from.boss && !(from.ai.charge > 0)) {
+      const dx = from.x - p.x, dy = from.y - p.y, d = Math.hypot(dx, dy) || 1;
+      from.kbx += (dx / d) * 320; from.kby += (dy / d) * 320;
+    }
+    const col = this.color(s.src);
+    this.fx.flash(p.x, p.y, p.r + 26, col, 0.25, 0.25);
+    this.fx.particles(p.x, p.y, col, 10, 220, 0.4, 2.5);
+    if (s.n <= 0) {
+      this.shield = null;
+      if (s.onBreak) {
+        const prev = this.src; this.src = s.src;
+        try { s.onBreak(this, s); } catch (e) { this._report('shield.onBreak', e); }
+        this.src = prev;
+      }
+    }
+    return true;
   }
 
   // How many mixer channels the song has opened so far.
@@ -540,7 +1008,7 @@ export class Game {
     this.sectionIndex = ev.index;
     this.section = ev.section;
     const opened = this.channelCap() > before;
-    this.banner(ev.section.name, ev.section.boss ? `${BOSS_TYPES[ev.section.boss]?.name || 'A boss'} is here` : opened ? 'A new channel opens on the mixer' : ev.section.note || '');
+    this.banner(ev.section.name);
     if (opened) this.hooks.onLoadout?.();
     // A boss belongs to its chorus. One still alive when the section ends fades out unbeaten (no notes,
     // no credit, no stop), so the next boss always arrives alone.
@@ -549,7 +1017,6 @@ export class Game {
       e.dead = true;
       this._logBossEnd(e, 'faded');
       this.fx.particles(e.x, e.y, e.color, 40, 300, 1, 3);
-      this.banner(`${e.def.name} fades out`, '', true);
     }
     if (this.boss?.dead) { this.boss = null; this.hooks.onBoss?.(null); }
     this.director.onSection(ev);
@@ -559,6 +1026,10 @@ export class Game {
   onBossSpawn(e) {
     if (this.audio?.ready) this.audio.bossQuiet(false);
     this.boss = e;
+    // A boss belongs to its section and fades when it ends: the boss bar's clock line runs over those bars
+    // (from the section's start to its end; the open-ended Finale has none).
+    const pos = this.song?.position(this.seq.bar);
+    if (pos && !e.def.final && Number.isFinite(pos.barsLeft)) e.clock = { from: pos.sectionStart, to: pos.sectionStart + pos.section.bars };
     (this.bossesSpawned ||= []).push(e.type);
     this.bossLog.push({ type: e.type, spawn: this.time, end: null, how: null });
     this.hooks.onBoss?.(e);
@@ -585,18 +1056,29 @@ export class Game {
     this.hooks.onBoss?.(this.boss);
     if (e.def.final) {
       this.won = true;
+      this.hazards.length = 0;   // no more beats: marks still waiting would never land
       // The song's ending: stop-time on i on the next downbeat, and the win lands as that bar ends.
       this.seq.stopNext(16, true);
       this.victoryT = this._stopLeft();
       if (this.audio?.ready) this.audio.bossQuiet(true);
       // The ending is one hit and a silent bar, so a Drop still waiting for its build bar is called off.
       if (this.seq.dropState === 'queued') this.seq.dropState = this.dropState = null;
-      this.banner('Encore!', 'White Noise is silenced');
-      // The silence wave grows from where it fell and silences the arena (see step()).
+      this.banner('Encore!');
+      // The silence wave grows from where it fell and silences the arena (see step()). A remix still waiting for
+      // its line is called off: the song is ending.
       this.silence = { x: e.x, y: e.y, r: 0 };
+      this.seq.remixAt = null;
+      this.remixQueue.length = 0;
+      this.tapePick = false;
     } else {
-      this.banner(`${e.def.name} is silenced`, '', true);
       magnetAll(this);
+      // A heart where it fell: silencing a boss inside its chorus is how a fight pays you back.
+      if (BALANCE.hearts.bossHeart) this.dropHeart(e.x, e.y);
+      // And its Master Tape (at most BALANCE.remix.tapes a run): the magnet leaves it where it fell.
+      if (this.tapes.dropped < BALANCE.remix.tapes) {
+        this.tapes.dropped++;
+        dropItem(this, e.x, e.y, 'tape');
+      }
       // The boss implodes, then bursts outward in its color (cosmetic).
       this.fx.ring({ x: e.x, y: e.y, r0: e.r * 3.2, r1: 6, dur: 0.22, damage: 0, kb: 0, width: 12, color: e.color });
       this.later.push({ at: this.time + 2 * STEP_SEC, fn: () => this.fx.ring({ x: e.x, y: e.y, r0: 10, r1: 640, dur: 0.7, damage: 0, kb: 0, width: 16, color: e.color }) });
@@ -610,11 +1092,12 @@ export class Game {
     if (b) { b.end = this.time; b.how = how; }
   }
 
+  // Banners are for moments only: section names, remix names (style 'gold') and the Encore.
   // compact: a short line under the boss bar instead of the big center banner (for mid-fight messages).
-  banner(title, sub, compact = false) {
+  banner(title, sub = '', compact = false, style = '') {
     if (!title) return;
     this.sectionBanner = { title, sub, t: 0 };
-    this.hooks.onBanner?.(title, sub, compact);
+    this.hooks.onBanner?.(title, sub, compact, style);
   }
 
   // ------------------------------------------------------------------ update
@@ -629,6 +1112,7 @@ export class Game {
     this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat' && ev.type !== 'build' && ev.type !== 'drop');
     this.seq.dropState = null;
     this.seq.pendingStop = null;
+    this.seq.remixAt = null;   // no remix lands on the band playing on after the run
     this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     for (const inst of this.loadout.instruments()) this.fx.particles(p.x, p.y, this.color(inst), 16, 340, 1.1, 3.5);
@@ -665,7 +1149,12 @@ export class Game {
     if (ml > 0.2) { p.faceX = mx / ml; p.faceY = my / ml; }
     p.iframes = Math.max(0, p.iframes - dt);
     p.hurtT = Math.max(0, p.hurtT - dt);
+    this._ledFrame(dt);
     if (this.stats.regen > 0) p.hp = Math.min(p.maxHp, p.hp + this.stats.regen * dt);
+    // In the pocket: stepping off the last beat's spot unplants you at once (one distance a frame).
+    const S = this.rules;
+    if (!S.broke && dist2(p.x, p.y, S.lastBeatX, S.lastBeatY) > RULES.plant * RULES.plant) { S.broke = true; S.planted = false; }
+    if (this.shield && this.time > this.shield.until) this.shield = null;
 
     // Spatial hash for this frame
     this.grid.clear();
@@ -701,6 +1190,8 @@ export class Game {
     this.shake *= Math.exp(-dt * 10);
     this.hurtFlash *= Math.exp(-dt * 5);
     this.dropFlash *= Math.exp(-dt * 2.5);
+    this.perfectFlash *= Math.exp(-dt * 2);
+    this.remixFlash *= Math.exp(-dt * 2);
     for (const r of ROLES) this.chanPulse[r] *= Math.exp(-dt * 9);
     if (this.sectionBanner) this.sectionBanner.t += dt;
 
@@ -731,10 +1222,15 @@ export class Game {
     if (ready && !this.dropReady) this._ping('run');
     this.dropReady = ready;
 
-    // Card screens wait until a pending or playing stop bar is over (two bars at most), and until a Drop
-    // that has started its build bar has landed (one more bar), so the vamp never loops the build.
-    const building = this.dropState === 'building' || this.seq.dropState === 'building';
-    if (this.pendingLevels > 0 && this.state === 'playing' && !this.won && !building && this._stopLeft() <= 0) this.openLevelUp();
+    // Card screens wait until a pending or playing stop bar is over (two bars at most), until a Drop that has
+    // started its build bar has landed (one more bar), so the vamp never loops the build, and until a remix whose
+    // dropout is playing has landed and been heard. A tape's remix cards come before the level-ups.
+    // Safety net: a remix counted as landing has its event waiting in the sequencer.
+    if (this._remixLanding > 0 && !this.seq.events.some((ev) => ev.type === 'remix')) this._remixLanding = 0;
+    const building = this.dropState === 'building' || this.seq.dropState === 'building' || this._remixDue() || this._remixLanding > 0 || this.time < this._remixHold;
+    const clear = this.state === 'playing' && !this.won && !building && this._stopLeft() <= 0;
+    if (clear && this.tapePick) this.openTapePick();
+    if (clear && this.state === 'playing' && this.pendingLevels > 0) this.openLevelUp();
   }
 
   // Seconds until the pending or playing stop bar has been heard to its end (negative when there is none).
@@ -753,12 +1249,17 @@ export class Game {
       return;
     }
     this._pause('levelup');
+    this._cardChime();
+    this.hooks.onLevelUp?.(this.offers);
+  }
+
+  // A card screen opens on an arpeggio of the chord.
+  _cardChime() {
     if (this.audio?.ready && this.seq.position) {
       const c = this.seq.position.chord;
       const base = 72 + ((c.rootPc - 72) % 12 + 12) % 12;
       this.audio.levelUpChime([base, base + c.intervals[1], base + c.intervals[2], base + 12]);
     }
-    this.hooks.onLevelUp?.(this.offers);
   }
 
   // Deal a new set of cards. Screens with no real choice are counted for the sim metrics.
@@ -769,8 +1270,9 @@ export class Game {
     return this.offers;
   }
 
+  // A tape's remix cards cannot be rerolled, banished or skipped.
   reroll() {
-    if (this.state !== 'levelup' || this.rerolls <= 0) return null;
+    if (this.state !== 'levelup' || this.rerolls <= 0 || this.tapeOffers) return null;
     this.rerolls--;
     this.previewOffer(null);
     return this._deal();
@@ -779,7 +1281,7 @@ export class Game {
   // Banish card i: its sound or pedal never comes back this run (Remix, Fader and bonus cards cannot go).
   // The cards are dealt again, like a reroll.
   banish(i) {
-    const key = this.state === 'levelup' && this.banishes > 0 && this.offers?.[i] ? banKey(this.offers[i]) : null;
+    const key = this.state === 'levelup' && !this.tapeOffers && this.banishes > 0 && this.offers?.[i] ? banKey(this.offers[i]) : null;
     if (!key) return null;
     this.banished.add(key);
     this.banishes--;
@@ -789,22 +1291,33 @@ export class Game {
 
   // Pass on this level: its notes go to the Drop meter instead.
   skip() {
-    if (this.state !== 'levelup' || !this.offers) return;
+    if (this.state !== 'levelup' || !this.offers || this.tapeOffers) return;
     this.chargeDrop(DROP.charge * DROP.skip);
     this.choose(-1);
   }
 
-  // i = -1 takes no card (a skip).
+  // i = -1 takes no card (a skip). On a tape's remix cards the pick queues that remix.
   choose(i) {
     if (this.state !== 'levelup' || !this.offers) return;
     const o = this.offers[i];
-    if (!o && i !== -1) return;
+    if (!o && (i !== -1 || this.tapeOffers)) return;
     this.previewOffer(null);
-    this.pendingLevels--;
-    if (o) applyOffer(this, o);
+    if (this.tapeOffers) {
+      this._takeRemix(o);
+      this.tapeOffers = false;
+      this._spendTape();   // another banked tape, if two channels are still ready, deals its cards next
+    } else {
+      this.pendingLevels--;
+      if (o) applyOffer(this, o);
+    }
     this.offers = null;
+    // Next: the remaining level-ups, then a tape's remix cards, then back to the song.
     if (this.pendingLevels > 0) {
       this._deal();
+      this.hooks.onLevelUp?.(this.offers);
+      return;
+    }
+    if (this.tapePick && this._dealTape()) {
       this.hooks.onLevelUp?.(this.offers);
       return;
     }
@@ -846,9 +1359,11 @@ export class Game {
   _pause(state) {
     this.state = state;
     this.seq.hold = true;
-    // Drop queued notes and beats, but keep song-structure events (section, build, drop): losing one would
-    // skip a boss, keep a channel shut or leave the Drop stuck. They play out on the first frame after resume.
-    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat');
+    // Drop queued notes and beats, but keep song-structure events (section, build, drop, impact, remix) and
+    // downbeats: losing one would skip a boss, keep a channel shut, leave the Drop stuck or lose a bar's set
+    // pieces (a breather heart, a featured elite's vinyl, an impact ring). The held bar plays on from where the
+    // vamp is, never from its downbeat again, so they play out once, on the first frame after resume.
+    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && (ev.type !== 'beat' || ev.beat === 0));
     if (this.audio?.ready) this.audio.setMuffle(true);
   }
 
@@ -860,7 +1375,9 @@ export class Game {
     this.preview = null;
     if (this.audio?.ready) { this.audio.setPreviewRole(null); this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost()); this.audio.setMuffle(false); }
     this.hooks.onResume?.();
-    if (this._remixNames) { this.banner('Remix!', this._remixNames.join(' · ')); this._remixNames = null; }
+    const rb = this._remixBanner;   // the gold banner runs 1.9 s: show it again if a card screen covered it
+    if (rb && this.time - rb.t < 1.9) this.banner(rb.name, '', false, 'gold');
+    this._remixBanner = null;
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
@@ -881,6 +1398,7 @@ export class Game {
     this.seq.clearEvents();
     // A Drop still queued or building would play its build and impact over the end screen: call it off, as _die() does.
     this.seq.dropState = null;
+    this.seq.remixAt = null;
     this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     this.hooks.onVictory?.(this.summary(true));
@@ -912,7 +1430,7 @@ export class Game {
       remixes: this.remixed.map((id) => ({ id, name: BY_ID[id].name, remix: BY_ID[id].remix.name })),
       sheet: [...this.sheet, snap], keyPc: this.key.pc,
       // What the career's goals read (src/game/progress.js).
-      drops: this.drops, sectionIndex: this.sectionIndex, bossKills: this.bossKills, staggers: this.staggers, peak: this.peak,
+      drops: this.drops, perfectDrops: this.perfectDrops, sectionIndex: this.sectionIndex, bossKills: this.bossKills, staggers: this.staggers, peak: this.peak,
       fullBand: this.fullBand, fused: this.fused, maxedAll: this.maxedAll, band: snap.band, pedalLv: snap.pedals,
     };
   }

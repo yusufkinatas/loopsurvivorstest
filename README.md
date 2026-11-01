@@ -9,67 +9,81 @@ server below. Sound on, headphones help.
 
 ## How it plays
 
-- **Move** with WASD or the arrow keys, drag on a touch screen, or use a gamepad. Moving is all you steer.
-- **Your instruments fight for you.** Each one plays a pattern locked to the beat, and each note it
-  plays launches its attack at the exact moment you hear it.
-- **Level up** by collecting the notes the noise drops. Pick one of three cards: a new sound, a
-  stronger version of one you have, a swap to a different style, or an effect pedal. Hover (or press
-  and hold) a card to hear it in your mix before you choose. You can also reroll the cards, banish a
-  sound or pedal for the rest of the run (three times), or skip the level to fill the Drop meter.
-- **Remix.** An instrument at level 5 with its paired pedal on your board (Canon is Wooden Flute plus
-  Tape Delay) can be remixed: the same part, a new attack, and that pedal opened up on its channel.
-- **The Drop.** Collected notes fill the Drop meter. Press Space or E (A on a gamepad, the Drop button on a
-  touch screen) when it is full: the music builds for one bar, then slams on the downbeat and blasts
-  everything on screen.
-- **Pause** with Escape or P (Start on a gamepad, the pause button on a touch screen). M mutes. On a card
-  screen, R rerolls, X banishes and Q skips.
+- **Move** with WASD or the arrow keys, drag on a touch screen, or use a gamepad. Your instruments play on
+  the beat, and each note launches its attack at the exact moment you hear it.
+- **Level up** by collecting the notes the noise drops. Notes fade after a few bars, so you walk into the
+  fight for them. Pick one of three cards: a new sound, a stronger version of one you have, a swap to a
+  different style, or an effect pedal. The first card plays in your mix as soon as the screen opens; hover
+  (or press and hold) another to hear it. Cards show a glyph, a name, the level and the pattern; press I
+  (Y on a gamepad, or the (i) button) for the words. You can also reroll (R), banish a sound or pedal for
+  the run (X), or skip the level to charge the Drop (Q).
+- **You cannot max everything.** A run has about 25 level-ups for 30 instrument levels and 12 pedal
+  levels, so you choose which two or three channels to push all the way.
+- **Styles change how you play.** Every sound is Synth, Live, 8-Bit, Heavy or Orchestra. Two, four or six
+  of a style turn on its play rule, drawn on the floor around you:
+  - **Synth, Long throw:** more damage on enemies far from you.
+  - **Heavy, Mosh pit:** more damage on enemies close to you.
+  - **Live, In the pocket:** stand still for wider attacks and a heal on the beat.
+  - **8-Bit, Combo streak:** every beat without a hit adds damage; a hit resets it.
+  - **Orchestra, Ride the swell:** damage swells through each 8-bar phrase and peaks at the fill.
+- **The song breathes.** Every section has its own texture: thin verses, full choruses, a drumless Bridge
+  breakdown, a solo for your strongest part, a half-time Drop and a Finale that rises and falls. A quiet
+  phrase is dangerous (the band plays thin and the mix goes dark), and the band slamming back in hits
+  everything around you.
+- **Bosses are on the clock.** A boss arrives with each chorus and with The Drop; a thin gold line under its
+  bar shows the time left in its section. Silence it in time and it drops a **Master Tape**.
+- **Remix.** A tape remixes a channel at level 5 (with two ready, you choose). The channel drops out for a
+  bar under a riser, then the remix slams in on the next 4-bar line: a new part, a new sound, a bigger
+  attack that reads how you move, and its pedal opened up on its strip. At most three a run.
+- **The Drop.** Collected notes fill the ring around your speaker. Press Space or E (A on a gamepad, the
+  round button on a touch screen) when it is full: one bar of build, then a blast around you that erases
+  the shots inside it. Press during the fill at the end of a phrase and it lands on the phrase downbeat:
+  a perfect Drop hits harder, reaches further and knocks a boss off the beat.
+- **Pause** with Escape or P (Start on a gamepad). The pause sheet has every detail the play screen leaves
+  out: your band and what each sound does, the pedals, the style rules, the live pattern grid, health,
+  level and kills. M mutes.
 - **Survive the song.** Eight to nine minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
-  Bridge, Build-Up, The Drop, Finale), a boss in each chorus and in The Drop, and White Noise in the Finale.
+  Bridge, Build-Up, The Drop, Finale), with White Noise in the Finale. Hearts come on a schedule (the
+  quiet sections, beaten bosses and hunting elites), not from every kill, so the choruses are the exams.
 - **Keep your songs.** The end screen plays your run back as a one-minute radio edit. The Discography
-  keeps what you have done across runs:
-  - **Liner notes.** 15 goals (silence The Drone, fill all six channels, make your first remix, finish the
-    song...). Each one unlocks another first sound, so all 18 can open a run.
-  - **Records.** A run that reaches the Finale presses its genre as a record: gold if you finished the
-    song, a demo if not. 13 sleeves to fill, and pressing one plays that run's radio edit.
-  - **Remixes.** The crate of all 18 remix recipes, gold once you have made one.
+  keeps what you have done across runs: 17 liner-note goals that unlock first sounds (two of them open a
+  whole style), 30 record sleeves for the genres a band can become, and the crate of 30 remixes.
 - **Gain.** Finishing the song opens Gain 1, and a win at the highest Gain open opens the next, up to 8.
-  Each tier adds its modifier on top of the ones below (more Noise health, a slower Drop, harder hits,
-  costlier level-ups, a bigger crowd that shares the same notes, tougher bosses, faster shots, then White Noise
-  starting loud and more elites with no extra vinyls) and 10% score. Gain only changes combat numbers, never the music. Step it on the first-sound screen with
-  the arrows, `[` and `]`, or LB and RB.
+  Each tier adds a modifier and 10% score. Gain only changes combat numbers, never the music.
 
 ## The mechanic that keeps the music clean
 
-Stacking weapons in a survivors game usually piles up into noise. Here the build *is* the
-arrangement, so the game enforces the rules a producer would:
+The build *is* the arrangement, so the game enforces the rules a producer would:
 
-1. **One instrument per channel.** The mixer has six channels (Beat, Groove, Bass, Chords, Lead,
-   Sparkle). Each owns a frequency range and a rhythmic job, and holds exactly one instrument. Taking
-   a new sound for a full channel swaps out the old one (the new sound keeps the channel's level). That
-   makes every card a real decision: fill an empty channel, deepen one you have, or change a channel's style.
-   Channels also open with the song: two in the intro, one more each section, all six from the second
-   chorus. The run literally starts as one sound and grows into a full band.
-2. **Every note is in key and on the grid.** Instruments never play raw pitches. Patterns ask for
-   "chord tone 2" or "scale step 4", and the sequencer resolves them against the current chord of the
-   run's key, on a 16th-note grid. Whatever you pick sounds right, and you never need to know why.
-3. **The desk mixes for you.** Channels are panned apart, melodic channels duck under the kick, and
-   the bus compresses and limits, with the overall level eased down as the band grows.
-4. **Styles belong together.** Every instrument is Synth, Live or 8-Bit. Two, four or six of a style
-   unlock escalating bonuses; two of every style unlocks Fusion. Pedals change the sound and the stats
-   at once (Reverb widens areas, Tape Delay makes attacks echo on the delay line, Overdrive adds damage).
+1. **One instrument per channel.** Six channels (Beat, Groove, Bass, Chords, Lead, Sparkle), each with a
+   frequency range and a rhythmic job. Taking a new sound for a full channel swaps out the old one. The
+   mixer opens with the song: two channels in the intro, one more each section.
+2. **Every note is in key and on the grid.** Patterns ask for "chord tone 2" or "scale step 4", and the
+   sequencer resolves them against the current chord of the run's key on a 16th-note grid.
+3. **The arrangement thins and fills the band.** Each 8-bar phrase gives every channel a texture
+   (full, out, sparse, half-time, double-time, call, answer, held, an octave down, mirrored, or a lower
+   level's part). The textures only move notes on the grid, so they stay in key, and an attack only fires
+   on a note you hear.
+4. **The desk mixes for you.** Channels are panned apart, melodic channels duck under the kick, the bus
+   compresses and limits, and the level and brightness follow who is playing.
 
 ## Instruments
 
-| Channel | Synth | Live | 8-Bit |
-|---|---|---|---|
-| Beat | 808 Kick: shockwaves | Taiko Drums: slams the thickest crowd | 8-Bit Drums: ricocheting blocks |
-| Groove | Drum Machine Hats: auto-aimed needles | Shaker: orbiting seeds | Noise Hats: chain lightning |
-| Bass | Sub Bass: slowing pulse around you | Upright Bass: heavy piercing slugs | Triangle Bass: mines that go off on the next note |
-| Chords | Supersaw Stabs: fans of shots | Electric Piano: healing, slowing rings | Pulse Chords: falling blocks |
-| Lead | Saw Lead: lasers | Wooden Flute: homing wisps | Square Lead: pitch-steered sprays |
-| Sparkle | Arp Synth: spinning spark spiral | Music Box: stars that land on the beat | Coin Arp: boomerang coins |
+| Channel | Synth | Live | 8-Bit | Heavy | Orchestra |
+|---|---|---|---|---|---|
+| Beat | 808 Kick | Taiko Drums | 8-Bit Drums | Double Kick | Timpani |
+| Groove | Drum Machine Hats | Shaker | Noise Hats | Ride Cymbal | Field Snare |
+| Bass | Sub Bass | Upright Bass | Triangle Bass | Drop-D Bass | Cellos |
+| Chords | Supersaw Stabs | Electric Piano | Pulse Chords | Power Chords | String Section |
+| Lead | Saw Lead | Wooden Flute | Square Lead | Shred Guitar | French Horn |
+| Sparkle | Arp Synth | Music Box | Coin Arp | Pinch Harmonics | Harp |
 
-Taiko Drums, Music Box and 8-Bit Drums aim the first hit of each bar at a boss in range.
+The Heavy sounds fight close: kicks blast cones the way you move, cymbals you plant ring on every ride
+note, the bass punts enemies into each other, power chords raise walls that soak shots, held guitar notes
+swing blades, and pinch harmonics hook enemies and drag them in. The Orchestra swells with the phrase:
+the timpani charges on rolls and releases on accents, drummers march behind you, the cellos pull the crowd
+to one point and crush it, strings shield you and release a wave, held horn notes fire one growing blast,
+and the harp plucks a frame of strings over a crowd.
 
 ## Run it locally
 
@@ -82,53 +96,57 @@ npm run build        # writes dist/loop-survivors.html and dist/artifact.html
 ## Project layout
 
 ```
-src/config.js                 tempo, channels, styles, tuning constants
+src/config.js                 tempo, channels, styles, Gain, and BALANCE (every combat tuning number)
 src/music/theory.js           keys, diatonic chords, chord-tone and scale-step lookup, voice leading
-src/music/song.js             the song: sections, progressions, where the bosses are
-src/music/sequencer.js        lookahead scheduler; emits a game event for every scheduled note
+src/music/song.js             the song: sections, progressions, the 8-bar texture chart, bosses
+src/music/sequencer.js        lookahead scheduler, texture transforms, solos, impacts, remix moments
 src/music/replay.js           the radio edit: plays a run's track sheet back
-src/audio/engine.js           the mixing desk: channel strips, pedal effects, returns, master bus
-src/audio/voices.js           synth voices (subtractive, FM, Karplus-Strong pluck, noise, kick)
-src/game/game.js              the run, and the API instruments use to attack
-src/game/effects.js           attack archetypes (bullets, rings, beams, zaps, strikes, mines, orbiters)
-src/game/enemies.js           the Noise and its bosses
+src/audio/engine.js           the mixing desk: channel strips, pedals, returns, phrase level and tone, master bus
+src/audio/voices.js           synth voices (subtractive, FM, Karplus-Strong pluck, noise, kick, drive)
+src/game/game.js              the run, the play rules, Master Tapes, and the API instruments use to attack
+src/game/effects.js           attack archetypes (bullets, rings, beams, zaps, strikes, mines, orbiters,
+                              cones, walls, tethers, followers)
+src/game/enemies.js           the Noise, its bosses and the Snare mortar
 src/game/bosscues.js          the sound cue a boss plays on the beat it attacks
-src/game/director.js          spawns on the beat, section by section
-src/game/loadout.js           channels, pedals, stats, style chemistry
-src/game/upgrades.js          level-up offers
+src/game/director.js          spawns on the beat, following the song's energy and quiet phrases
+src/game/loadout.js           channels, pedals, stats, style play rules, genre names
+src/game/upgrades.js          level-up offers and what each card shows
 src/game/progress.js          the career between runs: goals, records, remixes, Gain (pure, runs in Node)
-src/storage.js                settings, best run and career in localStorage, guarded so the game runs without it
-src/content/instruments/*.js  the 18 instruments, one file per channel
+src/storage.js                settings, best run and career in localStorage, guarded
+src/content/instruments/      the 30 instruments: one file per channel for the first three styles,
+                              heavy/ and orchestra/ with one file per sound
 src/content/pedals.js         the 7 effect pedals
-src/render, src/ui            canvas renderer, HUD, menus
+src/render, src/ui            canvas renderer, HUD, menus, glyphs
 docs/INSTRUMENTS.md           the instrument format and authoring rules
 ```
 
 ## Testing tools
 
-All run headless in Chromium through Playwright.
+All run headless in Chromium through Playwright, except where noted.
 
 ```
-node tools/sim.mjs "speed=12&bot=1&minutes=8" --summary     # autopiloted run on a simulated clock, no audio
-node tools/check.mjs                                          # render every instrument level offline: level, clipping, spectrum
-node tools/check.mjs --mixall                                 # whole bands through the real mixing desk
-node tools/check.mjs --mixall --remix                         # the same bands remixed (remix pedals at full)
-node tools/check.mjs --audit                                  # every note of the song in every key: in key, on the grid
-node tools/check.mjs --replay "speed=12&bot=1&minutes=10"     # play a sim run's track sheet back as a radio edit
-node tools/shots.mjs shots/ [--mobile]                        # drive the real UI and save screenshots
-node tools/progress-check.mjs                                 # the career rules in Node (no browser)
+node tools/sim.mjs "speed=12&bot=1&minutes=10" --summary --runs 8 --parallel 4   # autopiloted songs, about 2 minutes
+node tools/parity.mjs --ids timpani,harp [--no-remix]   # one sound solo at L1, L5 and remixed, against its channel's band
+node tools/check.mjs                                    # render every instrument level: level, clipping, spectrum
+node tools/check.mjs --arrange                          # the texture chart in Node: who plays, notes a bar, energy
+node tools/check.mjs --audit                            # every note in every key, texture and remix: in key, on the grid
+node tools/check.mjs --mixall [--remix]                 # whole bands through the real desk
+node tools/check.mjs --mix a,b,c --start N --bars M     # a band bar by bar (also --remixAt N, --boss, --stopAt)
+node tools/drop-check.mjs                               # the perfect Drop lands on the phrase downbeat you heard
+node tools/shots.mjs shots/ [--mobile]                  # drive the real UI, save screenshots, count visible words
+node tools/progress-check.mjs                           # the career rules in Node (no browser)
 ```
 
-`sim.mjs --runs N` plays seeds 1 to N, `--parallel N` runs that many pages at once, and `--summary` also
-lists the damage taken from each enemy, the boss fights, the remixes taken and the card screens with no
-real choice. It exits 1 when a run crashes, throws or times out. `check.mjs --mix a,b,c --start N --bars M` renders a band bar by bar through the song's
-arrangement (add `--boss <type>`, `--stopAt N` or `--pickups R` for boss cues, stop-time or chimes).
-check.mjs fails on clipping, NaN, or a note out of key or off the grid.
+`sim.mjs --summary` prints one line per song section from the game's ledger (damage taken by cause,
+healing, lowest health, level, picks, kills and their distance, hearts, Drops, Snare marks, notes that
+faded) and, with `--runs`, an AGGREGATE line: wins, where runs died, lowest health before the Finale,
+levels, picks, Drops, hearts, boss fight lengths, tapes and remixes. That is how balance is checked: one
+batch of eight seeds takes about two minutes. At this commit the smart bot wins about half its runs at
+Gain 0, with deaths spread across the Chorus, The Drop and the Finale, and a bot that picks cards at
+random dies in Chorus II.
 
-The balance targets (pacing, boss fight lengths, instrument parity) and how they were measured are in
-the commit history of the balance pass.
-
-Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god`, `solo` (no level-ups),
-`seed`, `start=<id>`, `give=id:level,...`, `pedals=id:level,...`, `remix=id,...`, `gain=N`, `minutes`, `key`,
-`realpick` (level-ups through the real pause path) and `chaos` (random pauses, and with `realpick`
-also rerolls, banishes and skips). Sims never read or write the career.
+Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god` (the ledger still
+records what would have hit), `solo` (no level-ups), `seed`, `start=<id>`, `give=id:level,...`,
+`pedals=id:level,...`, `remix=id,...`, `tapes=N`, `gain=N`, `minutes`, `key`, `botrules=0` (the bot
+ignores the style rules), `realpick` (level-ups through the real pause path) and `chaos` (random pauses,
+and with `realpick` also rerolls, banishes and skips). Sims never read or write the career.

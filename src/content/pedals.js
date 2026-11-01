@@ -23,8 +23,8 @@ export const PEDALS = [
   {
     id: 'compressor', name: 'Compressor', short: 'COMP', color: '#b7a6ff',
     sound: 'The whole mix gets tight and punchy.',
-    levels: [{ armor: 1, maxHp: 10 }, { armor: 2, maxHp: 20 }, { armor: 3, maxHp: 35 }],
-    text: (s) => `Take ${s.armor} less damage per hit. Max health +${s.maxHp}.`,
+    levels: [{ armor: 0, maxHp: 15 }, { armor: 1, maxHp: 30 }, { armor: 2, maxHp: 45 }],
+    text: (s) => `${s.armor ? `Take ${s.armor} less damage per hit. ` : ''}Max health +${s.maxHp}.`,
   },
   {
     id: 'chorus', name: 'Chorus', short: 'CHOR', color: '#7ff0d0',
