@@ -111,11 +111,12 @@ export const CHART = {
     ph('full', 0.96, 'arp:double'),
     ph('full', 0.93, 'perc:double*0.9 lead:inv arp:double'),
   ],
-  // The Bridge: a real breakdown (no drums, the bass in half time under held chords), then one channel
-  // takes a solo over the bass and the pads, then everything but the drums builds back, and the drums return
-  // on an impact. The drums sit out for 24 bars, so their return is the Bridge's moment.
+  // The Bridge: a real breakdown (no drums, the groove only ticking, the bass in half time under held
+  // chords), then one channel takes a solo over the bass and the pads, then everything but the drums
+  // builds back, and the drums return on an impact. They sit out for 24 bars, so their return is the
+  // Bridge's moment.
   bridge: [
-    ph('quiet', 0.4, 'beat:out perc:out bass:half*1.8 chords:hold*1.8 lead:call*1.4 arp:lv1*1.2'),
+    ph('quiet', 0.55, 'beat:out perc:lv1*1.6 bass:half*2 chords:hold*2.2 lead:call*1.6 arp:lv1*1.4'),
     ph('solo', 0.66, 'beat:out perc:lv2*1.3 bass:lv1*2 chords:hold*2 lead:out arp:lv1'),
     ph('mid', 0.84, 'beat:out lead:low'),
     ph('full', 1.0, 'lead:inv', { impact: true }),
@@ -134,11 +135,12 @@ export const CHART = {
     ph('full', 0.95, 'lead:inv arp:answer*1.4'),
     ph('full', 1.02, 'perc:double*0.9 arp:double*0.9'),
   ],
-  // The Finale cycles: the full band in the new key, a breakdown, a solo over the bass and the pads (the drums
-  // still out), and the band rising back in on an impact. It rises and falls every 64 seconds until White Noise is silenced.
+  // The Finale cycles: the full band in the new key, a breakdown, a solo over the bass and the pads (the
+  // drums still out), and the band rising back in on an impact. It rises and falls every 64 seconds until
+  // White Noise is silenced.
   finale: [
     ph('full', 0.94, '', { impact: 'first' }),
-    ph('quiet', 0.38, 'beat:out perc:lv1*1.3 bass:half*1.8 chords:hold*1.8 lead:call*1.3 arp:out'),
+    ph('quiet', 0.45, 'beat:out perc:lv1*1.6 bass:half*2 chords:hold*2.2 lead:call*1.6 arp:out'),
     ph('solo', 0.63, 'beat:out perc:lv2*1.4 bass:half*1.8 chords:hold*2 lead:out arp:out'),
     ph('full', 0.96, 'perc:double*0.9 lead:inv arp:double', { impact: true }),
   ],
