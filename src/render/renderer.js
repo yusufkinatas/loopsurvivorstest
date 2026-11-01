@@ -17,6 +17,7 @@ export class Renderer {
     this.scale = 1;
     this.zoom = 1;               // the Drop camera, on top of scale (see draw)
     this.waveAt = -Infinity;     // when the last section wave started
+    this.dim = 0;                // the arena dims in quiet phrases (0.25) and flashes back on an impact (< 0)
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -120,19 +121,20 @@ export class Renderer {
     this._background(c, 258, pulse, pulse * 0.6);
   }
 
-  _background(c, hue, beat, bar, sx = 0, sy = 0, s = this.scale) {
+  // k: the arena's brightness (quiet phrases dim it, an impact flashes it back).
+  _background(c, hue, beat, bar, sx = 0, sy = 0, s = this.scale, k = 1) {
     const w = this.w, h = this.h;
     const camX = this.cam.x + sx, camY = this.cam.y + sy;
-    c.fillStyle = `hsl(${hue}, 38%, 6.5%)`;
+    c.fillStyle = `hsl(${hue}, 38%, ${(6.5 * Math.min(1, k)).toFixed(2)}%)`;
     c.fillRect(0, 0, w, h);
     const hq = Math.round(hue);   // a section's color fade repaints the floor once per degree
-    this._shade(c, 'floor', 0.35 + beat * 0.12, 0, Math.max(w, h) * 0.7, `hsl(${hq}, 60%, 20%)`, `hsla(${hq}, 50%, 3%, 0)`);
+    this._shade(c, 'floor', (0.35 + beat * 0.12) * k, 0, Math.max(w, h) * 0.7, `hsl(${hq}, 60%, 20%)`, `hsla(${hq}, 50%, 3%, 0)`);
     // Grid in world space
     const step = 64 * s;
     const ox = (-camX * s + w / 2) % step;
     const oy = (-camY * s + h / 2) % step;
     c.lineWidth = 1;
-    c.strokeStyle = `hsla(${hue}, 70%, 70%, ${0.04 + beat * 0.14})`;
+    c.strokeStyle = `hsla(${hue}, 70%, 70%, ${(0.04 + beat * 0.14) * k})`;
     c.beginPath();
     for (let x = ox; x < w; x += step) { c.moveTo(Math.round(x) + 0.5, 0); c.lineTo(Math.round(x) + 0.5, h); }
     for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + 0.5); c.lineTo(w, Math.round(y) + 0.5); }
@@ -141,7 +143,7 @@ export class Renderer {
     const big = step * 4;
     const bx = (-camX * s + w / 2) % big;
     const by = (-camY * s + h / 2) % big;
-    c.strokeStyle = `hsla(${hue}, 80%, 72%, ${0.08 + bar * 0.24})`;
+    c.strokeStyle = `hsla(${hue}, 80%, 72%, ${(0.08 + bar * 0.24) * k})`;
     c.lineWidth = 1.5;
     c.beginPath();
     for (let x = bx; x < w; x += big) { c.moveTo(Math.round(x), 0); c.lineTo(Math.round(x), h); }
@@ -175,7 +177,11 @@ export class Renderer {
     else this.zoom += ((building && g.state === 'playing' ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
     const s = this.scale * this.zoom;
 
-    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy, s);
+    // A quiet phrase dims the arena by a quarter; the band slamming back in (a song impact) flashes it back.
+    const heard = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
+    if (g.impactAt !== this._impactAt) { if (this._impactAt !== undefined && g.impactAt > 0) this.dim = -0.3; this._impactAt = g.impactAt; }
+    this.dim += ((heard?.quiet && g.state === 'playing' ? 0.25 : 0) - this.dim) * Math.min(1, dt * 2.5);
+    this._background(c, this.hue, g.beatPulse, g.barPulse, sx, sy, s, 1 - this.dim);
 
     c.setTransform(this.dpr * s, 0, 0, this.dpr * s, this.dpr * (this.w / 2 - (this.cam.x + sx) * s), this.dpr * (this.h / 2 - (this.cam.y + sy) * s));
     const vw = this.w / s / 2 + 80, vh = this.h / s / 2 + 80;

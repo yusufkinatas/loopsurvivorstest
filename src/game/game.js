@@ -2,6 +2,7 @@
 // that instrument fire() functions use (see docs/INSTRUMENTS.md).
 
 import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
+import * as CONFIG from '../config.js';   // CONFIG.BALANCE?.songImpact overrides the song impact's numbers
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
@@ -34,9 +35,11 @@ export class Game {
     this.state = 'idle';
     this.src = null;
     this.dmgScale = 1;
+    this.noteW = 1;          // the arrangement's damage weight for the note being fired (note.w)
     this._errs = new Set();
     this._evbuf = [];
     seq.getInstruments = () => (this.loadout ? this.loadout.instruments() : []);
+    seq.getFeatured = () => this.featured();
   }
 
   // ------------------------------------------------------------------ run lifecycle
@@ -52,6 +55,7 @@ export class Game {
     this.song = new Song(this.key.pc);
     this.seq.reset(this.song);
     this.seq.getInstruments = () => (this.loadout ? this.loadout.instruments() : []);
+    this.seq.getFeatured = () => this.featured();
     // The sequencer asks a beat ahead which boss cues to play on it (sound only, while playing).
     const cues = [];
     this.seq.getBossCues = (bar, beat) => {
@@ -99,6 +103,10 @@ export class Game {
     this.dropMax = DROP.charge * this.mods.drop;
     this.dropState = null;
     this.drops = 0;
+    this.songImpacts = 0;        // the song's own impacts that hit (songImpact)
+    this.impactAt = -Infinity;   // game time of the last one (the arena flashes back)
+    this.solos = 0;              // solo phrases featured so far (remixes take turns)
+    this._dropBar = -1;          // the bar the player's last Drop landed on
     this.bonusScore = 0;
     this.beatPulse = 0;
     this.barPulse = 0;
@@ -221,7 +229,8 @@ export class Game {
     for (const inst of this.loadout.instruments()) this._setupInst(inst);
     if (this.audio?.ready) {
       this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost());
-      this.audio.setActiveCount(this.loadout.filled());
+      // The desk levels by the channels actually playing in the bar (the sequencer re-levels every downbeat).
+      this.seq.deskNow();
     }
     this.genre = genreName(this.loadout);
     const counts = this.loadout.styleCounts();
@@ -235,8 +244,9 @@ export class Game {
 
   // ------------------------------------------------------------------ API for instruments
 
-  // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards).
-  dmg(base) { return base * this.stats.damage * this.dmgScale * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
+  // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards) x the
+  // arrangement's weight for the note being fired (a thinner part hits harder, a solo hardest).
+  dmg(base) { return base * this.stats.damage * this.dmgScale * this.noteW * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
   area(r) { return r * this.stats.area; }
   // Counts scale by a percentage (Chorus pedal, 8-Bit chemistry), so a one-shot weapon and a
   // six-shot weapon gain the same share. Fractions round by chance per note, and deterministically
@@ -491,6 +501,49 @@ export class Game {
     this.hooks.onDrop?.('done');
   }
 
+  // ------------------------------------------------------------------ the song's own impacts and solos
+
+  // The arrangement's impact downbeats (chorus starts, the Bridge's return, The Drop, each Finale cycle):
+  // the band slams back in around you. A moderate ring: it knocks back and stuns the crowd and erases enemy
+  // shots near you, but never knocks a boss off its beat and pulls no notes. The sequencer never sends one
+  // on a downbeat the player's Drop lands on (that Drop is the hit), and on the song's ending it only sounds.
+  songImpact(bar) {
+    if (this.state !== 'playing' || this.won || bar === this._dropBar) return;
+    const p = this.player;
+    const K = { damage: 0.5, radius: 380, kb: 220, stun: 0.4, erase: 0.6, ...CONFIG.BALANCE?.songImpact };
+    const dmg = K.damage * DROP.damage * (1 + this.level * 0.05) * this.stats.damage;
+    this.songImpacts++;
+    this.impactAt = this.time;
+    this.shake = Math.max(this.shake, 8);
+    const prev = this.src; this.src = null;
+    // A boss can arrive on the same downbeat: index this frame's spawns before the query.
+    this.grid.clear();
+    for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
+    for (const e of this.inRadius(p.x, p.y, K.radius)) this.hit(e, dmg, { kb: K.kb, fx: p.x, fy: p.y, stun: e.boss ? 0 : K.stun, color: '#ffffff' });
+    this.src = prev;
+    const er = K.radius * K.erase;
+    for (let i = this.shots.length - 1; i >= 0; i--) {
+      const s = this.shots[i];
+      if (dist2(s.x, s.y, p.x, p.y) < er * er) { this.fx.particles(s.x, s.y, '#ffffff', 2, 80, 0.25, 2); swapRemove(this.shots, i); }
+    }
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: K.radius, dur: 0.45, damage: 0, kb: 0, width: 10, color: '#ffffff' });
+    this.hooks.onImpact?.(bar);
+  }
+
+  // Who takes a solo phrase (the sequencer asks on its first bar): a remix, the one with the most damage
+  // first and the remixes taking turns across solos; else the highest level (ties: the most damage). It
+  // hits about 1.8x its full part, held to 1.4x while the final boss plays.
+  featured() {
+    const band = this.loadout?.instruments() || [];
+    if (!band.length) return null;
+    const remixed = band.filter((i) => i.remix).sort((a, b) => b.dmg - a.dmg);
+    const inst = remixed.length ? remixed[this.solos % remixed.length]
+      : band.reduce((a, b) => (b.level > a.level || (b.level === a.level && b.dmg > a.dmg) ? b : a));
+    this.solos++;
+    const finalBoss = this.boss && !this.boss.dead && this.boss.def?.final;
+    return { inst, gain: finalBoss ? 1.4 : 1.8 };
+  }
+
   // ------------------------------------------------------------------ events
 
   _processEvents() {
@@ -503,7 +556,8 @@ export class Game {
         case 'beat': this.onBeat(ev); break;
         case 'section': this.onSection(ev); break;
         case 'build': this.dropState = 'building'; this.hooks.onDrop?.('building'); break;
-        case 'drop': if (this.won) this.dropState = null; else this.doDrop(ev.bar); break;   // on the ending it only sounds
+        case 'drop': this._dropBar = ev.bar; if (this.won) this.dropState = null; else this.doDrop(ev.bar); break;   // on the ending it only sounds
+        case 'impact': this.songImpact(ev.bar); break;
       }
     }
     evs.length = 0;
@@ -513,9 +567,11 @@ export class Game {
     if (!this.loadout.has(inst)) return;
     this.src = inst;
     this.dmgScale = scale;
+    this.noteW = note.w ?? 1;
     try { this._fn(inst, 'fire').call(inst.def, this, note, this._st(inst), inst); } catch (e) { this._report(inst.def.id + '.fire', e); }
     this.src = null;
     this.dmgScale = 1;
+    this.noteW = 1;
     inst.notes++;
     this.chanPulse[inst.def.role] = Math.max(this.chanPulse[inst.def.role], 0.4 + 0.6 * note.v);
     if (scale === 1 && this.stats.echo > 0 && ECHO_ROLES.has(inst.def.role) && rng() < this.stats.echo) {
