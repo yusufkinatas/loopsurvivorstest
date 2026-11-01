@@ -326,9 +326,9 @@ level 1 and 22k to 32k at level 5. Land in that band. Each role has a flavor: `p
 close, `chords` wide area and support, `lead` precise long-range, `arp` many glittery extras.
 A support effect (slow, stun, heal, knockback) can justify lower damage.
 
-Every sound should also hurt bosses. Sounds that pick a crowd or a random enemy (Taiko, Music Box, 8-Bit
-Drums) send the bar's first hit (step 0) at a boss in range with `g.bossInRange`, a visible rule instead of a
-hidden boss multiplier. Solo at level 5 against The Drone, every sound lands 1.9k to 2.1k damage in its chorus.
+Every sound should also hurt bosses. Sounds that aim somewhere other than at the nearest enemy (around you,
+on a grid, at a crowd, along your facing) send the bar's first hit (step 0) at a boss in range with
+`g.bossInRange`, a visible rule instead of a hidden boss multiplier. Solo at level 5 against The Drone, every sound lands 1.9k to 2.1k damage in its chorus.
 
 A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>`:
 
