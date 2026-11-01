@@ -136,9 +136,15 @@ function plan(g) {
   }
   // How close it walks in before it stops closing on the nearest enemy.
   const approach = mosh ? 110 : kite ? 280 : 170;
+  const pvx = p.vx, pvy = p.vy;
+  // In the pocket stands still only with nothing close, off every Snare mark (standing still is where a mark
+  // lands), and with nothing it wants to fetch: a heart while hurt, a tape, vinyl or notes close by.
+  const stillX = p.x + pvx * LAG, stillY = p.y + pvy * LAG;   // where standing still ends up
+  const onMark = marks.some((h) => Math.hypot(stillX - h.x, stillY - h.y) < h.r + p.r + 6);
+  const wantGoal = !!goal && (goal.kind === 'heal' ? hurt < 0.75 : goalW > 0.5);
+  const planting = plant && closeNow === 0 && !onMark && !wantGoal;
 
   let best = null, bestScore = Infinity;
-  const pvx = p.vx, pvy = p.vy;
   for (let k = 0; k <= DIRS; k++) {
     const ux = k === DIRS ? 0 : Math.cos((k / DIRS) * Math.PI * 2);
     const uy = k === DIRS ? 0 : Math.sin((k / DIRS) * Math.PI * 2);
@@ -200,9 +206,10 @@ function plan(g) {
       }
     }
 
+    // Deeper in a mark costs more, so stepping toward its edge always beats staying in its middle.
     for (const h of marks) {
-      const dx = endX - h.x, dy = endY - h.y, R = h.r + p.r + 6;
-      if (dx * dx + dy * dy < R * R) cost += 8;
+      const d = Math.hypot(endX - h.x, endY - h.y), R = h.r + p.r + 6;
+      if (d < R) cost += 4 + 6 * (1 - d / R);
     }
     // The style rules: Mosh pit wants bodies inside its reach, Long throw wants them outside its circle, and
     // In the pocket stands still when nothing is close (shots and bodies still cost more than it pays).
@@ -216,7 +223,7 @@ function plan(g) {
       if (mosh) cost -= 0.1 * Math.min(inNear, 10);
       if (kite) cost += 0.08 * Math.min(inFar, 12);
     }
-    if (plant && k === DIRS && closeNow === 0) cost -= 0.9;
+    if (planting && k === DIRS) cost -= 0.9;
 
     if (pack.length >= 25) {
       // Count who would be within the Drop's trigger range from where this heading leads.
@@ -239,7 +246,7 @@ function plan(g) {
       cost -= 0.3 * (ux * Math.cos(a) + uy * Math.sin(a));
     }
     // Keep moving: standing still in a crowd is how you get cornered (unless planting with nothing close).
-    if (k === DIRS && crowd > 6 && !(plant && closeNow === 0)) cost += 0.4;
+    if (k === DIRS && crowd > 6 && !planting) cost += 0.4;
     // A little inertia so the bot does not jitter between equal choices.
     const vl = Math.hypot(pvx, pvy);
     if (vl > 1 && k !== DIRS) cost -= 0.35 * (ux * pvx + uy * pvy) / vl;
