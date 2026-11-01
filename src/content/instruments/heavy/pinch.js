@@ -5,7 +5,7 @@
 import { STEP_SEC, BEAT_SEC } from '../../../config.js';
 
 const LOW = 74;
-const BOSS_RANGE = 380;          // a boss this close is always hooked (hit by every squeal, never dragged)
+const BOSS_RANGE = 280;          // a boss this close is always hooked (hit by every squeal, never dragged)
 
 // Pattern helper: step s (0..15), chord tone c, velocity v, length d in steps. Every note is a chord tone.
 const P = (s, c, v = 1, d = 1) => ({ s, ct: c, v, d });
@@ -51,21 +51,21 @@ export default {
   steps: 16,
   low: LOW,
   levels: [
-    { text: 'Squeals hook three enemies and drag them in.',
+    { text: 'Squeals hook the three enemies nearest you and drag them in.',
       pattern: [...SQ_1],
-      stats: { damage: 17, hooks: 3, grab: 3, range: 320, pull: 90, life: 3 } },
+      stats: { damage: 17, hooks: 3, grab: 3, range: 220, pull: 90, life: 3 } },
     { text: 'More squeals, on the beat.',
       pattern: [...SQ_1, ...SQ_2],
-      stats: { damage: 17, hooks: 3, grab: 3, range: 330, pull: 95, life: 3 } },
+      stats: { damage: 17, hooks: 3, grab: 3, range: 225, pull: 95, life: 3 } },
     { text: 'A squeal on every eighth. Four hooks.',
       pattern: [...SQ_1, ...SQ_2, ...SQ_3],
-      stats: { damage: 17, hooks: 4, grab: 3, range: 340, pull: 100, life: 3 } },
+      stats: { damage: 17, hooks: 4, grab: 3, range: 230, pull: 100, life: 3 } },
     { text: 'Quick flicks between squeals. Longer reach.',
       pattern: [...SQ_1, ...SQ_2, ...SQ_3, ...SQ_4],
-      stats: { damage: 17.5, hooks: 4, grab: 3, range: 350, pull: 105, life: 3.2 } },
+      stats: { damage: 17.5, hooks: 4, grab: 3, range: 240, pull: 105, life: 3.2 } },
     { text: 'More flicks. Five hooks that drag harder.',
       pattern: [...SQ_1, ...SQ_2, ...SQ_3, ...SQ_4, ...SQ_5],
-      stats: { damage: 18, hooks: 5, grab: 3, range: 360, pull: 120, life: 3.4 } },
+      stats: { damage: 18, hooks: 5, grab: 3, range: 250, pull: 120, life: 3.4 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -95,11 +95,11 @@ export default {
 
   remix: {
     id: 'whammy', name: 'Whammy', pedal: 'delay',
-    text: 'Hooks reach across the screen, and each bar opens with a dive that yanks them to where you stood a beat ago and slams them.',
+    text: 'Eight hooks drag hard, and each bar opens with a dive that yanks them to where you stood a beat ago and slams them.',
     // A dive bomb on every downbeat, then fluttering squeals that climb back up to the next one.
     pattern: [DIVE(0, 4, 4), P(4, 3, 0.7), P(5, 4, 0.75), P(6, 5, 0.85, 2), P(8, 3, 0.9, 2),
       P(11, 2, 0.65), P(12, 3, 0.75), P(13, 4, 0.75), P(14, 5, 0.85), P(15, 4, 0.7)],
-    stats: { damage: 24, hooks: 8, grab: 4, range: 680, pull: 240, life: 4, slam: 110, slamR: 130 },
+    stats: { damage: 30, hooks: 8, grab: 4, range: 300, pull: 240, life: 4, slam: 180, slamR: 110 },
     fire(g, note, st, inst) {
       const S = inst.state, p = g.player;
       // Where you stood a beat or more ago (each note marks the spot).

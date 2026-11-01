@@ -1,6 +1,7 @@
 // LEAD channel: the melody. A 2-bar phrase (a call in bar 1, an answer in bar 2) built from chord
-// tones on the strong beats and scale steps in between, so it is sweet over every chord. Precise,
-// long-range shots, and the pitch of each note steers its shot so you can see the tune.
+// tones on the strong beats and scale steps in between, so it is sweet over every chord. Three ways to play
+// it: Saw Lead fires lasers the way you face, Wooden Flute leaves wisps drifting around where you stand,
+// Square Lead bounces a pixel from enemy to enemy.
 
 import { STEP_SEC } from '../../config.js';
 
@@ -13,6 +14,7 @@ const N = (s, sc, d = 1, v = 1) => ({ s, sc, d, v });   // scale step: 0 root, 1
 const LOW = 63;
 const MID = 74;                          // middle of the range: pitch steering is centered here
 const LONG = 3 * STEP_SEC - 0.001;       // a held note (3 steps or more)
+const TAU = Math.PI * 2;
 
 // A remix voice: every note of a part again `shift` steps later (wrapping round the phrase) and a third
 // higher (two scale steps; chord tones 0-3 are scale steps 0, 2, 4, 7), as kind k. Folded under the lead's
@@ -40,31 +42,31 @@ const sawLead = {
   name: 'Saw Lead',
   role: 'lead',
   style: 'synth',
-  blurb: 'A soaring electronic lead. Every note fires a laser that cuts through a whole line of enemies.',
+  blurb: 'A soaring electronic lead. Every note fires a laser the way you face, cutting through a whole line of enemies.',
   steps: 32,
   low: LOW,
   levels: [
-    { text: 'A slow, soaring tune. Each note fires a laser through the nearest enemy. Held notes fire wider, stronger lasers.',
+    { text: 'A slow, soaring tune. Each note fires a laser the way you face, snapping onto an enemy near that line. Held notes fire wider, stronger lasers.',
       pattern: [C(0, 2, 3), C(4, 1, 2), C(8, 0, 4), C(16, 1, 2), C(24, 2, 3)],
-      stats: { damage: 18, longMul: 1.6, width: 10, wide: 20, length: 380 } },
+      stats: { damage: 19, longMul: 1.6, width: 9, wide: 18, length: 340, assist: 0.5 } },
     { text: 'More notes fill in the tune. Longer lasers.',
       pattern: [C(0, 2, 3), N(3, 3, 1, 0.7), C(4, 1, 2), N(6, 1, 2, 0.8), C(8, 0, 4),
         C(16, 1, 2), N(22, 3, 2, 0.8), C(24, 2, 3)],
-      stats: { damage: 20, longMul: 1.6, width: 10, wide: 22, length: 420 } },
+      stats: { damage: 22, longMul: 1.6, width: 9, wide: 19, length: 355, assist: 0.5 } },
     { text: 'Quick lead-in notes before each bar fire extra lasers.',
       pattern: [C(0, 2, 3), N(3, 3, 1, 0.7), C(4, 1, 2), N(6, 1, 2, 0.8), C(8, 0, 4), N(15, 5, 1, 0.7),
         C(16, 1, 2), N(22, 3, 2, 0.8), C(24, 2, 3), N(30, 1, 1, 0.7), N(31, 2, 1, 0.8)],
-      stats: { damage: 21, longMul: 1.7, width: 11, wide: 24, length: 460 } },
+      stats: { damage: 24, longMul: 1.7, width: 10, wide: 20, length: 370, assist: 0.5 } },
     { text: 'The second bar answers the first with its own tune. Longer reach.',
       pattern: [C(0, 2, 3), N(3, 3, 1, 0.7), C(4, 1, 2), N(6, 1, 2, 0.8), C(8, 0, 4), N(15, 5, 1, 0.7),
         C(16, 1, 2), N(18, 1, 1, 0.7), C(20, 0, 2, 0.85), N(22, 3, 2, 0.8), C(24, 2, 3), C(28, 1, 1, 0.75),
         N(30, 1, 1, 0.7), N(31, 2, 1, 0.8)],
-      stats: { damage: 23, longMul: 1.7, width: 11, wide: 26, length: 500 } },
-    { text: 'Big leaps up to high notes. Held notes fire a second laser at another enemy.',
+      stats: { damage: 27, longMul: 1.7, width: 10, wide: 21, length: 385, assist: 0.5 } },
+    { text: 'Big leaps up to high notes. Held notes also fire a laser straight behind you.',
       pattern: [C(0, 2, 3), N(3, 3, 1, 0.7), C(4, 1, 2), N(6, 1, 2, 0.8), C(8, 0, 4), C(12, 3, 2, 0.9), N(15, 5, 1, 0.7),
         C(16, 1, 2), N(18, 1, 1, 0.7), C(20, 0, 2, 0.85), N(22, 3, 2, 0.8), C(24, 2, 3), C(27, 3, 1, 0.8),
         C(28, 1, 1, 0.75), N(30, 1, 1, 0.7), N(31, 2, 1, 0.8)],
-      stats: { damage: 29, longMul: 1.8, width: 12, wide: 28, length: 540, twin: 1 } },
+      stats: { damage: 32, longMul: 1.8, width: 11, wide: 22, length: 400, assist: 0.5, twin: 1 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -95,20 +97,20 @@ const sawLead = {
 
   remix: {
     id: 'screamer', name: 'Screamer', pedal: 'overdrive',
-    text: 'The answer climbs to the top and screams: held notes keep firing wherever you face, and kills burst.',
+    text: 'The answer climbs to the top and screams: held notes keep firing on every 16th as you turn, and kills burst.',
     sound: 'an overdriven answer that wails at the top.',
     // The call keeps level 5's tune; the answer climbs to the top fifth of the range and holds screaming notes there.
     pattern: [C(0, 2, 3), N(3, 3, 1, 0.7), C(4, 1, 2), N(6, 1, 2, 0.8), C(8, 0, 4), C(12, 3, 2, 0.9), N(14, 4, 1, 0.75), N(15, 5, 1, 0.8),
       N(16, 7, 4), N(20, 6, 1, 0.8), N(21, 7, 1, 0.85), C(22, 2, 2, 0.9), N(24, 7, 6), N(30, 5, 1, 0.8), N(31, 4, 1, 0.85)],
-    stats: { length: 760, scream: 0.6, assist: 0.4, burst: 0.6, burstRadius: 60 },
+    stats: { scream: 0.65, burst: 0.7, burstRadius: 60 },
     fire(g, note, st, inst) {
       // Anything a laser kills bursts.
       const r = g.area(st.burstRadius), color = g.color('lead');
       const dmg = g.dmg(st.damage * (note.dur >= LONG ? st.longMul : 1)) * note.v * st.burst;
       const burst = (e) => { if (e.dead) g.fx.pulse({ x: e.x, y: e.y, r, damage: dmg, kb: 120, color, fill: 0.3 }); };
       lasers(g, note, st, burst);
-      // A held note keeps screaming: a laser along your facing on every 16th it sounds, so you sweep it by
-      // turning. Echoes do not.
+      // A held note keeps screaming: a laser ahead of you and one behind on every 16th it sounds, so you sweep
+      // them by turning. Echoes do not.
       if (note.dur < LONG || g.dmgScale !== 1) return;
       const w = g.noteW;
       for (let k = 1; k < Math.round(note.dur / STEP_SEC); k++) {
@@ -116,8 +118,10 @@ const sawLead = {
           if (!g.loadout.has(inst)) return;
           const prev = g.src; g.src = inst; g.noteW = w;
           const p = g.player;
-          g.fx.beam({ x: p.x, y: p.y, angle: facing(g, st.length, st.assist), length: st.length, width: g.area(st.wide),
-            damage: g.dmg(st.damage * st.longMul * st.scream) * note.v, kb: 70, color, life: 0.14, onHit: burst });
+          for (const back of [false, true]) {
+            g.fx.beam({ x: p.x, y: p.y, angle: facing(g, st.length, st.assist, back).angle, length: st.length, width: g.area(st.wide),
+              damage: g.dmg(st.damage * st.longMul * st.scream) * note.v, kb: 70, color, life: 0.14, onHit: burst });
+          }
           g.src = prev; g.noteW = 1;
         } });
       }
@@ -125,39 +129,44 @@ const sawLead = {
   },
 };
 
-// Your facing, nudged onto the enemy closest to it within `cone` radians and `range` px (a little aim assist,
-// so a scream swept across a crowd catches it).
-function facing(g, range, cone) {
-  const p = g.player, a = g.aim();
-  let best = a, bd = cone;
+// Your facing (or, with back, straight behind you), nudged onto the enemy closest to it within `cone` radians
+// and `range` px: a little aim assist, so a laser swept across a crowd catches it. A boss in range pulls the
+// laser onto it from anywhere within 90 degrees of that line. Returns { angle, t } (t: the enemy it snapped
+// onto, or null).
+const BOSS_CONE = Math.PI / 2;
+function facing(g, range, cone, back = false) {
+  const p = g.player, a = g.aim() + (back ? Math.PI : 0);
+  let best = a, bd = cone, t = null;
   for (const e of g.inRadius(p.x, p.y, range)) {
+    if (e.spawnT > 0.2) continue;
     let d = Math.atan2(e.y - p.y, e.x - p.x) - a;
     d = Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
-    if (d < bd) { bd = d; best = Math.atan2(e.y - p.y, e.x - p.x); }
+    if (d < bd || (e.boss && d < BOSS_CONE)) { bd = e.boss ? -1 : d; best = Math.atan2(e.y - p.y, e.x - p.x); t = e; }
   }
-  return best;
+  return { angle: best, t };
 }
 
-// One note's lasers through the nearest enemy (plus a second enemy on held notes once the level has twin).
+// One note's laser along the line you are moving on: the top of the tune (from the middle of the lead's range
+// up) fires ahead of you, the lower notes straight behind you, so a run forward clears the way and a low
+// phrase cuts down what chases you. A held note, once the level has twin, fires both ways.
 function lasers(g, note, st, onHit) {
   const p = g.player;
   const color = g.color('lead');
   const long = note.dur >= LONG;
   const len = st.length;
-  const targets = g.nearestN(p.x, p.y, 2, len + 40);
-  const beam = (target) => {
-    const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
-    // The pitch moves where the laser starts: high notes fire from one shoulder, low from the other.
-    // It still passes through the target, so the tune sweeps the beam without costing hits.
+  const beam = (aim) => {
+    // The pitch moves where the laser starts: high notes fire from one shoulder, low from the other, so the
+    // tune draws parallel lines. A laser that snapped onto an enemy still passes through it.
     const side = (note.midi - MID) * 2.4;
-    const x = p.x - Math.sin(base) * side, y = p.y + Math.cos(base) * side;
-    const angle = target ? Math.atan2(target.y - y, target.x - x) : base;
+    const x = p.x - Math.sin(aim.angle) * side, y = p.y + Math.cos(aim.angle) * side;
+    const angle = aim.t ? Math.atan2(aim.t.y - y, aim.t.x - x) : aim.angle;
     g.fx.beam({ x, y, angle, length: len, width: g.area(long ? st.wide : st.width),
       damage: g.dmg(st.damage * (long ? st.longMul : 1)) * note.v, kb: long ? 90 : 40, color,
       life: long ? 0.3 : 0.16, onHit });
   };
-  beam(targets[0]);
-  if (long && st.twin && targets[1]) beam(targets[1]);
+  const ahead = note.midi >= MID;
+  if (long && st.twin) { beam(facing(g, len, st.assist)); beam(facing(g, len, st.assist, true)); }
+  else beam(facing(g, len, st.assist, !ahead));
 }
 
 // ---------------------------------------------------------------------------- Wooden Flute (Live)
@@ -171,30 +180,30 @@ const flute = {
   name: 'Wooden Flute',
   role: 'lead',
   style: 'organic',
-  blurb: 'A breathy wooden flute. Each note floats off as a glowing wisp that hunts down an enemy.',
+  blurb: 'A breathy wooden flute. Each note leaves a glowing wisp drifting around where you stand, darting at anything that comes close.',
   steps: 32,
   low: LOW,
   levels: [
-    { text: 'A gentle tune. Each note sends out a wisp that hunts an enemy and flies on through it. High notes fly faster.',
+    { text: 'A gentle tune. Each note lets a wisp drift out around you; it circles where you played it and darts at anything that comes close.',
       pattern: [C(0, 1, 3), C(4, 2, 2), C(8, 1, 4), C(12, 0, 2, 0.8),
         C(16, 2, 3), C(20, 1, 2), N(22, 1, 1, 0.7), C(24, 0, 2)],
-      stats: { damage: 22, speed: 240, homing: 3.2, life: 2.4, size: 6, pierce: 1 } },
+      stats: { damage: 30, speed: 120, curve: 2.4, homing: 6, sense: 140, life: 3, size: 7, pierce: 1 } },
     { text: 'Little in-between notes join the tune, so more wisps.',
       pattern: [C(0, 1, 3), C(4, 2, 2), N(6, 3, 1, 0.7), C(8, 1, 4), C(12, 0, 2, 0.8),
         C(16, 2, 3), N(19, 3, 1, 0.7), C(20, 1, 2), N(22, 1, 1, 0.7), C(24, 0, 2)],
-      stats: { damage: 23, speed: 250, homing: 3.4, life: 2.5, size: 6, pierce: 1 } },
-    { text: 'Quick lead-in notes before each bar. Wisps last longer.',
+      stats: { damage: 27, speed: 124, curve: 2.4, homing: 6, sense: 145, life: 3.1, size: 7, pierce: 1 } },
+    { text: 'Quick lead-in notes before each bar. Wisps linger longer.',
       pattern: [C(0, 1, 3), C(4, 2, 2), N(6, 3, 1, 0.7), C(8, 1, 4), C(12, 0, 2, 0.8), N(15, 3, 1, 0.7),
         C(16, 2, 3), N(19, 3, 1, 0.7), C(20, 1, 2), N(22, 1, 1, 0.7), C(24, 0, 2), N(30, 1, 1, 0.7), N(31, 2, 1, 0.8)],
-      stats: { damage: 24, speed: 260, homing: 3.6, life: 2.8, size: 6.5, pierce: 1 } },
+      stats: { damage: 24, speed: 128, curve: 2.4, homing: 6.2, sense: 150, life: 3.4, size: 7.5, pierce: 1 } },
     { text: 'The second bar sings a longer answer. Wisps pass through two enemies.',
       pattern: [C(0, 1, 3), C(4, 2, 2), N(6, 3, 1, 0.7), C(8, 1, 4), C(12, 0, 2, 0.8), N(15, 3, 1, 0.7),
         C(16, 2, 3), N(19, 3, 1, 0.7), C(20, 1, 2), N(22, 1, 1, 0.7), C(24, 0, 2), N(28, 4, 2, 0.75),
         N(30, 1, 1, 0.7), N(31, 2, 1, 0.8)],
-      stats: { damage: 25, speed: 270, homing: 3.8, life: 2.9, size: 7, pierce: 2 } },
+      stats: { damage: 25, speed: 132, curve: 2.4, homing: 6.4, sense: 155, life: 3.5, size: 8, pierce: 2 } },
     { text: 'Bright leaps up to high notes. Wisps pass through three enemies.',
       pattern: FLUTE_5,
-      stats: { damage: 28, speed: 280, homing: 4, life: 3, size: 7.5, pierce: 3 } },
+      stats: { damage: 28, speed: 136, curve: 2.4, homing: 6.6, sense: 160, life: 3.6, size: 8.5, pierce: 3 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -219,32 +228,32 @@ const flute = {
 
   remix: {
     id: 'canon', name: 'Canon', pedal: 'delay',
-    text: 'A second flute sings the tune a beat behind and a third higher, its wisps flying from where you were.',
+    text: 'A second flute sings the tune a beat behind and a third higher, its wisps drifting from where you were.',
     sound: 'a second flute singing a round.',
     // A real round: level 5's tune, and every note again one beat (4 steps) later, a third higher.
     pattern: [...FLUTE_5, ...third(FLUTE_5, 4, 0.85, 'canon')],
-    stats: { canon: 1.15, speed: 340 },
+    stats: { canon: 2, life: 4 },
     update(g, dt, st, inst) { track(g, inst); },
     fire(g, note, st, inst) {
       if (note.k !== 'canon') { wisps(g, note, st, g.player, st.damage); return; }
-      wisps(g, note, st, wasAt(g, inst, 4 * STEP_SEC), st.damage * st.canon, true);
+      wisps(g, note, st, wasAt(g, inst, 4 * STEP_SEC), st.damage * st.canon);
     },
   },
 };
 
-// One note's wisps from `from`, at the enemy nearest there (any: at any enemy near there), leaving at an
-// angle set by the pitch.
-function wisps(g, note, st, from, damage, any = false) {
+// One note's wisps from `from`. A wisp leaves at an angle set by the pitch (the tune draws a flower around
+// you, turning a little each bar), drifts slowly in a small loop around where it was played (speed / curve,
+// about 50 px), and darts at any enemy that comes within `sense` px of it. Stand still and the wisps gather
+// around you; run and they hang in the air behind you for whatever chases you.
+function wisps(g, note, st, from, damage) {
   const color = g.color('lead');
   const hi = Math.max(0, Math.min(1, (note.midi - LOW) / 23));   // 0 lowest note .. 1 highest
-  const target = any ? g.randomEnemy(from.x, from.y, 520) : g.nearest(from.x, from.y, 520);
-  const base = target ? Math.atan2(target.y - from.y, target.x - from.x) : g.aim();
   const n = g.amount(1);
+  const turn = hi > 0.5 ? 1 : -1;                                  // high notes loop one way, low notes the other
   for (let i = 0; i < n; i++) {
-    // Wisps leave at an angle set by the pitch and curl in, so the tune draws arcs on screen.
-    const a = base + (hi - 0.5) * 1.1 + (i - (n - 1) / 2) * 0.5;
-    g.fx.bullet({ x: from.x, y: from.y, angle: a, speed: g.speed(st.speed) * (0.8 + 0.5 * hi), r: st.size, life: st.life,
-      damage: g.dmg(damage) * note.v, pierce: st.pierce, homing: st.homing, range: 480, kb: 30, color,
+    const a = hi * TAU + (note.bar || 0) * 0.7 + (i / n) * TAU;
+    g.fx.bullet({ x: from.x, y: from.y, angle: a, speed: g.speed(st.speed), curve: st.curve * turn, r: g.area(st.size), life: st.life,
+      damage: g.dmg(damage) * note.v, pierce: st.pierce, homing: st.homing, range: g.area(st.sense), kb: 30, color,
       shape: 'dot', trail: true });
   }
 }
@@ -259,29 +268,29 @@ const squareLead = {
   name: 'Square Lead',
   role: 'lead',
   style: 'chip',
-  blurb: 'A chirpy retro game tune. Every note shoots a pixel, high notes to one side and low notes to the other.',
+  blurb: 'A chirpy retro game tune. Every note shoots a pixel that ricochets from enemy to enemy, hitting harder with each bounce.',
   steps: 32,
   low: LOW,
   levels: [
-    { text: 'A bouncy game tune. Each note shoots a pixel that punches through the nearest enemy.',
+    { text: 'A bouncy game tune. Each note shoots a pixel at the nearest enemy that ricochets on to the next one, hitting harder each bounce.',
       pattern: [C(0, 1, 2), C(3, 2, 2), C(6, 1, 2), C(8, 0, 2), N(10, 1, 1, 0.75), C(12, 1, 2),
         C(16, 2, 2), C(19, 1, 2), C(22, 0, 2), C(24, 1, 2), N(26, 1, 1, 0.75), C(28, 0, 2)],
-      stats: { damage: 14, count: 1, speed: 520, swing: 0.012, spread: 0.2, pierce: 1 } },
-    { text: 'Quick lead-in notes into the second bar. Faster shots.',
+      stats: { damage: 14, count: 1, bounce: 1, chain: 1.15, speed: 520, life: 0.5, range: 300 } },
+    { text: 'Quick lead-in notes into the second bar. Pixels bounce twice.',
       pattern: [C(0, 1, 2), C(3, 2, 2), C(6, 1, 2), C(8, 0, 2), N(10, 1, 1, 0.75), C(12, 1, 2), N(14, 3, 1, 0.7), N(15, 4, 1, 0.8),
         C(16, 2, 2), C(19, 1, 2), C(22, 0, 2), C(24, 1, 2), N(26, 1, 1, 0.75), C(28, 0, 2)],
-      stats: { damage: 15, count: 1, speed: 560, swing: 0.012, spread: 0.2, pierce: 1 } },
-    { text: 'A lead-in note before the tune repeats. Every note now shoots two pixels.',
+      stats: { damage: 15, count: 1, bounce: 2, chain: 1.15, speed: 540, life: 0.5, range: 300 } },
+    { text: 'A lead-in note before the tune repeats. Every note now shoots two pixels, at the two nearest enemies.',
       pattern: [C(0, 1, 2), C(3, 2, 2), C(6, 1, 2), C(8, 0, 2), N(10, 1, 1, 0.75), C(12, 1, 2), N(14, 3, 1, 0.7), N(15, 4, 1, 0.8),
         C(16, 2, 2), C(19, 1, 2), C(22, 0, 2), C(24, 1, 2), N(26, 1, 1, 0.75), C(28, 0, 2), N(31, 4, 1, 0.8)],
-      stats: { damage: 15, count: 2, speed: 560, swing: 0.016, spread: 0.2, pierce: 1 } },
-    { text: 'The second bar answers with its own twist. Pixels punch through two enemies.',
+      stats: { damage: 15, count: 2, bounce: 2, chain: 1.15, speed: 560, life: 0.5, range: 310 } },
+    { text: 'The second bar answers with its own twist. Pixels bounce three times.',
       pattern: [C(0, 1, 2), C(3, 2, 2), C(6, 1, 2), C(8, 0, 2), N(10, 1, 1, 0.75), C(12, 1, 2), N(14, 3, 1, 0.7), N(15, 4, 1, 0.8),
         C(16, 2, 2), N(18, 3, 1, 0.7), C(19, 1, 2), C(22, 0, 2), C(24, 1, 2), N(26, 1, 1, 0.75), C(28, 0, 2), N(30, 2, 1, 0.7), N(31, 4, 1, 0.8)],
-      stats: { damage: 17, count: 2, speed: 580, swing: 0.018, spread: 0.2, pierce: 2 } },
-    { text: 'The full theme with high leaps. Three pixels per note in a wide fan.',
+      stats: { damage: 17, count: 2, bounce: 3, chain: 1.15, speed: 580, life: 0.5, range: 320 } },
+    { text: 'The full theme with high leaps. Pixels bounce four times.',
       pattern: SQUARE_5,
-      stats: { damage: 23, count: 3, speed: 600, swing: 0.022, spread: 0.22, pierce: 2 } },
+      stats: { damage: 17, count: 2, bounce: 4, chain: 1.15, speed: 600, life: 0.5, range: 330 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -309,32 +318,54 @@ const squareLead = {
 
   remix: {
     id: 'twinlead', name: 'Twin Lead', pedal: 'chorus',
-    text: 'A harmony line plays the tune in thirds, and its fan mirrors the melody across the way you face.',
+    text: 'A harmony line plays the tune in thirds, its pixels mirrored across the way you face onto whatever is on that side, bouncing on from there.',
     sound: 'a harmony line in thirds.',
     // Level 5's theme with a second voice on every note, a third above it.
     pattern: [...SQUARE_5, ...third(SQUARE_5, 0, 0.9, 'harm')],
-    stats: { twin: 1.4, harmony: 4, pierce: 3, speed: 680 },
+    stats: { damage: 23, twin: 1.6, harmony: 3, snap: 0.7, speed: 660 },
     fire(g, note, st) { pixels(g, note, st, note.k === 'harm'); },
   },
 };
 
-// One note's fan of pixels at the nearest enemy, swung by the pitch. The harmony's fan (mirror: Twin Lead's
-// `harmony` pixels) is the same fan reflected across the line you face: run at the target and both lines land
-// on it, strafe and they split.
+// One note's pixels, each at one of the nearest enemies (within `range`), tilted a hair by the pitch so a run
+// rakes across. A pixel that hits ricochets to the next enemy near it (`bounce` times), each hit `chain` times
+// harder than the last, so it keeps working while you dodge. The harmony's pixels (mirror: Twin Lead's
+// `harmony`) leave reflected across the line you face and snap onto the enemy closest to that line (within
+// `snap` radians): run at the target and both lines land on it, strafe and they split onto two crowds.
 function pixels(g, note, st, mirror) {
   const p = g.player;
   const color = g.color('lead');
-  const target = g.nearest(p.x, p.y, 560);
-  const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
-  const swing = (note.midi - MID) * st.swing;   // high notes swing the shot one way, low notes the other
-  const face = g.aim();
   const n = g.amount(mirror ? st.harmony : st.count);
+  if (!n) return;
+  const targets = g.nearestN(p.x, p.y, n, st.range);
+  const face = g.aim();
+  const tilt = (note.midi - MID) * 0.006;
+  const chain = st.chain;
+  const onHit = (b) => { b.damage *= chain; };
+  const taken = new Set();
   for (let i = 0; i < n; i++) {
-    let a = base + swing + (i - (n - 1) / 2) * st.spread;
-    if (mirror) a = 2 * face - a;
-    g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r: 5, life: 1.1,
-      damage: g.dmg(st.damage) * note.v * (mirror ? st.twin : 1), pierce: st.pierce, kb: 45, color, shape: 'diamond' });
+    const t = targets.length ? targets[i % targets.length] : null;
+    let a = t ? Math.atan2(t.y - p.y, t.x - p.x) + tilt : face + (i - (n - 1) / 2) * 0.4;
+    if (mirror) a = snapTo(g, 2 * face - a, st.range, st.snap, taken);
+    g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r: 5, life: st.life, bounce: st.bounce,
+      damage: g.dmg(st.damage) * note.v * (mirror ? st.twin : 1), kb: 45, color, shape: 'square', onHit });
   }
+}
+
+// The angle to the enemy closest in angle to `a` (within `cone` radians and `range` px of you, not one already in
+// `taken`, which it joins), else `a` itself.
+function snapTo(g, a, range, cone, taken) {
+  const p = g.player;
+  let best = a, bd = cone, t = null;
+  for (const e of g.inRadius(p.x, p.y, range)) {
+    if (e.spawnT > 0.2 || taken.has(e)) continue;
+    const ea = Math.atan2(e.y - p.y, e.x - p.x);
+    let d = ea - a;
+    d = Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+    if (d < bd) { bd = d; best = ea; t = e; }
+  }
+  if (t) taken.add(t);
+  return best;
 }
 
 export default [sawLead, flute, squareLead];

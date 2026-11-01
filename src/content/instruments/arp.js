@@ -1,5 +1,7 @@
 // SPARKLE channel: arpeggios and bells (see docs/INSTRUMENTS.md). High and glittery, fast chord
-// tones on the 16th grid: lots of small extras around the player rather than one big hit.
+// tones on the 16th grid: lots of small extras rather than one big hit. Three ways to play it: Arp Synth
+// snipes along straight lines, nearer or farther with the pitch; Music Box rings stars down around where you
+// stand; Coin Arp throws coins along the compass lines that come back to you.
 
 import { STEP_SEC, BEAT_SEC } from '../../config.js';
 
@@ -39,25 +41,25 @@ const arpSynth = {
   name: 'Arp Synth',
   role: 'arp',
   style: 'synth',
-  blurb: 'A bright, plucky synth rippling up and down. Every note flicks a spark, spinning a spiral around you.',
+  blurb: 'A bright, plucky synth rippling up and down. Every note snipes a needle down a straight line: low notes at the nearest enemy, high notes at the farthest.',
   steps: 16,
   low: 71,
   levels: [
-    { text: 'A note every half beat. Each one flicks a spark, and the sparks spin around you like a sprinkler.',
+    { text: 'A note every half beat. Each one snipes a needle straight at an enemy: the lower the note, the nearer the enemy, the higher, the farther.',
       pattern: [...ARP_8THS],
-      stats: { damage: 22, speed: 340, size: 6, life: 1.15, pierce: 2, streams: 1 } },
-    { text: 'Quick extra notes on beats 1 and 3 fill the spiral with more sparks.',
+      stats: { damage: 19, speed: 720, size: 4.5, reach: 340, pierce: 2, streams: 1 } },
+    { text: 'Quick extra notes on beats 1 and 3 fire more needles.',
       pattern: [...ARP_8THS, ...ARP_16THS_A],
-      stats: { damage: 23, speed: 350, size: 6, life: 1.15, pierce: 2, streams: 1 } },
-    { text: 'The full run: a note on every step, and a spark on every note.',
+      stats: { damage: 20, speed: 730, size: 4.5, reach: 345, pierce: 2, streams: 1 } },
+    { text: 'The full run: a note on every step, and a needle on every note.',
       pattern: [...ARP_8THS, ...ARP_16THS_A, ...ARP_16THS_B],
-      stats: { damage: 24, speed: 360, size: 6, life: 1.2, pierce: 2, streams: 1 } },
-    { text: 'Two spirals at once, spraying in opposite directions.',
+      stats: { damage: 21, speed: 740, size: 4.5, reach: 350, pierce: 2, streams: 1 } },
+    { text: 'Every note fires a second needle at an enemy farther out.',
       pattern: [...ARP_8THS, ...ARP_16THS_A, ...ARP_16THS_B],
-      stats: { damage: 25, speed: 375, size: 6.5, life: 1.2, pierce: 2, streams: 2 } },
-    { text: 'Three spirals. Sparks fly farther and each one punches through an extra enemy.',
+      stats: { damage: 19, speed: 760, size: 5, reach: 355, pierce: 2, streams: 2 } },
+    { text: 'And a third at one nearer in. Needles punch through an extra enemy.',
       pattern: [...ARP_8THS, ...ARP_16THS_A, ...ARP_16THS_B],
-      stats: { damage: 26, speed: 390, size: 6.5, life: 1.25, pierce: 3, streams: 3 } },
+      stats: { damage: 16, speed: 780, size: 5, reach: 360, pierce: 3, streams: 3 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -79,18 +81,7 @@ const arpSynth = {
       pan: note.s % 2 ? 0.25 : -0.2 });
   },
 
-  fire(g, note, st, inst) {
-    const p = g.player;
-    const color = g.color(inst);
-    const n = g.amount(st.streams);
-    // The spray turns 1/16 of a circle every step, plus a slow drift, so the arp draws a spinning spiral.
-    const base = note.s * TAU / 16 + g.time * 0.4;
-    const speed = g.speed(st.speed) * (0.85 + 0.35 * lift(note, inst));
-    for (let i = 0; i < n; i++) {
-      g.fx.bullet({ x: p.x, y: p.y, angle: base + (i / n) * TAU, speed, r: st.size, life: st.life,
-        damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 25, color, shape: 'star', spin: 9 });
-    }
-  },
+  fire(g, note, st, inst) { needles(g, note, st, inst); },
 
   remix: {
     id: 'galaxy', name: 'Galaxy', pedal: 'reverb',
@@ -100,25 +91,54 @@ const arpSynth = {
     // the third), so the accents walk across the beat and only come home every three bars.
     steps: 48,
     pattern: Array.from({ length: 48 }, (_, s) => (s % 3 ? N(s, 3 - (s % 3), s % 3 === 1 ? 0.7 : 0.6) : { ...N(s, (s / 3) % 2 ? 4 : 3, 1), k: 'acc' })),
-    stats: { life: 1.8, streams: 4, arms: 7, armDamage: 36, armLife: 2.4, armPierce: 5, curve: 1.6 },
+    stats: { damage: 20, streams: 4, arms: 6, armDamage: 30, armSpeed: 380, armLife: 1.15, armPierce: 4, curve: 2.6 },
     update(g, dt, st, inst) { track(g, inst); },
     fire(g, note, st, inst) {
-      // The whole spiral turns around where you were a beat ago, a comet trailing you as you run.
+      needles(g, note, st, inst);
+      if (note.k !== 'acc') return;
+      // An accent also flings a spiral of arms in every direction from where you were a beat ago, a comet
+      // trailing you as you run. Each arm curls round in a tight circle (about 150 px across), so the galaxy
+      // stays close to your path.
       const o = wasAt(g, inst, BEAT_SEC);
       const color = g.color(inst);
-      const acc = note.k === 'acc';
-      const n = g.amount(acc ? st.arms : st.streams);
+      const n = g.amount(st.arms);
       const base = note.s * TAU / 16 + g.time * 0.4;
-      const speed = g.speed(st.speed) * (0.85 + 0.35 * lift(note, inst));
       for (let i = 0; i < n; i++) {
-        // An accent flings an arm in every direction that curls into the spiral.
-        g.fx.bullet({ x: o.x, y: o.y, angle: base + (i / n) * TAU, speed, r: acc ? st.size * 1.3 : st.size, life: acc ? st.armLife : st.life,
-          curve: acc ? st.curve : 0, damage: g.dmg(acc ? st.armDamage : st.damage) * note.v, pierce: acc ? st.armPierce : st.pierce,
-          kb: 25, color, shape: 'star', spin: 9, trail: acc });
+        g.fx.bullet({ x: o.x, y: o.y, angle: base + (i / n) * TAU, speed: g.speed(st.armSpeed), r: st.size * 1.4, life: st.armLife,
+          curve: st.curve, damage: g.dmg(st.armDamage) * note.v, pierce: st.armPierce, kb: 25, color, shape: 'star', spin: 9, trail: true });
       }
     },
   },
 };
+
+// One note's needles: straight, fast shots at enemies within `reach`, picked by the pitch from the nearest (the
+// bottom of the run) to the farthest (its top), so a rising arpeggio reaches out across the crowd and a falling
+// one comes back in. A second stream fires at an enemy farther out than the first, a third at one nearer in.
+// The bar's first note goes for a boss in reach. Nobody in reach: the needles fly the way you face.
+function needles(g, note, st, inst) {
+  const p = g.player;
+  const color = g.color(inst);
+  const R = st.reach;
+  const n = g.amount(st.streams);
+  if (!n) return;
+  const list = [];
+  for (const e of g.inRadius(p.x, p.y, R)) if (e.spawnT <= 0.2) list.push([(e.x - p.x) ** 2 + (e.y - p.y) ** 2, e]);
+  list.sort((a, b) => a[0] - b[0]);
+  const k = list.length;
+  const at = Math.round(lift(note, inst) * (k - 1));
+  const step = Math.max(1, Math.round(k / 5));
+  const boss = note.s === 0 ? g.bossInRange(p.x, p.y, R) : null;
+  const speed = g.speed(st.speed), life = (R + 40) / speed;
+  const face = g.aim();
+  for (let i = 0; i < n; i++) {
+    // 0: the pitch's rank, 1: farther out, 2: nearer in, then alternating wider.
+    const off = i === 0 ? 0 : (i % 2 ? 1 : -1) * step * Math.ceil(i / 2);
+    const t = i === 0 && boss ? boss : k ? list[Math.max(0, Math.min(k - 1, at + off))][1] : null;
+    const a = t ? Math.atan2(t.y - p.y, t.x - p.x) : face + off * 0.25;
+    g.fx.bullet({ x: p.x, y: p.y, angle: a, speed, r: st.size, life, damage: g.dmg(st.damage) * note.v, pierce: st.pierce,
+      kb: 25, color, shape: 'shard' });
+  }
+}
 
 // ---------------------------------------------------------------------------- Music Box (Live)
 
@@ -138,26 +158,26 @@ const musicBox = {
   name: 'Music Box',
   role: 'arp',
   style: 'organic',
-  blurb: 'A tiny, twinkling music box. Each chime calls down a falling star that lands on an enemy one beat later.',
+  blurb: 'A tiny, twinkling music box. The bar turns like its cylinder around you, and each chime drops a star at its own hour, landing a beat later.',
   steps: 16,
   low: 75,
   seventh: true,
   levels: [
-    { text: 'Three soft chimes per bar. Each one calls a star down onto a random enemy.',
+    { text: 'Three soft chimes per bar. Each one drops a star around you at its place on the bar\'s clock face, higher notes farther out, onto an enemy near that spot.',
       pattern: [...BOX_1],
-      stats: { damage: 28, radius: 46, stars: 1 } },
+      stats: { damage: 52, radius: 46, stars: 1, ring0: 85, ringW: 110, snap: 140 } },
     { text: 'A fourth chime answers the first. Bigger stars.',
       pattern: [...BOX_1, ...BOX_2],
-      stats: { damage: 30, radius: 52, stars: 1 } },
+      stats: { damage: 54, radius: 50, stars: 1, ring0: 86, ringW: 110, snap: 140 } },
     { text: 'Two more chimes fill in the tune. Stars hit harder.',
       pattern: [...BOX_1, ...BOX_2, ...BOX_3],
-      stats: { damage: 34, radius: 58, stars: 1 } },
+      stats: { damage: 58, radius: 53, stars: 1, ring0: 87, ringW: 110, snap: 140 } },
     { text: 'Another chime near the end of each bar. Wider stars.',
       pattern: [...BOX_1, ...BOX_2, ...BOX_3, ...BOX_4],
-      stats: { damage: 39, radius: 64, stars: 1 } },
+      stats: { damage: 63, radius: 56, stars: 1, ring0: 88, ringW: 110, snap: 140 } },
     { text: 'The whole tune. Stars now freeze what they hit for a moment.',
       pattern: [...BOX_1, ...BOX_2, ...BOX_3, ...BOX_4, ...BOX_5],
-      stats: { damage: 46, radius: 72, stars: 1, stun: 0.35 } },
+      stats: { damage: 70, radius: 60, stars: 1, ring0: 90, ringW: 110, snap: 140, stun: 0.35 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -181,13 +201,17 @@ const musicBox = {
     const p = g.player;
     const color = g.color(inst);
     const n = g.amount(st.stars);
+    // The bar is a clock face around you, its downbeat at the top: each chime's star drops at its step's hour,
+    // farther out the higher the note, so the tune draws the same constellation round you every bar. A star
+    // falls on the enemy nearest its spot (within `snap`) and follows it down; with none it lands on the spot.
+    // Stand still and the stars ring you; walk on and they land where you were.
+    const R = g.area(st.ring0 + st.ringW * lift(note, inst));
     for (let i = 0; i < n; i++) {
-      // The bar's first star falls on a boss in range.
-      const e = (i === 0 && note.s === 0 && g.bossInRange(p.x, p.y, 450)) || g.randomEnemy(p.x, p.y, 450);
-      // Nobody around: the star still falls just ahead of you, so every chime shows up on screen.
-      const a = g.aim() + (i - (n - 1) / 2) * 0.6;
-      const x = e ? e.x : p.x + Math.cos(a) * 110, y = e ? e.y : p.y + Math.sin(a) * 110;
-      g.fx.strike({ x, y, target: e, delay: FALL, r: g.area(st.radius) * (0.8 + 0.2 * note.v),
+      const a = -Math.PI / 2 + (note.s / 16) * TAU + (i / n) * TAU;
+      const sx = p.x + Math.cos(a) * R, sy = p.y + Math.sin(a) * R;
+      // The bar's first star falls on a boss near you.
+      const e = (i === 0 && note.s === 0 && g.bossInRange(p.x, p.y, 300)) || g.nearest(sx, sy, g.area(st.snap));
+      g.fx.strike({ x: e ? e.x : sx, y: e ? e.y : sy, target: e, delay: FALL, r: g.area(st.radius) * (0.8 + 0.2 * note.v),
         damage: g.dmg(st.damage) * note.v, kb: 60, stun: st.stun || 0, color, style: 'star' });
     }
   },
@@ -204,12 +228,12 @@ const musicBox = {
       LUL(32, 4), LUL(36, 2, 0.8), LUL(40, 3, 0.9), LUL(44, 1, 0.75),
       LUL(48, 2), LUL(52, 1, 0.8), LUL(56, 0, 0.9), { ...N(62, 1, 0.5), k: 'wind' }, { ...N(63, 0, 0.4), d: 1, k: 'wind' },
     ],
-    stats: { ring: 8, ringMin: 120, ringMax: 320, reach: 650, radius: 80, damage: 55, stun: 0.35, sleep: 1.5, vuln: 0.35 },
+    stats: { ring: 8, ringMin: 90, ringMax: 200, reach: 250, radius: 66, damage: 100, stun: 0.35, sleep: 1.5, vuln: 0.35 },
     fire(g, note, st, inst) {
       const p = g.player;
       const color = g.color(inst);
-      // A ring of stars around you, one in every direction, landing a beat later on the nearest ordinary enemy
-      // that way (within `reach`), or else on the ring: high notes ring wide, low ones close, so the falling
+      // A whole ring of stars around you, one in every direction, landing a beat later on the nearest ordinary
+      // enemy that way (within `reach`), or else on the ring: high notes ring wide, low ones close, so the falling
       // tune draws the empty part of the ring in toward you. Each ring sits between the stars of the last.
       const n = g.amount(st.ring);
       const R = g.area(st.ringMin + (st.ringMax - st.ringMin) * lift(note, inst));
@@ -218,7 +242,7 @@ const musicBox = {
       const a0 = g.aim() + (S.lull / 2) * TAU / Math.max(1, n);
       const near = n > 0 ? sectors(g, p, a0, n, st.reach) : [];
       // Every other bar the first chime saves its first star for a boss in range.
-      const boss = note.s % 32 === 0 ? g.bossInRange(p.x, p.y, 450) : null;
+      const boss = note.s % 32 === 0 ? g.bossInRange(p.x, p.y, 300) : null;
       for (let i = 0; i < n; i++) {
         const a = a0 + (i + 0.5) * TAU / n;
         const e = i === 0 && boss ? boss : near[i];
@@ -277,25 +301,25 @@ const chipArp = {
   name: 'Coin Arp',
   role: 'arp',
   style: 'chip',
-  blurb: 'Bright 8-bit blips, like grabbing coins in an old game. Each blip throws a coin that flies out and comes back to you.',
+  blurb: 'Bright 8-bit blips, like grabbing coins in an old game. Each blip throws a coin along a compass line that comes back to you.',
   steps: 16,
   low: 71,
   levels: [
-    { text: 'A coin sound twice per bar. Each of its notes throws a coin that flies out, spins back, and hits on both trips.',
+    { text: 'A coin sound twice per bar. Each of its notes throws a coin along the compass line nearest an enemy; it spins back to you and hits on both trips.',
       pattern: [...COIN_1],
-      stats: { damage: 21, speed: 430, size: 7, throw: 1.02, pierce: 6, coins: 1 } },
-    { text: 'The coin sounds grow into quick climbing runs that fan coins across the nearest enemy.',
+      stats: { damage: 21, speed: 430, size: 7, throw: 1.02, pierce: 6, coins: 1, range: 340 } },
+    { text: 'The coin sounds grow into quick climbing runs: higher notes throw farther.',
       pattern: [...COIN_1, ...COIN_2],
-      stats: { damage: 21, speed: 440, size: 7, throw: 1.08, pierce: 6, coins: 1 } },
+      stats: { damage: 21, speed: 440, size: 7, throw: 1.08, pierce: 6, coins: 1, range: 340 } },
     { text: 'Answering blips on beats 2 and 4. Coins fly farther.',
       pattern: [...COIN_1, ...COIN_2, ...COIN_3],
-      stats: { damage: 25, speed: 450, size: 7, throw: 1.2, pierce: 7, coins: 1 } },
+      stats: { damage: 25, speed: 450, size: 7, throw: 1.16, pierce: 7, coins: 1, range: 350 } },
     { text: 'A blip on every step. Coins cut through even more enemies.',
       pattern: [...COIN_1, ...COIN_2, ...COIN_3, ...COIN_4],
-      stats: { damage: 26, speed: 460, size: 7.5, throw: 1.26, pierce: 9, coins: 1 } },
-    { text: 'Every blip throws two coins, and they fly the farthest.',
+      stats: { damage: 26, speed: 460, size: 7.5, throw: 1.22, pierce: 9, coins: 1, range: 350 } },
+    { text: 'Every blip throws two coins, the second along the next compass line.',
       pattern: [...COIN_1, ...COIN_2, ...COIN_3, ...COIN_4],
-      stats: { damage: 30, speed: 480, size: 8, throw: 1.38, pierce: 9, coins: 2 } },
+      stats: { damage: 30, speed: 480, size: 8, throw: 1.3, pierce: 9, coins: 2, range: 360 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -325,7 +349,7 @@ const chipArp = {
     pattern: [...JACK(0), ...JACK(16), ...JACK(32),
       ...[[1, 0.8], [2, 0.84], [4, 0.88], [3, 0.92], [8, 0.96], [4, 1]].map(([c, v], i) => ({ s: 48 + i, ...(c > 4 ? { sc: c } : { ct: c }), v, d: i === 5 ? 4 : 1, k: 'up' })),
       N(60, 2, 0.75), DING(61, 3, 'ding')],
-    stats: { speed: 640, throw: 2.2, coins: 3, streakCap: 20, streakDmg: 0.02, payout: 7 },
+    stats: { damage: 32, speed: 560, throw: 1.3, coins: 3, streakCap: 20, streakDmg: 0.02, payout: 10 },
     fire(g, note, st, inst) {
       const S = inst.state;
       if (g.lastHurtAt > (S.since ?? -Infinity)) { S.streak = 0; S.since = g.time; }   // a hit breaks the streak
@@ -334,11 +358,12 @@ const chipArp = {
       const t0 = g.time;
       const home = (b, gg) => { if (b.paid && gg.lastHurtAt < t0) jackpotStreak(gg, inst, st); return false; };
       if (note.k !== 'up') { coins(g, note, st, inst, mul, home); return; }
-      // The one-up pays out: a ring of coins all around you, more the longer your streak.
+      // The one-up pays out: a ring of coins all around you, more the longer your streak, on the compass lines
+      // and between them on alternate notes.
       const p = g.player;
       const n = g.amount(st.payout) + Math.floor((S.streak || 0) / 4);
       const color = coinColor(g, inst, st);
-      const turn = note.s * 0.7;
+      const turn = (note.s % 2) * OCT / 2;
       for (let i = 0; i < n; i++) {
         g.fx.bullet({ x: p.x, y: p.y, angle: turn + (i / n) * TAU, speed: g.speed(st.speed), r: st.size * (1 + 0.02 * (S.streak || 0)),
           life: st.throw, damage: g.dmg(st.damage) * note.v * mul, pierce: st.pierce, kb: 30, color, shape: 'coin', spin: 14,
@@ -348,21 +373,26 @@ const chipArp = {
   },
 };
 
-// One note's coins at the nearest enemy, fanned by pitch, at `mul` times their damage (Jackpot's streak).
+// One note's coins, thrown along the eight compass lines like an old game's sprites: the line nearest the
+// nearest enemy (within `range`), and further coins on the lines beside it. Pitch sets how far a coin flies
+// (high notes farther), so a run throws them out and back in a ripple. They come home to wherever you are by
+// then, so moving drags their way back through the crowd. `mul` scales their damage (Jackpot's streak), and
 // onReturn(b, g) runs when a coin gets home.
+const OCT = Math.PI / 4;
+const SIDES = [0, 1, -1, 2, -2, 3, -3, 4];
 function coins(g, note, st, inst, mul, onReturn) {
   const p = g.player;
   const color = onReturn ? coinColor(g, inst, st) : g.color(inst);
   // Jackpot's dings scatter their coins at anyone in reach.
-  const target = onReturn && note.k === 'ding' ? g.randomEnemy(p.x, p.y, 480) : g.nearest(p.x, p.y, 480);
-  const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
-  // Pitch picks the angle: low notes veer one way, high notes the other, so a run fans coins across the target.
-  const off = (lift(note, inst) - 0.5) * 0.8;
+  const target = onReturn && note.k === 'ding' ? g.randomEnemy(p.x, p.y, st.range) : g.nearest(p.x, p.y, st.range);
+  const raw = target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim();
+  const base = Math.round(raw / OCT) * OCT;
+  const life = st.throw * (0.85 + 0.3 * lift(note, inst));
   const n = g.amount(st.coins);
   const r = st.size * (1 + 0.02 * (onReturn ? inst.state.streak || 0 : 0));
   for (let i = 0; i < n; i++) {
-    const a = base + off + (i - (n - 1) / 2) * 0.55;
-    g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r, life: st.throw,
+    const a = base + SIDES[i % SIDES.length] * OCT;
+    g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r, life,
       damage: g.dmg(st.damage) * note.v * mul, pierce: st.pierce, kb: 30, color, shape: 'coin', spin: 14, boomerang: true,
       onHit: onReturn ? paid : null, onReturn });
   }

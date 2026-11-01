@@ -1,6 +1,8 @@
-// LEAD, Orchestra: French Horn. A heroic 2-bar call and answer. Short notes fire a small bolt at once; a held
-// note saves its breath and, when it ends, sends one slow blast that pierces everything and swells as it flies.
-// Like every Orchestra sound it rides the 8-bar phrase (note.phrase): soft after each fill, full at its climax.
+// LEAD, Orchestra: French Horn. A heroic 2-bar call and answer, aimed at the crowd, never at the nearest
+// enemy: short notes fire a small bolt at the thickest crowd in reach (the one the next blast will hit); a
+// held note saves its breath and, when it ends, sends one slow blast from wherever you stand then, piercing
+// everything and swelling as it flies. Like every Orchestra sound it rides the 8-bar phrase (note.phrase):
+// soft after each fill, full at its climax.
 
 import { STEP_SEC } from '../../../config.js';
 
@@ -39,13 +41,12 @@ function play(g, note, st, inst, onBlast) {
   const sw = swellDmg(note);
   const steps = Math.max(1, Math.round(note.dur / STEP_SEC));
   if (steps < HELD) {
-    const t = g.nearest(p.x, p.y, 540);
-    const base = t ? Math.atan2(t.y - p.y, t.x - p.x) : g.aim();
+    const base = blastAim(g, st).angle;
     const n = g.amount(1);
     for (let i = 0; i < n; i++) {
-      // High notes leave a little to one side, low notes to the other, so a run fans across the target.
+      // High notes leave a little to one side, low notes to the other, so a run fans across the crowd.
       const a = base + (note.midi - MID) * 0.012 + (i - (n - 1) / 2) * 0.3;
-      g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r: 5.5, life: 1.1, damage: g.dmg(st.damage) * note.v * sw,
+      g.fx.bullet({ x: p.x, y: p.y, angle: a, speed: g.speed(st.speed), r: 5.5, life: st.boltLife, damage: g.dmg(st.damage) * note.v * sw,
         pierce: st.pierce, kb: 50, color, shape: 'note', trail: true });
     }
     return;
@@ -80,28 +81,28 @@ export default {
   name: 'French Horn',
   role: 'lead',
   style: 'orchestra',
-  blurb: 'A heroic horn: long notes launch slow, swelling blasts that pierce everything.',
+  blurb: 'A heroic horn aimed at the crowd: hold a long note and, when it ends, a slow swelling blast leaves from where you stand.',
   steps: 32,
   low: LOW,
   levels: [
-    { text: 'Short notes fire bolts. Long notes launch a swelling blast.',
+    { text: 'Short notes fire bolts at the thickest crowd. Long notes hold their breath and, when they end, launch a swelling blast there.',
       pattern: [C(0, 0, 2, 0.9), C(2, 2, 2, 0.9), C(4, 3, 6), C(16, 1, 2, 0.9), C(20, 3, 4), C(28, 0, 4)],
-      stats: { damage: 6, speed: 520, pierce: 1, big: 11, perStep: 2.2, r0: 9, rStep: 1.5, grow: 12, maxR: 36, slow: 250, life: 2.2, reach: 520 } },
+      stats: { damage: 6, speed: 520, boltLife: 0.7, pierce: 1, big: 11, perStep: 2.2, r0: 9, rStep: 1.5, grow: 12, maxR: 32, slow: 250, life: 1.5, reach: 400 } },
     { text: 'A held note answers in the first bar.',
       pattern: [C(0, 0, 2, 0.9), C(2, 2, 2, 0.9), C(4, 3, 6), C(12, 2, 4, 0.9), C(16, 1, 2, 0.9), C(20, 3, 4), C(28, 0, 4)],
-      stats: { damage: 8, speed: 530, pierce: 1, big: 16, perStep: 3.2, r0: 9, rStep: 1.5, grow: 14, maxR: 40, slow: 250, life: 2.2, reach: 530 } },
+      stats: { damage: 8, speed: 530, boltLife: 0.7, pierce: 1, big: 16, perStep: 3.2, r0: 9, rStep: 1.5, grow: 14, maxR: 35, slow: 250, life: 1.5, reach: 405 } },
     { text: 'Quick steps walk down between the long notes.',
       pattern: [C(0, 0, 2, 0.9), C(2, 2, 2, 0.9), C(4, 3, 6), N(10, 6, 1, 0.7), N(11, 5, 1, 0.75), C(12, 2, 4, 0.9),
         C(16, 1, 2, 0.9), C(20, 3, 4), C(28, 0, 4)],
-      stats: { damage: 10, speed: 540, pierce: 1, big: 20, perStep: 4, r0: 10, rStep: 1.6, grow: 16, maxR: 44, slow: 255, life: 2.3, reach: 540 } },
+      stats: { damage: 10, speed: 540, boltLife: 0.7, pierce: 1, big: 20, perStep: 4, r0: 10, rStep: 1.6, grow: 16, maxR: 38, slow: 255, life: 1.55, reach: 410 } },
     { text: 'The answer climbs with quick notes.',
       pattern: [C(0, 0, 2, 0.9), C(2, 2, 2, 0.9), C(4, 3, 6), N(10, 6, 1, 0.7), N(11, 5, 1, 0.75), C(12, 2, 4, 0.9),
         C(16, 1, 2, 0.9), N(18, 3, 1, 0.7), C(19, 2, 1, 0.8), C(20, 3, 4), C(28, 0, 4)],
-      stats: { damage: 12, speed: 550, pierce: 2, big: 25, perStep: 5, r0: 10, rStep: 1.7, grow: 18, maxR: 48, slow: 255, life: 2.3, reach: 550 } },
+      stats: { damage: 12, speed: 550, boltLife: 0.7, pierce: 2, big: 25, perStep: 5, r0: 10, rStep: 1.7, grow: 18, maxR: 41, slow: 255, life: 1.55, reach: 415 } },
     { text: 'A falling run leads home. Bigger blasts.',
       pattern: [C(0, 0, 2, 0.9), C(2, 2, 2, 0.9), C(4, 3, 6), N(10, 6, 1, 0.7), N(11, 5, 1, 0.75), C(12, 2, 4, 0.9),
         C(16, 1, 2, 0.9), N(18, 3, 1, 0.7), C(19, 2, 1, 0.8), C(20, 3, 4), N(24, 4, 1, 0.75), N(25, 3, 1, 0.7), C(26, 1, 2, 0.85), C(28, 0, 4)],
-      stats: { damage: 15, speed: 560, pierce: 2, big: 30, perStep: 6.5, r0: 11, rStep: 1.8, grow: 20, maxR: 52, slow: 260, life: 2.4, reach: 560 } },
+      stats: { damage: 15, speed: 560, boltLife: 0.7, pierce: 2, big: 30, perStep: 6.5, r0: 11, rStep: 1.8, grow: 20, maxR: 44, slow: 260, life: 1.6, reach: 420 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -133,15 +134,16 @@ export default {
       C(8, 2, 1, 0.75), C(9, 3, 1, 0.8), C(10, 3, 6, 0.95),
       C(16, 1, 1, 0.75), C(17, 1, 1, 0.7), C(18, 1, 1, 0.8), C(19, 2, 5),
       C(24, 1, 1, 0.75), C(25, 2, 1, 0.8), C(26, 3, 6)],
-    stats: { big: 36, perStep: 8, maxR: 58, answer: 0.75, spread: 0.4, beyond: 300, past: 320, gap: 6, answerSpeed: 1.7 },
-    // Each blast is answered 6 steps later by three more that start beyond its target, fanned around you, and fly
-    // back through wherever you are by then and on past you: the crowd is caught from both sides and the
-    // answers sweep what is chasing you too. Echoes do not answer.
+    stats: { big: 40, perStep: 9, maxR: 48, answer: 1.1, spread: 0.4, beyond: 130, past: 150, gap: 6, answerSpeed: 1.7 },
+    // Each blast is answered 6 steps later by three more that start a little beyond its target, fanned around
+    // you, and fly back through wherever you are by then and a little past you: the crowd is caught from both
+    // sides and the answers sweep what is chasing you too. Echoes do not answer.
     fire(g, note, st, inst) {
       const answer = g.dmgScale !== 1 ? null : (gg, shot, aim, o) => {
         const p0x = gg.player.x, p0y = gg.player.y;
-        // How far beyond you the answers start: past the target (or 260 px out when there was none).
-        const far = (aim.t ? Math.hypot(aim.t.x - p0x, aim.t.y - p0y) : 260) + st.beyond;
+        // How far out the answers start: a little past the target (at most 260 px away, or 200 px out when there
+        // was none), so they stay on screen and close.
+        const far = Math.min(260, aim.t ? Math.hypot(aim.t.x - p0x, aim.t.y - p0y) : 200) + st.beyond;
         gg.later.push({ at: gg.time + st.gap * STEP_SEC, fn: () => {
           if (!gg.loadout.has(inst)) return;
           const prev = gg.src; gg.src = inst;
@@ -150,7 +152,7 @@ export default {
             const a = aim.angle + k * st.spread;
             const x = p0x + Math.cos(a) * far, y = p0y + Math.sin(a) * far;
             const d = Math.hypot(p.x - x, p.y - y);
-            const life = Math.min(3.2, (d + st.past) / (gg.speed(st.slow) * st.answerSpeed));
+            const life = Math.min(1.6, (d + st.past) / (gg.speed(st.slow) * st.answerSpeed));
             blast(gg, inst, st, { x, y, angle: Math.atan2(p.y - y, p.x - x), r: o.r, dmg: o.dmg * st.answer, speed: st.answerSpeed, life });
             gg.fx.flash(x, y, o.r + 10, gg.color(inst), 0.25, 0.2);
           }
