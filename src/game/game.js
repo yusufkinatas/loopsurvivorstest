@@ -246,7 +246,7 @@ export class Game {
   // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards).
   dmg(base) { return base * this.stats.damage * this.dmgScale * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
   // In the pocket (Live): a planted player's areas grow by the rule's stillArea.
-  area(r) { return r * (this.stats.area + (this.rules.planted ? this.stats.rules.stillArea : 0)); }
+  area(r) { return r * (this.stats.area + (this.rules?.planted ? this.stats.rules.stillArea : 0)); }
   // Counts scale by a percentage (the Chorus pedal), so a one-shot weapon and a
   // six-shot weapon gain the same share. Fractions round by chance per note, and deterministically
   // inside setup() so orbiter counts do not flicker.

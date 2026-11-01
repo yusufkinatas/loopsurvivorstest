@@ -5,10 +5,24 @@ level, a `sound()` that plays each note on the audio clock, and a `fire()` that 
 into an attack at the moment it is heard. The reference implementation is
 `src/content/instruments/beat.js` (808 Kick, Taiko Drums, 8-Bit Drums). Read it first.
 
-Each role file (`beat.js`, `perc.js`, `bass.js`, `chords.js`, `lead.js`, `arp.js`) default-exports an
-array of exactly three instruments, one per style: `synth`, `organic` (shown as "Live") and `chip`
-(shown as "8-Bit"). The registry (`index.js`) validates them at load time and logs problems with
-`console.error`.
+There are five styles: `synth`, `organic` (shown as "Live"), `chip` (shown as "8-Bit"), `heavy` and
+`orchestra`, and every channel has exactly one sound of each (30 in all). The first three live in the
+role files (`beat.js`, `perc.js`, `bass.js`, `chords.js`, `lead.js`, `arp.js`), each default-exporting an
+array of its Synth, Live and 8-Bit sounds. Heavy and Orchestra keep one file per instrument:
+
+```
+src/content/instruments/heavy/doublekick.js      export default { id: 'doublekick', role: 'beat', style: 'heavy', ... }
+src/content/instruments/heavy/index.js           export default [doublekick, ride, dropd, powerchords, shred, pinch]
+src/content/instruments/orchestra/timpani.js     ... and fieldsnare, cellos, strings, horn, harp
+src/content/instruments/orchestra/index.js       export default [timpani, fieldsnare, cellos, strings, horn, harp]
+```
+
+Each file default-exports one definition and imports only what it needs, so a sound is written (or
+replaced) without touching any other file. The twelve start as placeholders that clone the sound of the
+same channel (`placeholder.js`: Heavy plays like Synth, Orchestra like Live) with their own id, name,
+style and remix id and name; an author replaces the whole file. The registry (`index.js`) spreads both
+arrays into `INSTRUMENTS`, validates every definition at load time, checks one sound per channel and
+style and unique instrument and remix ids, and logs problems with `console.error` (which fails the sims).
 
 ## Why the music stays clean
 
@@ -42,7 +56,7 @@ Peak at the channel input must stay below 0.98 (check.mjs flags clipping). No Na
   id: 'upright',            // unique, lowercase
   name: 'Upright Bass',     // shown on cards and HUD
   role: 'bass',             // beat | perc | bass | chords | lead | arp
-  style: 'organic',         // synth | organic | chip
+  style: 'organic',         // synth | organic | chip | heavy | orchestra
   blurb: 'One sentence a non-musician understands: what it sounds like and what it does.',
   steps: 16,                // pattern length: 16 (one bar) or 32 (two bars)
   low: 33,                  // pitched roles: lowest MIDI for chord-tone / scale lookups
@@ -56,7 +70,7 @@ Peak at the channel input must stay below 0.98 (check.mjs flags clipping). No Na
   setup(g, st, inst) {},             // optional: on add, level change or stat change (orbiters)
   update(g, dt, st, inst) {},        // optional: every frame while playing
   dispose(g, inst) {},               // optional: when swapped out (owned effects are cleared for you)
-  remix: { id, name, pedal, text, stats, fire, setup, update },   // its remix (see Remix below)
+  remix: { id, name, pedal, text, stats, pattern, steps, fire, setup, update },   // its remix (see Remix below)
 }
 ```
 
@@ -107,11 +121,15 @@ Runs only when audio is on (never in the headless sim). Schedule everything at t
 
 - `A.ctx` the AudioContext
 - `A.v` voice helpers from `src/audio/voices.js`, each schedules one self-cleaning note:
-  - `tone(ctx, out, t, { freq, wave|duty, dur, a, d, s, r, gain, unison, spread, detune, filter, pitchEnv, vibrato, sub, pan })`
+  - `tone(ctx, out, t, { freq, wave|duty, dur, a, d, s, r, gain, unison, spread, detune, filter, pitchEnv, vibrato, sub, pan, drive })`
   - `noise(ctx, out, t, { dur, a, d, s, r, gain, filter, pan, rate, chip })`
   - `kick(ctx, out, t, { f0, f1, pitchDecay, decay, gain, click })`
   - `fm(ctx, out, t, { freq, ratio, index, indexDecay, a, d, s, r, dur, gain, pan })`
-  - `pluck(ctx, out, t, { freq, decay, bright, dur, gain, pan, filter })` (Karplus-Strong string)
+  - `pluck(ctx, out, t, { freq, decay, bright, dur, gain, pan, filter, drive })` (Karplus-Strong string)
+  - `drive: k` (tone and pluck) runs the oscillators or the string through a `tanh(kx)/tanh(k)` soft clipper
+    before the note's gain, so `gain` is still the peak (about 1.5 warm, 3 crunchy, 6 fuzz). A tone's `sub`
+    stays clean. Distortion raises the RMS for the same peak: check the level and the centroid with
+    `check.mjs --role`, and keep the filter after the drive to tame the fizz. The curve is cached per `k`.
   - `snare(ctx, out, t, opts)`, `hat(ctx, out, t, opts)`
   - `filter` is `{ type, freq, q, env, decay }` (starts at `freq * env`, falls to `freq` over `decay`)
     or `{ type, freq, to, time }` (sweeps from `freq` to `to`).
@@ -124,9 +142,10 @@ Keep voices cheap: a few oscillators per note, short releases. Pads can sustain 
 ### fire(g, note, st, inst)
 
 Runs when the note is heard (sim and real). Spawn attacks with the game API. Always compute damage
-with `g.dmg(base)` (applies pedals, chemistry and echo scaling), areas with `g.area(r)`, counts with
-`g.amount(n)` (adds the Chorus pedal and 8-Bit bonus), projectile speed with `g.speed(v)`. Scale by
-`note.v`. Use `g.color(inst)` (or `g.color('bass')`) so attacks wear the channel color.
+with `g.dmg(base)` (applies pedals, faders and echo scaling), areas with `g.area(r)` (pedals and the Live
+rule), counts with `g.amount(n)` (adds the Chorus pedal), projectile speed with `g.speed(v)`. Scale by
+`note.v`. Use `g.color(inst)` (or `g.color('bass')`) so attacks wear the channel color. The band's play
+rules (below) are applied to every hit in `g.hit()`, so an attack never multiplies them in itself.
 
 Queries: `g.player` `{x, y, faceX, faceY}`, `g.aim()` facing angle, `g.nearest(x, y, range, excludeSet)`,
 `g.nearestN(x, y, n, range)`, `g.inRadius(x, y, r)`, `g.randomEnemy(x, y, range)`, `g.densest(range)`
@@ -146,12 +165,63 @@ Attack archetypes (`src/game/effects.js`), all record which instrument made them
 - `g.fx.mine({ owner: inst.def.id, x, y, r, damage, kb, color, life, max, size })` then `g.fx.detonateMines(inst.def.id, scale, { armed, chain })`
   on a later note (`armed`: only mines with an enemy on them, `chain`: a blast sets off the other mines inside it)
 - `g.fx.orbit(inst, { count, radius, speed, size, color, shape })` persistent orbiters (call from `setup`), then `grp.pulse({ damage, r, kb, stun, slow, index })` from `fire`
+- `g.fx.cone({ x, y, angle, spread, r, damage, kb, stun, slow, color, max })` instant hit in a wedge (`spread` in radians,
+  default 70°), knockback away from the apex, drawn as a wedge flash. Aim it with `g.aim()` to steer it with movement.
+- `g.fx.wall({ follow, x, y, r, angle, span, spin, dur, damage, kb, stun, slow, width, color, erase, onErase })` a persistent
+  arc (`span` radians, default 120°) at radius `r` around a spot or around the player (`follow: true`), turning `spin`
+  rad/s, for `dur` seconds. Each enemy that touches it is hit once and bounced back to the side it came from, and
+  enemy shots crossing it are erased (`erase: false` lets them through; `onErase(wall, shot, g)` runs for each one and
+  `wall.erased` counts them). At most 2 walls per instrument (the oldest goes).
+- `g.fx.tether(inst.def.id, enemy, { life, pull, color })` hooks an enemy with a crackling line and drags it toward the
+  player at `pull` px/s (bosses and charging enemies are hooked but never dragged); hooking it again refreshes it.
+  `g.fx.pulseTethers(inst.def.id, { damage, kb, stun, slow, color })` hits everything hooked, `g.fx.tethersOf(id)` lists
+  them. At most 8 per instrument (the oldest lets go).
+- `g.fx.followers(inst, { count, gap, size, color, shape })` a trail of up to 12 followers walking the player's path
+  `gap` px apart (call from `setup`), then `grp.strike({ damage, r, kb, stun, slow, index, color })`; `grp.items` are
+  their positions, `g.fx.followersOf(inst)` finds the group.
+- `g.fx.mine({ ..., persist: true })` a mine that is never used up: `g.fx.ringMines(inst.def.id, { damage, r, scale })`
+  makes every one of them pulse where it stands, and `detonateMines` leaves them alone. Keep `life` and `max` set.
+- `bullet({ ..., grow, maxR })` widens the shot by `grow` px/s while it flies (up to `maxR`, default 60).
 - cosmetics: `g.fx.particles(x, y, color, n, speed, life, size)`, `g.fx.flash(x, y, r, color, life, fill)`, `g.shake = Math.max(g.shake, n)`.
   Cosmetic randomness uses `Math.random()`, never `rng()` or `rand()`, so a seed plays the same run at any frame rate.
+
+The persistent archetypes (orbiters, mines, walls, tethers, followers, a shield) belong to the instrument that
+made them and are cleared with it when it leaves the band. Every one records its source for damage credit.
 
 Direct damage: `g.hit(enemy, damage, { kb, fx, fy, stun, slow, color })`. The enemy tints in the hitting
 channel's color, and `color` overrides it. An enemy marked with `e.vuln` until `e.vulnUntil` (game time)
 takes `1 + e.vuln` times the damage from every source. Drop meter: `g.chargeDrop(n)`.
+
+Crowd control and defense:
+
+- `g.pull(x, y, r, strength)` pulls every enemy within `r` toward the point (an impulse on its knockback, never past
+  the point; bosses and charging enemies hold). Returns how many moved.
+- `g.launch(enemy, angle, speed, damage, { t, max, onLand })` sends an enemy flying for `t` seconds (default 0.35). It
+  hits every other enemy it crashes into once for `damage` (at most `max`, default 8) and deals no contact damage
+  while in the air. One generation: what it hits is not launched. Bosses, charging enemies and enemies already in
+  flight cannot be launched (returns false). `onLand(enemy, g)` runs where it stops.
+- `g.shield = { n, until, src: inst, onBreak }` blocks the next `n` hits (at most 3) until game time `until`; each
+  block gives the usual invulnerability and pushes the body away, and `onBreak(g, shield)` runs when the last charge
+  goes. Set it from `fire()` with `until: g.time + seconds`, and only when `g.dmgScale === 1` (an echo must not raise a
+  shield).
+
+### Play rules (style chemistry)
+
+A style is also a way to move. Two, four and six sounds of one style turn its rule up for the whole band
+(`CHEMISTRY` in `src/game/loadout.js`, tier values are totals; distances in `RULES`):
+
+| Style | Rule | What it rewards | Tiers 2 / 4 / 6 |
+|---|---|---|---|
+| Synth | Long throw (`far`) | hits on enemies whose body is beyond 240 px | +20 / 40 / 65% damage |
+| Heavy | Mosh pit (`near`) | hits on enemies reaching inside 140 px | +20 / 40 / 65% damage |
+| Live | In the pocket (`still`) | planted: moved under 24 px since the last beat | +12 / 24 / 40% area, heal 0.5 / 1 / 1.5 a planted beat after a bar without a hit |
+| 8-Bit | Combo streak (`combo`) | every beat without a hit (up to 16), reset by a hit | up to +25 / 50 / 80% damage |
+| Orchestra | Ride the swell (`swell`) | late in each 8-bar phrase (weak right after a fill, strong at the next) | x(1 ± 25 / 50 / 80%), mean 1 |
+
+`g.stats.rules` holds the totals (`far, near, stillHeal, stillArea, combo, swell`, and `on`), `g.rules` the live
+state (`combo, planted, phrase, lastBeatX, lastBeatY`), and `g.lastHurtAt` the time of the last hit taken.
+An instrument may read them (an Orchestra sound that saves its big hit for `g.rules.phrase` near 1), but never
+multiplies its damage by them: `g.hit()` already does. Fusion (2+ sounds in three styles) is a genre name only.
 
 Every attack must be launched from `fire()` by a note. Never deal damage on a timer that is not a
 note. Persistent things (orbiters, mines) may exist between notes, but they strike on notes.
@@ -171,15 +241,20 @@ remix: {
   text: 'What the remix does, in one or two plain sentences.',
   sound: 'optional: what you hear, for a pedal with no insert on this strip',
   stats: { canon: 0.6 },    // only what changes: merged over level 5's stats at load
+  pattern: [...notes],      // optional: the remix's own part, played instead of level 5's (see 1)
+  steps: 32,                // optional: its length, when it differs from the instrument's `steps`
   fire(g, note, st, inst) {},     // optional, replaces fire()
   setup(g, st, inst) {},          // optional, replaces setup()
   update(g, dt, st, inst) {},     // optional, replaces update()
 }
 ```
 
-1. **The pattern and `sound()` stay level 5.** The sequencer plays the level 5 part, so the music and
-   check.mjs results do not change. `sound()` may read `inst.remix` for a strip-level signature
-   (Sidechain 808's deeper duck), never to add or move notes.
+1. **A new part, or level 5's.** With `remix.pattern`, the remixed channel plays that part instead of level 5's
+   (over `remix.steps`, else the instrument's `steps`); the registry indexes and validates it like a level's
+   pattern, and on the Beat channel its first sound that is not a kick plays the fills. Without one, the
+   sequencer keeps playing the level 5 part. `sound()` may read `inst.remix` for a timbre change or a
+   strip-level signature (Sidechain 808's deeper duck). Every kind the remix part plays must fire with the
+   remix's stats.
 2. **You hear the remix.** The paired pedal is one the desk already routes to the channel: inserts
    (Bitcrusher on Beat and Groove, Overdrive on Bass and Lead, Auto-Wah on Bass and Chords, Chorus on
    Chords and Lead) or sends (Hall Reverb on every channel, Tape Delay on Groove, Chords, Lead and
@@ -202,7 +277,18 @@ remix: {
 
 ## Balance targets
 
-Measured with the solo sim (no level-ups, invincible, autopilot, 3 minutes, seed 7):
+The quick way: `tools/parity.mjs` runs every sound you name alone at level 1, at level 5, and remixed next to
+level 5 with the same pedal, and prints one table of damage, kills and damage on The Drone, flagging anything
+outside its channel's band (measured from that channel's Synth, Live and 8-Bit sounds, `BANDS` in the tool) or a
+remix no better than its level 5 (about 6 s a run, two at once):
+
+```
+node tools/parity.mjs --style heavy              # the six Heavy sounds (24 runs, about 2 minutes)
+node tools/parity.mjs --ids doublekick,kick808   # a sound next to a reference
+node tools/parity.mjs --role beat --no-remix     # a whole channel, levels only
+```
+
+Each number comes from the solo sim (no level-ups, invincible, autopilot, 3 minutes, seed 7):
 
 ```
 node tools/sim.mjs "speed=16&bot=1&minutes=3&god=1&solo=1&start=<id>&give=<id>:<level>&seed=7" --summary
@@ -234,8 +320,13 @@ node tools/check.mjs --role <role>             # levels, clipping, spectrum for 
 node tools/check.mjs --mix a,b,c --level 5     # a band through the full mixing desk
 node tools/check.mjs --mix a,b,c --start 140 --bars 56   # the same, bar by bar, through the arrangement
 node tools/check.mjs --audit                   # every note of the song in every key: in key, on the grid
+node tools/check.mjs --mixall                  # one pure band per style and two mixed bands through the desk
+node tools/parity.mjs --ids <id>               # damage, kills and Drone damage at L1, L5 and remixed, against the band
 node tools/sim.mjs "<query>" --summary         # gameplay, errors, damage
 ```
+
+Sims that play the style rules use the bot's rule-aware movement; add `botrules=0` to the query to see the same
+band with the plain kiting bot.
 
 The sim output includes `errors` and `logs`. Both must be empty (the font-loading network error in
 headless runs is expected and harmless).
