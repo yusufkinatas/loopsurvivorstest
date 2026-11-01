@@ -9,11 +9,15 @@ import { RULES } from './game/loadout.js';
 // Like a person it reacts late (REACT), only keeps track of the closest few shots (FOCUS), and
 // sticks with a decision for a moment (REPLAN), so dense bullet patterns still catch it.
 
+// ?botskill=1 plays like a sharp player instead: it reacts in half the time, rethinks more often and watches
+// more shots at once. Balance targets both: the ordinary bot should lose more often than it wins, the skilled one
+// should still have to fight for its wins.
+const skilled = (() => { try { return String(window.LOOP_SURVIVORS_OPTS?.botskill ?? new URLSearchParams(window.location.search).get('botskill')) === '1'; } catch (e) { return false; } })();
 const DIRS = 16;
 const HORIZON = 0.6;    // seconds of look-ahead
-const REACT = 0.3;      // reaction time: a decision takes effect this long after it is made
-const REPLAN = 0.2;     // how often it rethinks
-const FOCUS = 5;        // how many of the nearest shots it can watch at once
+const REACT = skilled ? 0.15 : 0.3;    // reaction time: a decision takes effect this long after it is made
+const REPLAN = skilled ? 0.12 : 0.2;   // how often it rethinks
+const FOCUS = skilled ? 9 : 5;         // how many of the nearest shots it can watch at once
 const LAG = REACT + 0.08; // until the new heading actually moves the player
 // It also plays the band's style rules (g.stats.rules) the way a player would: close to the crowd for the Mosh
 // pit, at arm's length for Long throw, standing its ground for In the pocket and dodging harder for a Combo
