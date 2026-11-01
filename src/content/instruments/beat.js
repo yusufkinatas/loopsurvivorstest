@@ -1,7 +1,8 @@
 // BEAT channel: kicks and snares. The reference implementation for the instrument format
-// (see docs/INSTRUMENTS.md). Low, heavy, on the beat: big area hits around the player.
+// (see docs/INSTRUMENTS.md). Low, heavy, on the beat. Each sound plays its style: the 808 throws long lances at
+// far targets, the Taiko slams around where you stand, the 8-Bit kit sprays ricochets along the grid.
 
-import { TAU } from '../../util.js';
+import { TAU, dist2 } from '../../util.js';
 import { BAR_SEC } from '../../config.js';
 
 // Pattern helpers: step s (0..15), velocity v, kind k.
@@ -33,24 +34,24 @@ const kick808 = {
   name: '808 Kick',
   role: 'beat',
   style: 'synth',
-  blurb: 'Deep electronic kicks. Each one sends a shockwave rolling out from you.',
+  blurb: 'Deep electronic kicks. Each one fires a long sub lance at the farthest enemy in reach.',
   steps: 16,
   levels: [
-    { text: 'Kicks on beats 1 and 3. Each kick sends out a shockwave.',
+    { text: 'Kicks on beats 1 and 3. Each kick fires a long lance at the farthest enemy in reach.',
       pattern: [K(0), K(8)],
-      stats: { damage: 14, radius: 150, kb: 150 } },
-    { text: 'Four on the floor: a kick on every beat.',
+      stats: { damage: 36, reach: 300, width: 28, kb: 170 } },
+    { text: 'Four on the floor: a lance on every beat.',
       pattern: [K(0), K(4), K(8), K(12)],
-      stats: { damage: 15, radius: 165, kb: 150 } },
-    { text: 'Adds a clap on the backbeat that throws a ring of shards.',
+      stats: { damage: 36, reach: 315, width: 30, kb: 170 } },
+    { text: 'Adds a clap on the backbeat that snaps a crosshair of lances across the last one.',
       pattern: [K(0), K(4), K(8), K(12), S(4), S(12)],
-      stats: { damage: 17, radius: 190, kb: 160, shards: 6, shardDamage: 10 } },
-    { text: 'A pickup kick before every bar. Bigger shockwaves, more shards.',
+      stats: { damage: 38, reach: 330, width: 32, kb: 180, clap: 26 } },
+    { text: 'A pickup kick before every bar. Longer, wider lances.',
       pattern: [K(0), K(4), K(8), K(12), K(14, 0.7), S(4), S(12)],
-      stats: { damage: 21, radius: 225, kb: 170, shards: 8, shardDamage: 12 } },
-    { text: 'Full groove. Shockwaves now stun what they hit.',
+      stats: { damage: 48, reach: 350, width: 36, kb: 190, clap: 32 } },
+    { text: 'Full groove. Lances now stun what they hit.',
       pattern: [K(0), K(4), K(7, 0.6), K(8), K(12), K(14, 0.7), S(4), S(12), S(15, 0.5)],
-      stats: { damage: 26, radius: 258, kb: 180, shards: 10, shardDamage: 14, stun: 0.25 } },
+      stats: { damage: 58, reach: 370, width: 40, kb: 200, clap: 38, stun: 0.25 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -74,49 +75,68 @@ const kick808 = {
     }
   },
 
-  fire(g, note, st) {
-    const p = g.player;
-    const color = g.color('beat');
+  // Kicks fire a lance at the farthest enemy in reach (the bar's first one at a boss in reach), so the farther
+  // you keep the crowd, the more of it each lance runs through. Claps snap two shorter lances across the last
+  // kick's line, a crosshair through you.
+  fire(g, note, st, inst) {
+    const p = g.player, S = inst.state;
     if (note.k === 'kick') {
-      // Sidechain 808 (remix, st.kickErase): every kick's shockwave wipes out the enemy shots it passes.
-      const erase = st.kickErase || 0;
-      g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 16, r1: g.area(st.radius) * (0.75 + 0.25 * note.v), dur: 0.26,
-        damage: g.dmg(st.damage) * note.v, kb: st.kb, stun: st.stun || 0, color, width: erase ? 10 : 7, erase });
+      const reach = st.reach * (0.85 + 0.15 * note.v);
+      const t = (note.s === 0 && g.bossInRange(p.x, p.y, reach)) || farthest(g, p.x, p.y, reach);
+      const a = t ? Math.atan2(t.y - p.y, t.x - p.x) : g.aim();
+      S.lance = a;
+      lance(g, a, reach, g.area(st.width), g.dmg(st.damage) * note.v, st.kb, st.stun || 0);
+      // Sidechain 808 (remix, st.kickErase): every kick also wipes out the enemy shots close around you.
+      if (st.kickErase) g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 16, r1: g.area(st.kickErase), dur: 0.2, damage: 0, kb: 0, color: g.color('beat'), width: 3, erase: 1 });
       g.shake = Math.max(g.shake, 2.5 * note.v);
     } else {
-      const n = g.amount(st.shards);
-      const off = note.s * 0.37;
-      for (let i = 0; i < n; i++) {
-        g.fx.bullet({ x: p.x, y: p.y, angle: off + (i / n) * Math.PI * 2, speed: g.speed(420), r: 5, life: 0.42,
-          damage: g.dmg(st.shardDamage) * note.v, pierce: 1, kb: 50, color, shape: 'shard', drag: 1.5 });
-      }
+      const a = (S.lance ?? g.aim()) + Math.PI / 2;
+      for (const d of [a, a + Math.PI]) lance(g, d, st.reach * 0.7, g.area(st.width) * 0.6, g.dmg(st.clap) * note.v, 60, 0);
     }
   },
 
-  // The downbeat becomes a long sub boom: a slow, wide shockwave that drags everything it passes in toward you,
-  // stuns it and ducks it for the bar (it takes more from every hit, the way the band ducks under the kick), for
-  // the kicks that follow to throw back out. The boom and every kick erase the enemy shots close around you, so
-  // you can step into a bullet pattern on the beat.
+  // The downbeat becomes a long sub boom: a slow shockwave around you that drags the crowd in toward you, stuns
+  // it and ducks it for the bar (it takes more from every hit, the way the band ducks under the kick), for the
+  // lances that follow to run through. The boom and every kick erase the enemy shots close around you, so you
+  // can step into a bullet pattern on the beat.
   remix: {
     id: 'sidechain808', name: 'Sidechain 808', pedal: 'compressor',
     text: 'The downbeat boom drags the crowd in and ducks it, and every kick erases enemy shots.',
     sound: 'a long sub boom on the downbeat, a ghost kick, and the whole band pumping on every kick.',
     // The clap comes first, so fills and rolls play claps.
     pattern: [S(4), S(12), S(15, 0.5), B(0), K(4), K(7, 0.6), K(8), K(10, 0.5), K(12), K(14, 0.7)],
-    stats: { damage: 35, radius: 280, shards: 12, shardDamage: 16, kickErase: 0.7, boomDamage: 40, boomReach: 1.8, boomPull: 260, boomStun: 0.6, boomErase: 0.5, duck: 0.25 },
+    stats: { damage: 86, clap: 56, width: 44, kickErase: 110, boomDamage: 60, boomRadius: 250, boomPull: 260, boomStun: 0.6, boomErase: 0.6, duck: 0.25 },
     fire(g, note, st, inst) {
       if (note.k !== 'boom') { this.fire(g, note, st, inst); return; }
-      const p = g.player, R = g.area(st.radius) * st.boomReach, until = g.time + BAR_SEC;
+      const p = g.player, R = g.area(st.boomRadius), until = g.time + BAR_SEC;
       for (const e of g.inRadius(p.x, p.y, R)) {
         if (e.vulnUntil > g.time && e.vuln > st.duck) continue;   // a deeper mark (Lullaby) stays
         e.vuln = st.duck; e.vulnUntil = until;
       }
       g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 24, r1: R, dur: 0.5,
-        damage: g.dmg(st.boomDamage) * note.v, kb: -st.boomPull, stun: st.boomStun, color: g.color('beat'), width: 18, erase: st.boomErase });
+        damage: g.dmg(st.boomDamage) * note.v, kb: -st.boomPull, stun: st.boomStun, color: g.color('beat'), width: 14, erase: st.boomErase });
       g.shake = Math.max(g.shake, 6 * note.v);
     },
   },
 };
+
+// A sub lance: an instant shockwave line from you along `angle`, `len` px long, that hits everything on it and
+// pushes it on along the line.
+function lance(g, angle, len, width, damage, kb, stun) {
+  const p = g.player;
+  g.fx.beam({ x: p.x, y: p.y, angle, length: len, width, damage, kb, stun, color: g.color('beat'), life: 0.2 });
+}
+
+// The enemy farthest from (x, y) within range (spawning ones excluded), or null.
+function farthest(g, x, y, range) {
+  let best = null, bd = -1;
+  g.grid.query(x, y, range, (e) => {
+    if (e.dead || e.spawnT > 0.2) return;
+    const d = dist2(e.x, e.y, x, y);
+    if (d < range * range && d > bd) { bd = d; best = e; }
+  });
+  return best;
+}
 
 // ---------------------------------------------------------------------------- Taiko (Live)
 
@@ -125,24 +145,24 @@ const taiko = {
   name: 'Taiko Drums',
   role: 'beat',
   style: 'organic',
-  blurb: 'Huge hand drums. Every hit slams down on the thickest crowd and stuns it.',
+  blurb: 'Huge hand drums. Every hit slams the ground around you, and standing your ground makes it reach farther.',
   steps: 16,
   levels: [
-    { text: 'Two booming hits per bar, each landing on the biggest crowd.',
+    { text: 'Two booming slams per bar on the ground around you. Stand your ground and each slam reaches farther.',
       pattern: [K(0), K(8, 0.85)],
-      stats: { damage: 10, radius: 66, stun: 0.35, kb: 60 } },
-    { text: 'Adds a third hit that answers the second.',
+      stats: { damage: 17, radius: 100, stun: 0.35, kb: 110 } },
+    { text: 'Adds a third slam that answers the second.',
       pattern: [K(0), K(8, 0.85), K(10, 0.7)],
-      stats: { damage: 11, radius: 70, stun: 0.4, kb: 60 } },
-    { text: 'Rim clicks on the backbeat push enemies away from you.',
+      stats: { damage: 19, radius: 104, stun: 0.4, kb: 110 } },
+    { text: 'Rim clicks on the backbeat shove enemies away from you.',
       pattern: [K(0), K(8, 0.85), K(10, 0.7), R(4), R(12)],
-      stats: { damage: 12, radius: 75, stun: 0.45, kb: 70, rimRadius: 90, rimDamage: 9 } },
-    { text: 'A fourth hit closes each bar. Bigger impacts.',
+      stats: { damage: 22, radius: 108, stun: 0.45, kb: 120, rimRadius: 84, rimDamage: 11 } },
+    { text: 'A fourth slam closes each bar. Bigger slams.',
       pattern: [K(0), K(8, 0.85), K(10, 0.7), K(14, 0.75), R(4), R(12)],
-      stats: { damage: 14, radius: 86, stun: 0.5, kb: 80, rimRadius: 100, rimDamage: 11 } },
-    { text: 'Thunder: every hit also strikes a second crowd.',
+      stats: { damage: 27, radius: 114, stun: 0.5, kb: 130, rimRadius: 90, rimDamage: 13 } },
+    { text: 'Thunder: every slam rolls a shockwave out around you.',
       pattern: [K(0), K(3, 0.55), K(8, 0.85), K(10, 0.7), K(14, 0.75), R(4), R(12)],
-      stats: { damage: 17, radius: 94, stun: 0.6, kb: 90, rimRadius: 110, rimDamage: 13, extra: 1 } },
+      stats: { damage: 34, radius: 120, stun: 0.6, kb: 140, rimRadius: 96, rimDamage: 16, thunder: 0.5 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -170,52 +190,47 @@ const taiko = {
     }
   },
 
-  fire(g, note, st) {
-    const p = g.player;
+  // Every slam lands on the ground around you (the bar's first on a boss in range instead). Each slam you are
+  // planted for (moved under 24 px since the last beat) reaches farther, up to three in a row; moving resets it.
+  fire(g, note, st, inst) {
+    const p = g.player, S = inst.state;
     const color = g.color('beat');
     if (note.k === 'kick') {
-      const slam = (x, y) => {
-        const r = g.area(st.radius) * (0.8 + 0.2 * note.v);
-        g.fx.pulse({ x, y, r, damage: g.dmg(st.damage) * note.v, kb: st.kb, stun: st.stun, color, fill: 0.3 });
-        g.fx.particles(x, y, color, 10, 240, 0.4, 3);
-      };
-      // The bar's first slam lands on a boss in range, so the drums play the fight too.
-      const spot = (note.s === 0 && g.bossInRange(p.x, p.y, 460)) || g.densest(460);
-      if (spot) slam(spot.x, spot.y);
-      else slam(p.x + Math.cos(g.aim()) * 90, p.y + Math.sin(g.aim()) * 90);
-      const extra = g.amount(1 + (st.extra || 0)) - 1;
-      for (let i = 0; i < extra; i++) {
-        const e = g.randomEnemy(p.x, p.y, 420);
-        if (e) slam(e.x, e.y);
-      }
+      if (g.dmgScale === 1) S.streak = g.rules.planted ? Math.min(PLANT_MAX, (S.streak || 0) + 1) : 0;
+      const r = g.area(st.radius) * (1 + PLANT_GROW * (S.streak || 0)) * (0.85 + 0.15 * note.v);
+      const boss = note.s === 0 ? g.bossInRange(p.x, p.y, 320) : null;
+      const x = boss ? boss.x : p.x, y = boss ? boss.y : p.y;
+      slam(g, x, y, r, g.dmg(st.damage) * note.v, st.kb, st.stun, color);
+      // Thunder: the slam rolls on out around you as a shockwave.
+      if (st.thunder) g.fx.ring({ x, y, follow: !boss, r0: r * 0.6, r1: r * 1.4, dur: 0.32, damage: g.dmg(st.damage * st.thunder) * note.v, kb: 120, width: 5, color });
       g.shake = Math.max(g.shake, 3.5 * note.v);
     } else {
       g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 10, r1: g.area(st.rimRadius), dur: 0.16, damage: g.dmg(st.rimDamage), kb: 260, color, width: 3 });
     }
   },
 
-  // A taiko ensemble: the great odaiko on the downbeat slams the boss or the biggest crowd, hurls the enemies
-  // at its heart out into the rest and booms on through the hall as a shockwave, and the small shime rolls the
-  // thunder out the way you face.
+  // A taiko ensemble: the great odaiko on the downbeat slams the ground around you (or the boss in range), hurls
+  // the enemies at its heart out into the rest and booms on through the hall as a shockwave, and the small shime
+  // rolls the thunder out the way you face.
   remix: {
     id: 'thunderhall', name: 'Thunder Hall', pedal: 'reverb',
-    text: 'The great drum hurls the crowd apart, and a drum roll thunders out the way you face.',
+    text: 'The great drum hurls the crowd around you apart, and a drum roll thunders out the way you face.',
     sound: 'a great odaiko drum on the downbeat and a tight shime roll at the end of every bar.',
     // The rim comes first, so fills and rolls play rims.
     pattern: [R(4), R(12), D(0), K(3, 0.55), K(6, 0.6), K(8, 0.85), K(10, 0.7), K(14, 0.75), T(12, 0.5), T(13, 0.65), T(14, 0.8), T(15, 1)],
-    stats: { damage: 20, odaikoDamage: 44, odaikoReach: 1.9, odaikoStun: 0.9, hallDamage: 16, hurl: 6, hurlSpeed: 640, hurlDamage: 34,
-      shimeDamage: 30, shimeRadius: 76, shimeStep: 85 },
+    stats: { damage: 42, rimDamage: 20, odaikoDamage: 64, odaikoReach: 1.5, odaikoStun: 0.9, hallDamage: 24, hurl: 6, hurlSpeed: 600, hurlDamage: 36,
+      shimeDamage: 38, shimeRadius: 62, shimeStep: 55 },
     fire(g, note, st, inst) {
       const p = g.player;
       const color = g.color('beat');
       if (note.k === 'odaiko') {
-        // On the boss in range, else the biggest crowd, else just ahead of you.
-        const spot = g.bossInRange(p.x, p.y, 480) || g.densest(480);
-        const x = spot ? spot.x : p.x + Math.cos(g.aim()) * 90, y = spot ? spot.y : p.y + Math.sin(g.aim()) * 90;
+        // Around you, or on the boss in range.
+        const boss = g.bossInRange(p.x, p.y, 320);
+        const x = boss ? boss.x : p.x, y = boss ? boss.y : p.y;
         const r = g.area(st.radius) * st.odaikoReach;
-        g.fx.pulse({ x, y, r, damage: g.dmg(st.odaikoDamage) * note.v, kb: 0, stun: st.odaikoStun, color, fill: 0.4, flashLife: 0.4 });
+        slam(g, x, y, r, g.dmg(st.odaikoDamage) * note.v, 0, st.odaikoStun, color);
         // Its boom rolls on through the hall as a shockwave.
-        g.fx.ring({ x, y, r0: r * 0.5, r1: r * 2.2, dur: 0.5, damage: g.dmg(st.hallDamage) * note.v, kb: 120, stun: 0.3, width: 10, color });
+        g.fx.ring({ x, y, follow: !boss, r0: r * 0.5, r1: r * 1.5, dur: 0.45, damage: g.dmg(st.hallDamage) * note.v, kb: 120, stun: 0.3, width: 10, color });
         g.fx.particles(x, y, color, 24, 340, 0.6, 3.5);
         // The enemies at its heart fly out from the center, crashing into the rest.
         let n = 0;
@@ -238,6 +253,15 @@ const taiko = {
   },
 };
 
+const PLANT_GROW = 0.15;   // Taiko: how much farther each planted slam in a row reaches
+const PLANT_MAX = 3;       // ... and how many in a row count
+
+// A taiko slam: an instant blow on the ground at (x, y).
+function slam(g, x, y, r, damage, kb, stun, color) {
+  g.fx.pulse({ x, y, r, damage, kb, stun, color, fill: 0.3 });
+  g.fx.particles(x, y, color, 10, 240, 0.4, 3);
+}
+
 // ---------------------------------------------------------------------------- 8-Bit Drums (8-Bit)
 
 const chipDrums = {
@@ -245,24 +269,24 @@ const chipDrums = {
   name: '8-Bit Drums',
   role: 'beat',
   style: 'chip',
-  blurb: 'Crunchy console drums. Each hit fires a block that ricochets between enemies.',
+  blurb: 'Crunchy console drums. Each hit fires blocks along the grid that ricochet between enemies.',
   steps: 16,
   levels: [
-    { text: 'Kick and snare on the beat. Blocks ricochet twice.',
+    { text: 'Kicks fire two blocks along the straight lines, snares along the diagonals, a quarter turn each hit. Blocks ricochet twice.',
       pattern: [K(0), S(4), K(8), S(12)],
-      stats: { damage: 9, bounce: 2, size: 7, speed: 430 } },
+      stats: { damage: 10, bounce: 2, size: 7, speed: 440, count: 2, life: 0.75 } },
     { text: 'Adds an off-beat kick. Blocks ricochet three times.',
       pattern: [K(0), S(4), K(8), K(10, 0.8), S(12)],
-      stats: { damage: 10, bounce: 3, size: 7, speed: 450 } },
-    { text: 'Every hit fires two blocks.',
+      stats: { damage: 11, bounce: 3, size: 7, speed: 460, count: 2, life: 0.75 } },
+    { text: 'Every hit fires the whole cross: four blocks.',
       pattern: [K(0), S(4), K(8), K(10, 0.8), S(12)],
-      stats: { damage: 9, bounce: 3, size: 7.5, speed: 460, count: 2 } },
+      stats: { damage: 9, bounce: 3, size: 7.5, speed: 470, count: 4, life: 0.72 } },
     { text: 'A snare roll at the end of each bar.',
       pattern: [K(0), S(4), K(6, 0.7), K(8), K(10, 0.8), S(12), S(14, 0.6), S(15, 0.75)],
-      stats: { damage: 10, bounce: 4, size: 8, speed: 480, count: 2 } },
+      stats: { damage: 10, bounce: 4, size: 8, speed: 490, count: 4, life: 0.7 } },
     { text: 'Blocks ricochet six times and punch through enemies.',
       pattern: [K(0), S(4), K(6, 0.7), K(8), K(10, 0.8), S(12), S(14, 0.6), S(15, 0.75)],
-      stats: { damage: 12, bounce: 6, size: 9, speed: 520, count: 2, pierce: 1 } },
+      stats: { damage: 12, bounce: 6, size: 9, speed: 520, count: 4, pierce: 1, life: 0.68 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -285,12 +309,20 @@ const chipDrums = {
     }
   },
 
-  fire(g, note, st) {
-    const p = g.player;
+  // Kicks fire blocks along the straight lines (+), snares along the diagonals (x), a quarter turn each hit, so
+  // the kit sprays the whole grid around you whichever way you dodge; a block that hits ricochets on to the next
+  // enemy. The bar's first hit fires its whole volley at a boss in range instead.
+  fire(g, note, st, inst) {
+    const p = g.player, S = inst.state;
     const n = g.amount(st.count || 1);
-    // The bar's first hit goes at a boss in range.
-    const target = (note.s === 0 && g.bossInRange(p.x, p.y, 520)) || g.nearest(p.x, p.y, 520);
-    blocks(g, note, st, n, target ? Math.atan2(target.y - p.y, target.x - p.x) : g.aim(), 0.35);
+    const diag = note.k !== 'kick';
+    const turn = diag ? (S.sTurn = ((S.sTurn || 0) + 1) & 3) : (S.kTurn = ((S.kTurn || 0) + 1) & 3);
+    const base = (diag ? Math.PI / 4 : 0) + turn * (Math.PI / 2);
+    const boss = note.s === 0 ? g.bossInRange(p.x, p.y, 400) : null;
+    const at = boss ? Math.atan2(boss.y - p.y, boss.x - p.x) : 0;
+    for (let i = 0; i < n; i++) {
+      block(g, note, st, boss ? at + (i - (n - 1) / 2) * 0.16 : GRID * Math.round((base + (i * TAU) / n) / GRID));
+    }
   },
 
   // A snare ratchet closes every bar and each of its 16ths fires blocks behind you, so running away leaves a
@@ -301,27 +333,27 @@ const chipDrums = {
     sound: 'a chattering 16th snare ratchet closing every bar, and bit-flipped glitch blips.',
     // The snare comes first, so fills and rolls play snares (a fill is a ratchet too).
     pattern: [S(4), K(0), G(2, 0.7), K(6, 0.7), K(8), K(10, 0.8), G(11, 0.6), S(12, 0.6), S(13, 0.7), S(14, 0.85), S(15)],
-    stats: { damage: 14, ratchetCount: 3, glitchShare: 0.7, glitchMax: 4 },
+    stats: { damage: 16, ratchetCount: 4, glitchShare: 0.7, glitchMax: 4 },
     fire(g, note, st, inst) {
       if (note.k === 'glitch') {
         if (!glitchSplit(g, st, inst)) this.fire(g, note, st, inst);   // nothing in flight: a plain volley
       } else if (note.k === 'snare' && note.s >= 12) {
         // The ratchet: blocks fly out behind you (at the nearest enemy back there), fanning across the four 16ths.
-        const back = aimArc(g, g.aim() + Math.PI, 1.2, 480);
-        blocks(g, note, st, g.amount(st.ratchetCount), back + ((note.s & 3) - 1.5) * 0.22, 0.3);
+        const back = aimArc(g, g.aim() + Math.PI, 1.2, 400), n = g.amount(st.ratchetCount);
+        for (let i = 0; i < n; i++) block(g, note, st, back + ((note.s & 3) - 1.5) * 0.22 + (i - (n - 1) / 2) * 0.3);
       } else this.fire(g, note, st, inst);
     },
   },
 };
 
-// A volley of n ricocheting blocks centered on angle `base`, `gap` radians apart. Kicks throw them bigger and slower.
-function blocks(g, note, st, n, base, gap) {
-  const p = g.player, color = g.color('beat'), kick = note.k === 'kick';
-  for (let i = 0; i < n; i++) {
-    g.fx.bullet({ x: p.x, y: p.y, angle: base + (i - (n - 1) / 2) * gap, speed: g.speed(st.speed) * (kick ? 0.9 : 1.1),
-      r: st.size * (kick ? 1.1 : 0.85), life: 1.6, damage: g.dmg(st.damage) * note.v,
-      bounce: st.bounce, pierce: st.pierce || 0, kb: 70, color, shape: 'square', spin: 8 });
-  }
+const GRID = Math.PI / 4;   // 8-Bit Drums fire on the eight grid directions
+
+// One ricocheting block from you along `angle`. Kicks throw them bigger and slower.
+function block(g, note, st, angle) {
+  const p = g.player, kick = note.k === 'kick';
+  g.fx.bullet({ x: p.x, y: p.y, angle, speed: g.speed(st.speed) * (kick ? 0.9 : 1.1),
+    r: st.size * (kick ? 1.1 : 0.85), life: st.life, damage: g.dmg(st.damage) * note.v,
+    bounce: st.bounce, pierce: st.pierce || 0, kb: 70, color: g.color('beat'), shape: 'square', spin: 8 });
 }
 
 // Glitch Kit: every block of the kit in flight glitches in two (at most glitchMax): the copy jumps off at an
@@ -335,7 +367,7 @@ function glitchSplit(g, st, inst) {
     if (b.src !== inst || b.dead || b.glitch) continue;
     b.glitch = true;
     const c = g.fx.bullet({ x: b.x, y: b.y, angle: Math.atan2(b.vy, b.vx) + (n & 1 ? 1.1 : -1.1), speed: Math.hypot(b.vx, b.vy), r: b.r * 0.85,
-      life: 1.1, damage: b.damage * st.glitchShare, bounce: Math.max(1, b.bounce - 2), pierce: b.pierce, kb: 50, color: b.color, shape: 'square', spin: -12 });
+      life: 0.7, damage: b.damage * st.glitchShare, bounce: Math.max(1, b.bounce - 2), pierce: b.pierce, kb: 50, color: b.color, shape: 'square', spin: -12 });
     if (!c) break;
     c.glitch = true;
     for (const e of b.hit) c.hit.add(e);

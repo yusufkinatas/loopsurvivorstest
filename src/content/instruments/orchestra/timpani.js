@@ -1,9 +1,10 @@
-// BEAT, Orchestra: Timpani. Kettle drums tuned to the chord's root (MIDI 38-49, in key by construction). Soft
-// hits and rolls gather a resonance around you (motes that spin wider and faster); an accent booms it out as one
+// BEAT, Orchestra: Timpani. Kettle drums tuned to the chord's root (MIDI 38-49, in key by construction). Placed
+// and timed: the first soft hit or roll after a boom sets a kettle down on the thickest crowd near you (it rides
+// along with that crowd), every soft stroke tunes it up (its circle grows), and an accent booms it out as one
 // shockwave sized by what was gathered. Fills and the Build-Up are timpani rolls: a fill's last stroke releases
 // at the top of the phrase, and the Build-Up's 8 bars of rolls release on The Drop's downbeat.
 
-import { STEP_SEC, BEAT_SEC } from '../../../config.js';
+import { STEP_SEC, BEAT_SEC, BAR_SEC } from '../../../config.js';
 import { mtof } from '../../../music/theory.js';
 
 // Pattern helpers: step s, velocity v; a roll lasts d steps (16 strokes a second).
@@ -35,24 +36,24 @@ export default {
   name: 'Timpani',
   role: 'beat',
   style: 'orchestra',
-  blurb: 'Kettle drums tuned to the chord: rolls gather power, accents boom it out.',
+  blurb: 'Kettle drums tuned to the chord: soft strokes set a kettle on the crowd and tune it, accents boom it out.',
   steps: 16,
   levels: [
-    { text: "A soft hit and roll charge each bar's boom.",
+    { text: 'A soft hit sets a kettle down on the thickest crowd near you, a roll tunes it up, and the downbeat booms it out.',
       pattern: TIMP_1,
-      stats: { damage: 9, radius: 112, kb: 150, stun: 0, reach: 460 } },
+      stats: { damage: 9, radius: 96, kb: 150, stun: 0, reach: 300 } },
     { text: 'A second boom answers the soft hit.',
       pattern: TIMP_2,
-      stats: { damage: 13, radius: 128, kb: 160, stun: 0, reach: 460 } },
-    { text: 'Soft hits charge each boom. Booms stun.',
+      stats: { damage: 13, radius: 104, kb: 160, stun: 0, reach: 310 } },
+    { text: 'Soft hits tune each boom. Booms stun.',
       pattern: TIMP_3,
-      stats: { damage: 17, radius: 145, kb: 170, stun: 0.2, reach: 470 } },
+      stats: { damage: 19, radius: 112, kb: 170, stun: 0.2, reach: 320 } },
     { text: 'Another soft hit. Bigger booms.',
       pattern: TIMP_4,
-      stats: { damage: 22, radius: 162, kb: 180, stun: 0.3, reach: 480 } },
+      stats: { damage: 28, radius: 122, kb: 180, stun: 0.3, reach: 330 } },
     { text: 'A third boom on beat two.',
       pattern: TIMP_5,
-      stats: { damage: 30, radius: 185, kb: 190, stun: 0.35, reach: 500 } },
+      stats: { damage: 40, radius: 132, kb: 190, stun: 0.35, reach: 340 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -109,79 +110,106 @@ export default {
     A.duck(t, (0.32 + 0.02 * c) * note.v, 0.22);
   },
 
-  setup(g, st, inst) { motes(g, inst); },
+  // The kettle rides along with the crowd it was set on.
+  update(g, dt, st, inst) {
+    const S = inst.state, m = kettleOf(g, inst), e = S.anchor;
+    if (!m || !e || e.dead) return;
+    const k = Math.min(1, dt * 6);
+    m.x += (e.x - m.x) * k; m.y += (e.y - m.y) * k;
+  },
 
   fire(g, note, st, inst) { strike(g, note, st, inst); },
 
   remix: {
     id: 'overture1812', name: '1812', pedal: 'reverb',
-    text: 'A boom on every beat, each firing cannons at the heaviest crowds ahead.',
+    text: 'A boom on every beat, each firing cannons at the heaviest crowds the kettle missed.',
     pattern: TIMP_RX,
-    stats: { damage: 32, radius: 220, cannons: 3, cannon: 36, cannonR: 85, reach: 600 },
+    stats: { damage: 42, radius: 140, cannons: 3, cannon: 32, cannonR: 70, reach: 360 },
   },
 };
 
-// The resonance you carry: motes circling the speaker, one per unit gathered, wider and faster as it grows.
-function motes(g, inst) {
-  const c = inst.state.charge || 0;
-  g.fx.orbit(inst, { count: Math.min(CAP, Math.floor(c)), radius: 30 + 4 * c, speed: 2.4 + 0.45 * c, size: 3, color: g.color(inst), shape: 'ring' });
+const GROW = 12;            // px a boom reaches farther per unit gathered
+const GROW_MAX = 96;        // ... and at most this much farther
+const reachOf = (g, st, c) => g.area(st.radius + Math.min(GROW * c, GROW_MAX));
+
+// The kettle of this Timpani, if one is down.
+function kettleOf(g, inst) {
+  const id = inst.def.id;
+  for (const m of g.fx.mines) if (m.owner === id) return m;
+  return null;
 }
 
-// One note. Rolls and soft hits gather (no damage): a ring closes in on you at the size the next boom will
-// reach. An accent (a downbeat hit, or any hit or fill stroke at 0.95) releases it all as one shockwave. In the
-// Build-Up's roll bars the roll gathers and the kicks under it boom at their own size, so the whole roll comes
-// out on The Drop's downbeat. An echo only booms at its own strength and never touches the resonance.
+// Set the kettle down on the thickest crowd within reach (just ahead of you when nobody is there).
+function setKettle(g, st, inst) {
+  const p = g.player, S = inst.state;
+  const spot = g.densest(st.reach);
+  const a = g.aim();
+  const x = spot ? spot.x : p.x + Math.cos(a) * 90, y = spot ? spot.y : p.y + Math.sin(a) * 90;
+  S.anchor = spot ? spot.enemy : null;
+  const m = g.fx.mine({ owner: inst.def.id, x, y, r: reachOf(g, st, 0), damage: 0, kb: 0, color: g.color(inst), life: 9 * BAR_SEC, max: 1, size: 5, persist: true });
+  g.fx.flash(x, y, 26, m.color, 0.25, 0.3);
+  return m;
+}
+
+// One note. Rolls and soft hits gather (no damage): the first one after a boom sets the kettle down, and each
+// tunes it up (its circle grows to the size the boom will reach, and a ring closes in on it). An accent (a
+// downbeat hit, or any hit or fill stroke at 0.95) booms it all out from the kettle as one shockwave (from a boss
+// in reach on the bar's first hit; from you when no kettle is down). In the Build-Up's roll bars the roll gathers
+// and the kicks under it boom at their own size, so the whole roll comes out on The Drop's downbeat. An echo only
+// booms at its own strength where the kettle stands, and never touches the kettle or the resonance.
 function strike(g, note, st, inst) {
   const S = inst.state;
   const echo = g.dmgScale !== 1;
   const rollBar = !!g.song?.position(note.bar)?.arr?.roll;
   const accent = note.k === 'kick' ? note.s === 0 || note.v >= ACCENT : note.v >= ACCENT && note.s === 15;
-  if (rollBar && note.k === 'kick') { boomAt(g, note, st, inst, 0, swell(note.phrase)); return; }
+  if (rollBar && note.k === 'kick') { boomAt(g, note, st, inst, 0, swell(note.phrase), kettleOf(g, inst)); return; }
   if (rollBar || !accent) {
     if (echo) return;
+    let m = kettleOf(g, inst);
+    if (!m || S.fresh !== false) { m = setKettle(g, st, inst); S.fresh = false; }
     const add = note.k === 'roll' ? 0.5 * note.v * stepsOf(note) : note.v;
     S.charge = Math.min(CAP, (S.charge || 0) + add);
     S.peak = Math.max(S.peak || 0, note.phrase ?? 0.5);
-    gather(g, st, S.charge, g.color(inst));
-    motes(g, inst);
+    m.r = reachOf(g, st, S.charge);
+    m.size = 5 + 0.6 * S.charge;
+    m.glow = 1;
+    g.fx.ring({ x: m.x, y: m.y, r0: m.r, r1: 14, dur: 0.24, damage: 0, kb: 0, color: m.color, width: 1.5 + 0.4 * S.charge });
     return;
   }
   const c = echo ? 0 : S.charge || 0;
   // A release carries the swell of the roll that gathered it, so the Build-Up still lands full on The Drop.
   const sw = swell(Math.max(note.phrase ?? 0.5, echo ? 0 : S.peak || 0));
-  if (!echo) { S.charge = 0; S.peak = 0; motes(g, inst); }
-  const boom = boomAt(g, note, st, inst, c, sw);
+  const m = kettleOf(g, inst);
+  if (!echo) {
+    S.charge = 0; S.peak = 0; S.fresh = true;
+    if (m) g.fx.mines.splice(g.fx.mines.indexOf(m), 1);
+  }
+  const boom = boomAt(g, note, st, inst, c, sw, m);
   if (inst.remix && st.cannons) cannons(g, note, st, c, sw, boom);
 }
 
-// A boom of resonance c: one shockwave from you, or from a boss in reach on the bar's first hit. Returns the
-// boss it landed on (or null) and its reach.
-function boomAt(g, note, st, inst, c, sw) {
+// A boom of resonance c: one shockwave from the kettle m (or from a boss in reach on the bar's first hit, or from
+// you when no kettle is down). Returns where it landed, the boss it landed on (or null) and its reach.
+function boomAt(g, note, st, inst, c, sw, m) {
   const p = g.player;
   const color = g.color(inst);
   const boss = note.s === 0 ? g.bossInRange(p.x, p.y, st.reach) : null;
-  const x = boss ? boss.x : p.x, y = boss ? boss.y : p.y;
-  const r1 = g.area(Math.min(st.radius + 25 * c, st.radius + 190)) * (0.85 + 0.15 * note.v);
+  const at = boss || m;
+  const x = at ? at.x : p.x, y = at ? at.y : p.y;
+  const r1 = reachOf(g, st, c) * (0.85 + 0.15 * note.v);
   const mul = Math.min(4, 1 + 0.35 * c);
-  g.fx.ring({ x, y, follow: !boss, r0: boss ? boss.r : 18, r1, dur: 0.28 + 0.025 * c, damage: g.dmg(st.damage) * note.v * mul * sw,
+  g.fx.ring({ x, y, follow: !at, r0: boss ? boss.r : 18, r1, dur: 0.28 + 0.025 * c, damage: g.dmg(st.damage) * note.v * mul * sw,
     kb: st.kb * (1 + 0.06 * c), stun: (st.stun || 0) * (1 + 0.1 * c), color, width: 6 + 1.2 * c });
-  if (c >= 3) g.fx.ring({ x, y, follow: !boss, r0: 10, r1: r1 * 0.6, dur: 0.22, damage: 0, kb: 0, color: '#ffffff', width: 3 });
+  if (c >= 3) g.fx.ring({ x, y, follow: !at, r0: 10, r1: r1 * 0.6, dur: 0.22, damage: 0, kb: 0, color: '#ffffff', width: 3 });
   g.fx.flash(x, y, 40 + 6 * c, color, 0.25, 0.3);
   g.fx.particles(x, y, color, 8 + 3 * c, 200 + 30 * c, 0.45, 3);
   g.shake = Math.max(g.shake, (2.5 + 0.6 * c) * note.v);
-  return { boss, r: r1 };
+  return { x, y, boss, r: r1 };
 }
 
-// Gathering: a thin ring closes in on you from where the next boom will reach.
-function gather(g, st, c, color) {
-  const p = g.player;
-  const r = g.area(Math.min(st.radius + 25 * c, st.radius + 190));
-  g.fx.ring({ x: p.x, y: p.y, follow: true, r0: r, r1: 22, dur: 0.24, damage: 0, kb: 0, color, width: 1.5 + 0.4 * c });
-}
-
-// 1812: each boom also fires cannons (more the more it gathered, up to 6) over the shockwave, at the biggest
-// targets beyond it: the boss before all, then the heaviest knots of enemies (an enemy and everything around it,
-// by health), those ahead of you counting more. Each shell falls two 16ths later, on the off-beat.
+// 1812: each boom also fires cannons (more the more it gathered, up to 6) from you at the biggest targets in reach
+// outside the shockwave: the boss before all, then the heaviest knots of enemies (an enemy and everything around
+// it, by health), those ahead of you counting more. Each shell falls two 16ths later, on the off-beat.
 function cannons(g, note, st, c, sw, boom) {
   const p = g.player;
   const n = Math.min(6, g.amount(st.cannons + Math.floor(c / 1.5)));
@@ -193,7 +221,7 @@ function cannons(g, note, st, c, sw, boom) {
   const cand = [];
   for (const e of g.inRadius(p.x, p.y, reach)) {
     if (e.boss || e.spawnT > 0.2) continue;
-    const dx = e.x - p.x, dy = e.y - p.y;
+    const dx = e.x - boom.x, dy = e.y - boom.y;
     if (dx * dx + dy * dy >= near * near) cand.push(e);
   }
   // Weigh at most 24 of them (every k-th, so it stays deterministic), each by the health inside its blast.
