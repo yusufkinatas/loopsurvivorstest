@@ -4,8 +4,29 @@
 const caches = new WeakMap();
 function cacheFor(ctx) {
   let c = caches.get(ctx);
-  if (!c) { c = { noise: null, step: {}, pulse: {}, pluck: new Map() }; caches.set(ctx, c); }
+  if (!c) { c = { noise: null, step: {}, pulse: {}, pluck: new Map(), drive: new Map() }; caches.set(ctx, c); }
   return c;
+}
+
+// Soft-clipping curve for drive: tanh(k x) / tanh(k), so full scale stays full scale and k sets the grit.
+// One curve per k (to 0.1) per context, shared by every driven note. No oversampling: cheap, a touch of fizz.
+export function driveCurve(ctx, k) {
+  const c = cacheFor(ctx);
+  const key = Math.round(Math.max(0.1, k) * 10) / 10;
+  let curve = c.drive.get(key);
+  if (!curve) {
+    const n = 1024, norm = Math.tanh(key);
+    curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) curve[i] = Math.tanh(key * ((i / (n - 1)) * 2 - 1)) / norm;
+    c.drive.set(key, curve);
+  }
+  return curve;
+}
+
+function shaper(ctx, k) {
+  const s = ctx.createWaveShaper();
+  s.curve = driveCurve(ctx, k);
+  return s;
 }
 
 const FLOOR = 0.0001;
@@ -92,14 +113,15 @@ function makeFilter(ctx, t, filter) {
   return f;
 }
 
-// Generic subtractive voice: oscillators -> amp env -> optional filter -> out.
+// Generic subtractive voice: oscillators -> (drive) -> amp env -> optional filter -> out.
 // Options: freq, wave ('sawtooth'|'square'|'triangle'|'sine'), duty (pulse), unison, spread (cents), detune,
 // dur, a, d, s, r, gain, filter {type,freq,q,env,decay,to,time}, pitchEnv {from, time}, vibrato {rate, depth, delay},
-// sub (level of sine an octave below), pan.
+// sub (level of sine an octave below, kept clean), pan, drive (k > 0: the oscillators run through a tanh
+// soft clipper before the envelope, so `gain` stays the peak; about 1.5 warm, 3 crunchy, 6 fuzz).
 export function tone(ctx, out, t, o) {
   const {
     freq, wave = 'sawtooth', duty = 0, dur = 0.2, a = 0.004, d = 0.15, s = 0.6, r = 0.08, gain = 0.3,
-    unison = 1, spread = 10, detune = 0, filter = null, pitchEnv = null, vibrato = null, sub = 0, pan = 0,
+    unison = 1, spread = 10, detune = 0, filter = null, pitchEnv = null, vibrato = null, sub = 0, pan = 0, drive = 0,
   } = o;
   const g = ctx.createGain();
   g.gain.value = 0;
@@ -107,7 +129,19 @@ export function tone(ctx, out, t, o) {
   const nodes = [g];
   if (filter) { const f = makeFilter(ctx, t, filter); g.connect(f); head = f; nodes.push(f); }
   nodes.push(...chain(ctx, head, out, { pan }));
-  const end = env(g.gain, t, { a, d, s, r, peak: gain / Math.sqrt(unison + (sub ? 0.5 : 0)), hold: Math.max(0, dur - a) });
+  // Driven: the summed oscillators are scaled to about full scale, then clipped, so the clipper sees the same
+  // level whatever the unison count.
+  let into = g;
+  if (drive > 0) {
+    const pre = ctx.createGain();
+    pre.gain.value = 1 / Math.sqrt(unison);
+    const sh = shaper(ctx, drive);
+    pre.connect(sh); sh.connect(g);
+    into = pre;
+    nodes.push(pre, sh);
+  }
+  const voices = drive > 0 ? 1 : unison;
+  const end = env(g.gain, t, { a, d, s, r, peak: gain / Math.sqrt(voices + (sub ? 0.5 : 0)), hold: Math.max(0, dur - a) });
   const oscs = [];
   let lfo = null, lfoGain = null;
   if (vibrato) {
@@ -129,7 +163,7 @@ export function tone(ctx, out, t, o) {
     } else osc.frequency.setValueAtTime(f, t);
     osc.detune.setValueAtTime(det, t);
     if (lfoGain) lfoGain.connect(osc.detune);
-    osc.connect(g);
+    osc.connect(into);
     osc.start(t); osc.stop(end + 0.03);
     oscs.push(osc);
     return osc;
@@ -246,9 +280,10 @@ function pluckBuffer(ctx, freq, decay, bright, dur) {
   return hit;
 }
 
-// Options: freq, decay (0.99..0.999), bright (0..1), dur, gain, pan, filter.
+// Options: freq, decay (0.99..0.999), bright (0..1), dur, gain, pan, filter, drive (k > 0: the string runs
+// through a tanh soft clipper before its gain, so it crunches hardest on the attack and cleans up as it rings).
 export function pluck(ctx, out, t, o) {
-  const { freq, decay = 0.995, bright = 0.5, dur = 1.0, gain = 0.4, pan = 0, filter = null, len = 1.6 } = o;
+  const { freq, decay = 0.995, bright = 0.5, dur = 1.0, gain = 0.4, pan = 0, filter = null, len = 1.6, drive = 0 } = o;
   const { buf, rate } = pluckBuffer(ctx, freq, decay, bright, len);
   const src = ctx.createBufferSource();
   src.buffer = buf;
@@ -262,7 +297,8 @@ export function pluck(ctx, out, t, o) {
   let head = g;
   if (filter) { const f = makeFilter(ctx, t, filter); g.connect(f); head = f; nodes.push(f); }
   nodes.push(...chain(ctx, head, out, { pan }));
-  src.connect(g);
+  if (drive > 0) { const sh = shaper(ctx, drive); src.connect(sh); sh.connect(g); nodes.push(sh); }
+  else src.connect(g);
   src.start(t);
   src.stop(end + 0.02);
   src.onended = () => { for (const n of nodes) n.disconnect(); };
