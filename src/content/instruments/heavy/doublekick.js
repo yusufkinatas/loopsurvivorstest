@@ -98,7 +98,7 @@ export default {
     text: 'Each downbeat hurls the crowd together in front of you, or into a boss.',
     sound: 'a half-time breakdown, and the downbeat pumps the whole mix.',
     pattern: WALL,
-    stats: { radius: 250, wallRadius: 360, wallDamage: 1.5, crash: 0.9, crashMax: 6 },
+    stats: { damage: 28, radius: 230, wallRadius: 270, wallDamage: 1.5, crash: 0.9, crashMax: 6 },
     fire(g, note, st, inst) {
       if (note.k !== 'kick' || note.s !== 0) { this.fire(g, note, st, inst); return; }
       wallOfDeath(g, note, st);

@@ -1,7 +1,7 @@
-// GROOVE, Heavy: Ride Cymbal. A washy metal ride with a glassy bell. Each bell plants a spinning cymbal
-// where you stand (or strikes the one you are standing on), and every note of the ride makes all of your
-// planted cymbals ring at once. Moving lays a chiming minefield along your path for whatever follows you;
-// standing your ground keeps them ringing around your feet.
+// GROOVE, Heavy: Ride Cymbal. A washy metal ride with a glassy bell. Each bell slams a spinning cymbal down
+// at your feet (or strikes the one you are standing on), a close crash that shoves the pit back and stuns it, and
+// every note of the ride makes all of your planted cymbals ring at once. Moving lays a chiming minefield along
+// your path for whatever follows you; standing your ground keeps the crashes at your feet.
 
 import { BAR_SEC } from '../../../config.js';
 
@@ -30,10 +30,10 @@ export default {
   name: 'Ride Cymbal',
   role: 'perc',
   style: 'heavy',
-  blurb: 'A metal ride whose bells plant cymbals that ring on every note.',
+  blurb: 'A metal ride whose bells slam cymbals down at your feet, shoving the pit back, and the ride rings them.',
   steps: 16,
   levels: [
-    { text: 'Bells plant cymbals. The ride rings them.',
+    { text: 'Bells slam cymbals down at your feet, shoving enemies back. The ride rings them.',
       pattern: RIDE_1,
       stats: { damage: 5, radius: 44, cymbals: 2, bell: 1.3 } },
     { text: 'The ride on the beat too. Three cymbals.',
@@ -90,7 +90,8 @@ export default {
       if (m) {
         m.age = Math.min(m.age, 0.05);
         m.glow = 1;
-        g.fx.pulse({ x: m.x, y: m.y, r: r * 1.35, damage: dmg * st.bell, kb: 90, stun: 0.15, color, fill: 0.2 });
+        // The bell's crash: a close blow that shoves the pit back off the cymbal and stuns it.
+        g.fx.pulse({ x: m.x, y: m.y, r: r * 1.35, damage: dmg * st.bell, kb: 220, stun: 0.25, color, fill: 0.2 });
       }
     }
     // Every note rings all of your cymbals where they stand.
@@ -101,7 +102,7 @@ export default {
     id: 'chinacrash', name: 'China Crash', pedal: 'bitcrusher',
     text: 'Wired cymbals fire down the wires, and chinas strike inside the fence.',
     pattern: CHINA,
-    stats: { cymbals: 6, radius: 74, wire: 1, crash: 1.2 },
+    stats: { damage: 16, cymbals: 6, radius: 74, wire: 1.2, crash: 1.3 },
     fire(g, note, st, inst) {
       if (note.k !== 'china') this.fire(g, note, st, inst);
       else g.fx.ringMines(inst.def.id, { damage: g.dmg(st.damage) * note.v, r: g.area(st.radius), kb: 24 });

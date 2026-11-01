@@ -88,7 +88,7 @@ export default {
     text: 'Each tap ripples down a longer line, and the last drummer throws confetti.',
     pattern: PARADE,
     steps: 32,
-    stats: { drummers: 9, jab: 33, reach: 140, width: 9, pierce: 3, gap: 34, confetti: 7, confettiDamage: 28, toss: 460, stick: 1 },
+    stats: { drummers: 9, jab: 36, reach: 130, width: 9, pierce: 3, gap: 34, confetti: 7, confettiDamage: 28, toss: 300, stick: 1 },
     fire(g, note, st, inst) { tap(g, note, st, inst, true); },
   },
 };

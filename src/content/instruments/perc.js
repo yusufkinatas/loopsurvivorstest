@@ -1,7 +1,9 @@
 // PERC channel ("Groove"): hats and shakers. High, light and busy: many small hits between the beats,
 // off-beat 8ths first, then 16ths and ghost notes. Step 0 belongs to the kick, so low levels stay off it.
+// Each sound plays its style: the drum machine fires needles the way you face, the shaker's seeds circle close
+// around you, and the console hats' static crawls on through the crowd from wherever it struck last.
 
-import { rand, clamp } from '../../util.js';
+import { rand, clamp, dist2 } from '../../util.js';
 
 // Pattern helpers: step s, velocity v, kind k.
 const H = (s, v = 1) => ({ s, v, k: 'hat' });
@@ -13,15 +15,8 @@ const C = (s, v = 1) => ({ s, v, k: 'crash' });
 // Repeat a one-bar figure across both bars of a 32-step pattern.
 const twice = (notes) => [...notes, ...notes.map((n) => ({ ...n, s: n.s + 16 }))];
 
-// Where to aim: the nearest enemy in range, or the way you are facing.
-const aimAt = (g, range) => {
-  const p = g.player;
-  const e = g.nearest(p.x, p.y, range);
-  return e ? Math.atan2(e.y - p.y, e.x - p.x) : g.aim();
-};
-
-// Angle to the nearest enemy within `half` radians of `angle` (a side of you), else `angle` itself.
-function aimArc(g, angle, half, range) {
+// Angle to the nearest enemy within `half` radians of `angle` (a side of you), else null.
+function lockOn(g, angle, half, range) {
   const p = g.player, ax = Math.cos(angle), ay = Math.sin(angle), c = Math.cos(half);
   let best = null, bd = range * range;
   g.grid.query(p.x, p.y, range, (e) => {
@@ -29,8 +24,11 @@ function aimArc(g, angle, half, range) {
     const dx = e.x - p.x, dy = e.y - p.y, d = dx * dx + dy * dy;
     if (d < bd && dx * ax + dy * ay >= c * Math.sqrt(d)) { bd = d; best = e; }
   });
-  return best ? Math.atan2(best.y - p.y, best.x - p.x) : angle;
+  return best ? Math.atan2(best.y - p.y, best.x - p.x) : null;
 }
+
+// Angle to the nearest enemy within `half` radians of `angle`, else `angle` itself.
+const aimArc = (g, angle, half, range) => lockOn(g, angle, half, range) ?? angle;
 
 // ---------------------------------------------------------------------------- Drum Machine Hats (Synth)
 
@@ -52,24 +50,24 @@ const hats909 = {
   name: 'Drum Machine Hats',
   role: 'perc',
   style: 'synth',
-  blurb: 'Crisp electronic hi-hats. Every tick fires a fast needle at the nearest enemy.',
+  blurb: 'Crisp electronic hi-hats. Every tick fires a fast needle along the line you are moving: ahead, else back at a chaser.',
   steps: 16,
   levels: [
-    { text: 'A crisp tick between every beat. Each tick fires a needle at the nearest enemy.',
+    { text: 'A crisp tick between every beat. Each tick fires a needle along your path: at an enemy just ahead, else back at one chasing you.',
       pattern: HATS_1,
-      stats: { damage: 30, pierce: 1, speed: 760, range: 380 } },
+      stats: { damage: 42, pierce: 1, speed: 760, range: 360, lock: 0.8 } },
     { text: 'Adds softer ticks on the beat, so it ticks twice as fast. Twice the needles.',
       pattern: HATS_2,
-      stats: { damage: 30, pierce: 1, speed: 780, range: 390 } },
-    { text: 'An open hat rings out at the end of each bar and throws a fan of three piercing needles.',
+      stats: { damage: 40, pierce: 1, speed: 780, range: 370, lock: 0.8 } },
+    { text: 'An open hat rings out at the end of each bar and throws a tight fan of three piercing needles ahead.',
       pattern: HATS_3,
-      stats: { damage: 30, pierce: 1, speed: 800, range: 400, openDamage: 19, openPierce: 3 } },
+      stats: { damage: 41, pierce: 1, speed: 800, range: 380, lock: 0.8, openDamage: 28, openPierce: 3 } },
     { text: 'Quiet extra ticks squeeze in between. More needles that fly farther and punch through a second enemy.',
       pattern: HATS_4,
-      stats: { damage: 30, pierce: 2, speed: 840, range: 430, openDamage: 22, openPierce: 3 } },
-    { text: 'Ticks on every step and a second open hat. A storm of needles that punch through more enemies.',
+      stats: { damage: 43, pierce: 2, speed: 840, range: 390, lock: 0.82, openDamage: 32, openPierce: 3 } },
+    { text: 'Ticks on every step and a second open hat. A stream of needles that punch through more enemies.',
       pattern: HATS_5,
-      stats: { damage: 34, pierce: 3, speed: 880, range: 460, openDamage: 28, openPierce: 4 } },
+      stats: { damage: 58, pierce: 3, speed: 880, range: 400, lock: 0.85, openDamage: 46, openPierce: 4 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -92,55 +90,53 @@ const hats909 = {
     }
   },
 
+  // Needles fly along the line you are moving: at an enemy within st.lock radians ahead of you, else at one
+  // within st.lock radians behind you, else straight ahead, so you aim the stream by walking. They fly st.range px.
+  // The full-strength ticks go at a boss in range instead.
   fire(g, note, st) {
-    const p = g.player;
-    const color = g.color('perc');
-    const base = aimAt(g, st.range);
+    const p = g.player, face = g.aim();
+    const boss = note.v >= 0.9 && note.k !== 'open' ? g.bossInRange(p.x, p.y, st.range) : null;
+    const base = boss ? Math.atan2(boss.y - p.y, boss.x - p.x)
+      : lockOn(g, face, st.lock, st.range) ?? lockOn(g, face + Math.PI, st.lock, st.range) ?? face;
     if (note.k === 'open') {
-      const n = g.amount(3);
-      for (let i = 0; i < n; i++) {
-        g.fx.bullet({ x: p.x, y: p.y, angle: base + (i - (n - 1) / 2) * 0.2, speed: g.speed(st.speed) * 0.9, r: 4, life: 0.5,
-          damage: g.dmg(st.openDamage) * note.v, pierce: st.openPierce, kb: 30, color, shape: 'shard', trail: true });
-      }
+      needles(g, base, g.amount(3), 0.12, { speed: 0.9, r: 4, damage: g.dmg(st.openDamage) * note.v, pierce: st.openPierce, kb: 30, trail: true }, st);
     } else {
-      const n = g.amount(1);
-      for (let i = 0; i < n; i++) {
-        g.fx.bullet({ x: p.x, y: p.y, angle: base + rand(-0.07, 0.07) + (i - (n - 1) / 2) * 0.14, speed: g.speed(st.speed), r: 3, life: 0.42,
-          damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 12, color, shape: 'shard' });
-      }
+      needles(g, base, g.amount(1), 0.1, { r: 3, damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 12 }, st);
     }
   },
 
   // The hats go 3-3-2 across the bar and bounce between the speakers, and the needles bounce with them: they
-  // fly alternately ahead of you and behind you (at the nearest enemy on that side), and every accent fires
-  // both ways at once with needles that ricochet on to new enemies.
+  // fly alternately ahead of you and behind you (locking on a little wider), and every accent fires both ways at
+  // once with needles that ricochet on to new enemies (one of them at a boss in range).
   remix: {
     id: 'pingponghats', name: 'Ping-Pong Hats', pedal: 'delay',
     text: 'Needles fly ahead of you and behind you in turn, and accents ricochet both ways.',
     sound: 'sixteenth hats in 3-3-2 accents, thrown hard left and right.',
     pattern: PING,
-    stats: { pierce: 4, accentDamage: 38, pingBounce: 2 },
+    stats: { damage: 62, pierce: 4, accentDamage: 60, pingBounce: 2 },
     fire(g, note, st) {
-      const face = g.aim();
-      const ahead = aimArc(g, face, 1.3, st.range), behind = aimArc(g, face + Math.PI, 1.3, st.range);
+      const p = g.player, face = g.aim(), lock = st.lock * 1.3;
+      const boss = note.v >= 0.9 && note.k !== 'open' ? g.bossInRange(p.x, p.y, st.range) : null;
+      const ahead = boss ? Math.atan2(boss.y - p.y, boss.x - p.x) : aimArc(g, face, lock, st.range), behind = aimArc(g, face + Math.PI, lock, st.range);
       if (note.k === 'open') {
-        for (const a of [ahead, behind]) needles(g, a, g.amount(3), 0.2, { speed: 0.9, r: 4, life: 0.5, damage: g.dmg(st.openDamage) * note.v, pierce: st.openPierce, kb: 30, trail: true }, st);
+        for (const a of [ahead, behind]) needles(g, a, g.amount(3), 0.12, { speed: 0.9, r: 4, damage: g.dmg(st.openDamage) * note.v, pierce: st.openPierce, kb: 30, trail: true }, st);
       } else if (note.v >= 0.9) {
-        for (const a of [ahead, behind]) needles(g, a, g.amount(1), 0.14, { r: 3.5, life: 0.5, damage: g.dmg(st.accentDamage) * note.v, pierce: st.pierce, bounce: st.pingBounce, kb: 16, trail: true }, st);
+        for (const a of [ahead, behind]) needles(g, a, g.amount(1), 0.1, { r: 3.5, damage: g.dmg(st.accentDamage) * note.v, pierce: st.pierce, bounce: st.pingBounce, kb: 16, trail: true }, st);
       } else {
-        needles(g, note.s & 1 ? behind : ahead, g.amount(1), 0.14, { r: 3, life: 0.42, damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 12 }, st);
+        needles(g, note.s & 1 ? behind : ahead, g.amount(1), 0.1, { r: 3, damage: g.dmg(st.damage) * note.v, pierce: st.pierce, kb: 12 }, st);
       }
     },
   },
 };
 
-// A fan of n hat needles centered on angle a, `gap` radians apart. o: speed (share of st.speed), r, life, damage,
-// pierce, bounce, kb, trail.
+// A fan of n hat needles centered on angle a, `gap` radians apart, each flying st.range px. o: speed (share of
+// st.speed), r, damage, pierce, bounce, kb, trail.
 function needles(g, a, n, gap, o, st) {
   const p = g.player, color = g.color('perc');
+  const speed = g.speed(st.speed) * (o.speed ?? 1);
   for (let i = 0; i < n; i++) {
-    g.fx.bullet({ x: p.x, y: p.y, angle: a + rand(-0.05, 0.05) + (i - (n - 1) / 2) * gap, speed: g.speed(st.speed) * (o.speed ?? 1), r: o.r,
-      life: o.life, damage: o.damage, pierce: o.pierce, bounce: o.bounce || 0, kb: o.kb, color, shape: 'shard', trail: !!o.trail });
+    g.fx.bullet({ x: p.x, y: p.y, angle: a + rand(-0.04, 0.04) + (i - (n - 1) / 2) * gap, speed, r: o.r,
+      life: st.range / speed, damage: o.damage, pierce: o.pierce, bounce: o.bounce || 0, kb: o.kb, color, shape: 'shard', trail: !!o.trail });
   }
 }
 
@@ -160,24 +156,24 @@ const shaker = {
   name: 'Shaker',
   role: 'perc',
   style: 'organic',
-  blurb: 'A hand shaker. Seeds circle you and flash on every shake, hitting anything close.',
+  blurb: 'A hand shaker. Seeds circle close around you and flash on every shake, hitting anything near.',
   steps: 16,
   levels: [
-    { text: 'Shakes between the beats. Three seeds circle you. Soft shakes flash one, loud shakes flash all.',
+    { text: 'Shakes between the beats. Three seeds circle close around you. Soft shakes flash one, loud shakes flash all.',
       pattern: SHAKE_1,
-      stats: { seeds: 3, orbit: 150, radius: 84, damage: 32 } },
+      stats: { seeds: 3, orbit: 104, radius: 64, damage: 40 } },
     { text: 'A quick extra shake after each one, and a fourth seed.',
       pattern: SHAKE_2,
-      stats: { seeds: 4, orbit: 155, radius: 88, damage: 36 } },
-    { text: 'A tambourine on beats 2 and 4. Every seed bursts wide and shoves enemies back.',
+      stats: { seeds: 4, orbit: 108, radius: 66, damage: 44 } },
+    { text: 'A tambourine on beats 2 and 4. Every seed bursts and shoves enemies back.',
       pattern: SHAKE_3,
-      stats: { seeds: 4, orbit: 160, radius: 91, damage: 38, tambDamage: 43, tambRadius: 66, tambKb: 150 } },
+      stats: { seeds: 4, orbit: 112, radius: 68, damage: 46, tambDamage: 52, tambRadius: 58, tambKb: 160 } },
     { text: 'The shaker fills the gaps. Five seeds with bigger flashes.',
       pattern: SHAKE_4,
-      stats: { seeds: 5, orbit: 165, radius: 96, damage: 40, tambDamage: 50, tambRadius: 72, tambKb: 170 } },
+      stats: { seeds: 5, orbit: 116, radius: 72, damage: 49, tambDamage: 60, tambRadius: 62, tambKb: 180 } },
     { text: 'Nonstop shaking with six seeds. Tambourine bursts now stun.',
       pattern: SHAKE_5,
-      stats: { seeds: 6, orbit: 175, radius: 107, damage: 49, tambDamage: 60, tambRadius: 78, tambKb: 190, tambStun: 0.3 } },
+      stats: { seeds: 6, orbit: 120, radius: 78, damage: 58, tambDamage: 72, tambRadius: 66, tambKb: 200, tambStun: 0.3 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -232,7 +228,7 @@ const shaker = {
     text: 'Seeds hug you when you stand and swing wide when you run, and rain down at every swell.',
     sound: 'a rainstick pouring a 16th roll that swells across every bar.',
     pattern: RAIN,
-    stats: { still: 0.7, run: 1.5, rainDamage: 72, rainRadius: 70, rainReach: 170 },
+    stats: { still: 0.7, run: 1.35, rainDamage: 72, rainRadius: 60, rainReach: 120 },
     // The orbit follows your speed (eased, so it breathes rather than jumps).
     update(g, dt, st, inst) {
       const S = inst.state, grp = S.orbit;
@@ -244,7 +240,7 @@ const shaker = {
     },
     fire(g, note, st, inst) {
       const grp = inst.state.orbit;
-      if (note.k !== 'shake' || note.v < 0.85 || !grp?.items.length) { this.fire(g, note, st, inst); return; }
+      if (note.k !== 'shake' || note.v < 0.95 || !grp?.items.length) { this.fire(g, note, st, inst); return; }
       // The crest of the swell: every seed drops a raindrop on a boss under it, else on the closest enemy under
       // it, else where it is.
       const color = g.color(inst), reach = g.area(st.rainReach);
@@ -271,24 +267,24 @@ const chiphat = {
   name: 'Noise Hats',
   role: 'perc',
   style: 'chip',
-  blurb: 'Crunchy console hi-hats that tick like an old game. Every tick throws lightning that jumps between enemies.',
+  blurb: 'Crunchy console hi-hats that tick like an old game. Their static crawls through the crowd, hopping on from wherever it struck last.',
   steps: 32,
   levels: [
-    { text: 'A tick between every beat. Each one zaps the nearest enemy, then jumps to a second.',
+    { text: 'A tick between every beat. Each one sparks two hops of static that pick up where the last spark stopped.',
       pattern: TICK_1,
-      stats: { damage: 24, chain: 2, range: 300, chainRange: 140 } },
-    { text: 'Adds a quick double tick. Bolts now reach three enemies.',
+      stats: { damage: 24, chain: 2, range: 280, chainRange: 120, leash: 320 } },
+    { text: 'Adds a quick double tick. Sparks now hop three times.',
       pattern: TICK_2,
-      stats: { damage: 24, chain: 3, range: 310, chainRange: 145 } },
-    { text: 'Soft ticks join on the beat. Bolts hit harder.',
+      stats: { damage: 24, chain: 3, range: 285, chainRange: 122, leash: 320 } },
+    { text: 'Soft ticks join on the beat. Sparks hit harder.',
       pattern: TICK_3,
-      stats: { damage: 25, chain: 3, range: 320, chainRange: 150 } },
-    { text: 'A long crash of static every other bar sends a huge, stunning bolt through the crowd. Bolts reach four enemies.',
+      stats: { damage: 25, chain: 3, range: 290, chainRange: 125, leash: 320 } },
+    { text: 'A long crash of static every other bar sends a big, stunning bolt from you through the crowd. Sparks hop four times.',
       pattern: TICK_4,
-      stats: { damage: 27, chain: 4, range: 330, chainRange: 155, crashDamage: 48, crashChain: 6 } },
-    { text: 'Fast rattling ticks in between. Bolts reach five enemies.',
+      stats: { damage: 29, chain: 4, range: 295, chainRange: 128, leash: 320, crashDamage: 54, crashChain: 4 } },
+    { text: 'Fast rattling ticks in between. Sparks hop five times.',
       pattern: TICK_5,
-      stats: { damage: 28, chain: 5, range: 340, chainRange: 160, crashDamage: 60, crashChain: 8 } },
+      stats: { damage: 32, chain: 5, range: 300, chainRange: 130, leash: 320, crashDamage: 70, crashChain: 5 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -311,7 +307,7 @@ const chiphat = {
     }
   },
 
-  fire(g, note, st) { bolt(g, note, st, null); },
+  fire(g, note, st, inst) { bolt(g, note, st, inst, null); },
 
   // The crash now comes every bar and hooks live wires onto the enemies its bolt strikes (a wire whose enemy
   // goes down jumps to the next). Every louder tick fires the wires: each one zaps everything on the line
@@ -321,19 +317,19 @@ const chiphat = {
     text: 'Every crash hooks live wires to the crowd, and they zap everything they cross.',
     sound: 'a crash of static on every bar, and ticks that buzz.',
     pattern: [...TICK_5, C(16, 0.9)],
-    stats: { wires: 8, wireLife: 2.4, wirePull: 30, wireDamage: 17 },
+    stats: { damage: 32, wires: 8, wireLife: 2.4, wirePull: 30, wireDamage: 11 },
     fire(g, note, st, inst) {
       const id = inst.def.id, color = g.color('perc'), p = g.player;
       const hook = (e) => g.fx.tether(id, e, { life: st.wireLife, pull: st.wirePull, color });
       if (note.k === 'crash') {
         struck.length = 0;
-        bolt(g, note, st, strike);
+        bolt(g, note, st, inst, strike);
         if (g.dmgScale !== 1) return;   // an echo does not hook
         // The wires hook the enemies the crash struck that are still standing.
         for (let i = 0, n = 0; i < struck.length && n < st.wires; i++) if (!struck[i].dead) { hook(struck[i]); n++; }
         return;
       }
-      bolt(g, note, st, null);
+      bolt(g, note, st, inst, null);
       if (note.v < 0.5) return;
       const wires = g.fx.tethersOf(id);
       // A wire whose enemy went down jumps on: each louder tick hooks the nearest free enemy, up to the most wires.
@@ -353,21 +349,44 @@ const chiphat = {
   },
 };
 
-// One tick's bolt (a crash's is bigger and stuns). onHit(enemy) sees every enemy it strikes.
-function bolt(g, note, st, onHit) {
-  const p = g.player;
+// One note's static. A tick's spark picks up where the last one stopped: it hops from the enemy struck last on
+// to the nearest fresh enemy around it, and on through the crowd from there, st.chain hops in all (from you, at
+// the nearest enemy in st.range, when that enemy is down or has drifted beyond st.leash). So the spark keeps
+// working through the crowd whichever way you dodge. A crash is a big stunning bolt from you (at a boss in range
+// first), and the spark carries on from where it ends. onHit(enemy) sees every enemy struck.
+function bolt(g, note, st, inst, onHit) {
+  const p = g.player, S = inst.state;
   const color = g.color('perc');
+  let last = null;
   if (note.k === 'crash') {
-    g.fx.zap({ x: p.x, y: p.y, range: st.range * 1.3, chain: g.amount(st.chain + st.crashChain), chainRange: g.area(st.chainRange) * 1.2,
-      damage: g.dmg(st.crashDamage) * note.v, falloff: 0.92, color, width: 4, stun: 0.2, onHit });
+    g.fx.zap({ x: p.x, y: p.y, target: g.bossInRange(p.x, p.y, st.range), range: st.range, chain: g.amount(st.chain + st.crashChain), chainRange: g.area(st.chainRange),
+      damage: g.dmg(st.crashDamage) * note.v, falloff: 0.92, color, width: 4, stun: 0.2, onHit: (e) => { last = e; if (onHit) onHit(e); } });
     g.fx.flash(p.x, p.y, 40, color, 0.2, 0.25);
-  } else {
-    g.fx.zap({ x: p.x, y: p.y, range: st.range, chain: g.amount(st.chain), chainRange: g.area(st.chainRange),
-      damage: g.dmg(st.damage) * note.v, falloff: 0.85, color, onHit });
+    S.head = last;
+    return;
   }
+  const hop = g.area(st.chainRange), head = S.head;
+  let x = p.x, y = p.y, cur = null;
+  seen.clear();
+  if (head && !head.dead && dist2(head.x, head.y, p.x, p.y) < st.leash * st.leash) {
+    seen.add(head);
+    cur = g.nearest(head.x, head.y, hop, seen);
+    if (cur) { x = head.x; y = head.y; }
+  }
+  if (!cur) cur = g.nearest(p.x, p.y, st.range);
+  let dmg = g.dmg(st.damage) * note.v;
+  for (let i = 0, n = g.amount(st.chain); i < n && cur; i++) {
+    seen.add(cur);
+    g.fx.zap({ x, y, target: cur, chain: 1, damage: dmg, color, onHit });
+    last = cur; x = cur.x; y = cur.y;
+    dmg *= 0.85;
+    cur = g.nearest(x, y, hop, seen);
+  }
+  S.head = last;
 }
 
-// Short Circuit scratch, reused so a note allocates nothing: who the crash's bolt struck, who is hooked.
+// Scratch, reused so a note allocates little: who a spark has struck, who the crash's bolt struck, who is hooked.
+const seen = new Set();
 const struck = [];
 const hooked = new Set();
 const strike = (e) => { struck.push(e); };
