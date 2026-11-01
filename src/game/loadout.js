@@ -50,9 +50,9 @@ export const CHEMISTRY = {
   orchestra: {
     rule: 'swell', name: 'Ride the swell', text: 'Damage swells through every 8 bars and peaks at the fill.',
     tiers: [
-      { n: 2, swell: 0.25, text: '±25% with the swell' },
-      { n: 4, swell: 0.5, text: '±50% with the swell' },
-      { n: 6, swell: 0.8, text: '±80% with the swell' },
+      { n: 2, swell: 0.2, text: '±20% with the swell' },
+      { n: 4, swell: 0.35, text: '±35% with the swell' },
+      { n: 6, swell: 0.5, text: '±50% with the swell' },
     ],
   },
 };

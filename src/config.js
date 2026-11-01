@@ -72,7 +72,7 @@ export const GAIN = [
 // through the game code. Other lanes add their own keys. Times are in seconds unless a name says bars or beats.
 export const BALANCE = {
   // The player: health before pedals and chemistry, and a master dial on all damage taken (before armor).
-  player: { maxHp: 120, dmgIn: 0.75 },
+  player: { maxHp: 120, dmgIn: 0.72 },
   // Healing is a budget tied to the song, not to kills: choruses test you, verses let you recover.
   hearts: {
     heal: 0.35,             // a heart restores this share of max health
@@ -85,11 +85,11 @@ export const BALANCE = {
   // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp). Vinyls only come from featured elites.
   xp: { base: 5, lin: 0.5, quad: 0.6, cap: 340 },
   // Notes left on the floor fade after `life` (8 bars) and blink through their last `blink` seconds.
-  notes: { life: 16, blink: 2 },
+  notes: { life: 18, blink: 2 },
   // How many enemies the director keeps around: base + perSec * t + perMin2 * minutes^2, times the energy.
   crowd: { base: 12, perSec: 0.5, perMin2: 2.8 },
   // Threat follows the song: section -> crowd multiplier (the Build-Up ramps across its bars).
-  energy: { intro: 0.8, verse1: 0.85, chorus1: 1.15, verse2: 0.8, chorus2: 1.05, bridge: 0.7, build: [1.0, 1.5], drop: 1.05, finale: 0.85 },
+  energy: { intro: 0.8, verse1: 0.85, chorus1: 1.15, verse2: 0.8, chorus2: 1.05, bridge: 0.62, build: [1.0, 1.5], drop: 1.05, finale: 0.85 },
   // A quiet phrase (the band plays thin): a smaller crowd, more ranged enemies and elites, no formations.
   quiet: { crowd: 0.85, ranged: 2, elite: 1.5 },
   // Drop-ins: this share of a beat's spawns appears close to you after a one-beat ring. Never tanks or Stomps.
@@ -113,15 +113,15 @@ export const BALANCE = {
   // Bosses: health grows `hpPerMin` per song minute, times hp[type]. Attack numbers for the retuned fights.
   boss: {
     hpPerMin: 0.14,
-    hp: { drone: 1.3, clipper: 1.15, glitchking: 1, whitenoise: 0.5 },
+    hp: { drone: 1.3, clipper: 1.15, glitchking: 0.9, whitenoise: 0.5 },
     clipperRadial: 11, clipperTriple: 0.5,          // radial shots on beats 1 and 3; aimed triples below this health
-    kingTripleDmg: 15, kingRadialDmg: 18,           // the Glitch King's aimed triples and its blink radial
+    kingTripleDmg: 13, kingRadialDmg: 16,           // the Glitch King's aimed triples and its blink radial
     noiseRadialDmg: 16, noiseSpiralDmg: 14,         // White Noise's radials and spiral arms
   },
   // The Drop: a timed, local blast. A perfect drop lands on a phrase downbeat (bar % 8 === 0: the build
   // plays over the fill bar, or a press during the fill bar lets the fill be the build).
   drop: {
-    charge: 880,           // xp-equivalent needed to fill the meter
+    charge: 800,           // xp-equivalent needed to fill the meter
     skip: 0.15,            // share of a full meter paid for skipping a level-up
     damage: 70, perLevel: 0.05, boss: 1.5,
     radius: 460,           // shots are erased only inside it

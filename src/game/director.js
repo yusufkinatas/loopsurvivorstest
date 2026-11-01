@@ -12,7 +12,7 @@ const MIX = {
   chorus1: { static: 0.48, buzz: 0.28, hum: 0.19, stomp: 0.05 },
   verse2:  { static: 0.34, buzz: 0.22, hum: 0.15, glitch: 0.21, stomp: 0.08 },
   chorus2: { static: 0.28, buzz: 0.19, hum: 0.13, glitch: 0.13, screech: 0.11, feedback: 0.11, stomp: 0.05 },
-  bridge:  { static: 0.22, buzz: 0.13, hum: 0.19, glitch: 0.13, screech: 0.11, feedback: 0.15, stomp: 0.07 },
+  bridge:  { static: 0.22, buzz: 0.13, hum: 0.19, glitch: 0.13, screech: 0.11, feedback: 0.15, stomp: 0.05 },
   build:   { buzz: 0.52, static: 0.23, glitch: 0.19, stomp: 0.06 },
   drop:    { static: 0.24, buzz: 0.19, hum: 0.19, glitch: 0.1, screech: 0.1, feedback: 0.14, stomp: 0.04 },
   finale:  { static: 0.3, buzz: 0.22, hum: 0.18, screech: 0.14, feedback: 0.16 },
