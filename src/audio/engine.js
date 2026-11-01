@@ -10,6 +10,10 @@ import * as V from './voices.js';
 const CHANNEL_LEVEL = { beat: 0.95, perc: 0.42, bass: 0.72, chords: 0.36, lead: 0.6, arp: 0.32 };
 const CHANNEL_PAN = { beat: 0, perc: 0.28, bass: 0, chords: -0.12, lead: 0.06, arp: -0.3 };
 const DUCKED = ['bass', 'chords', 'lead', 'arp'];
+const TONE_OPEN = 20000;
+const SOLO_LIFT = 1.33;
+// Desk level for n channels playing: keeps the band's loudness steady as it grows.
+const activeLevel = (n) => 1 / (1 + 0.09 * Math.max(0, n - 1));
 
 function driveCurve(k) {
   if (!k) return null;
@@ -124,6 +128,13 @@ export class AudioEngine {
     this.mixGain.connect(this.hp);
     this.mix = G(1);
     this.mix.connect(this.mixGain);
+    // The band (strips and their returns) passes the arrangement's tone filter: a quiet phrase starts
+    // underwater and opens up across its 8 bars (arrange()). The system sounds and boss cues skip it.
+    this.tone = ctx.createBiquadFilter();
+    this.tone.type = 'lowpass'; this.tone.frequency.value = TONE_OPEN; this.tone.Q.value = 0.7;
+    this.tone.connect(this.mix);
+    this.bandBus = G(1);
+    this.bandBus.connect(this.tone);
 
     // Preview bus skips the muffle so a hovered card is heard clearly over the dimmed mix.
     this.previewBus = G(1);
@@ -142,7 +153,7 @@ export class AudioEngine {
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = impulse(ctx);
     this.revOut = G(0.85);
-    this.revIn.connect(this.reverb); this.reverb.connect(this.revOut); this.revOut.connect(this.mix);
+    this.revIn.connect(this.reverb); this.reverb.connect(this.revOut); this.revOut.connect(this.bandBus);
 
     // Tape delay return, timed to the echo attacks.
     this.dlyIn = G(1);
@@ -154,7 +165,7 @@ export class AudioEngine {
     this.dlyOut = G(0.8);
     this.dlyIn.connect(this.delay);
     this.delay.connect(this.dlyTone); this.dlyTone.connect(this.dlyFb); this.dlyFb.connect(this.delay);
-    this.dlyTone.connect(this.dlyOut); this.dlyOut.connect(this.mix);
+    this.dlyTone.connect(this.dlyOut); this.dlyOut.connect(this.bandBus);
 
     // Shared LFOs for chorus and wah.
     this.chorusLfo = ctx.createOscillator(); this.chorusLfo.frequency.value = 0.7; this.chorusLfo.start();
@@ -209,15 +220,19 @@ export class AudioEngine {
     head.connect(ch.fader);
     ch.pan = ctx.createStereoPanner();
     ch.pan.pan.value = CHANNEL_PAN[role];
-    ch.fader.connect(ch.pan);
+    // A solo phrase lifts the featured strip a little and opens its sends (arrange()).
+    ch.lift = G(1);
+    ch.fader.connect(ch.lift);
+    ch.lift.connect(ch.pan);
     ch.duck = G(1);
     ch.pan.connect(ch.duck);
     ch.post = ch.duck;
     ch.toMix = G(1); ch.toPrev = G(0);
-    ch.post.connect(ch.toMix); ch.toMix.connect(this.mix);
+    ch.post.connect(ch.toMix); ch.toMix.connect(this.bandBus);
     ch.post.connect(ch.toPrev); ch.toPrev.connect(this.previewBus);
-    ch.revSend = G(0); ch.post.connect(ch.revSend); ch.revSend.connect(this.revIn);
-    ch.dlySend = G(0); ch.post.connect(ch.dlySend); ch.dlySend.connect(this.dlyIn);
+    ch.sends = G(1); ch.post.connect(ch.sends);
+    ch.revSend = G(0); ch.sends.connect(ch.revSend); ch.revSend.connect(this.revIn);
+    ch.dlySend = G(0); ch.sends.connect(ch.dlySend); ch.dlySend.connect(this.dlyIn);
     return ch;
   }
 
@@ -251,9 +266,34 @@ export class AudioEngine {
   // Keep perceived loudness steady as the band grows.
   setActiveCount(n) {
     if (!this.ctx) return;
-    const v = 1 / (1 + 0.09 * Math.max(0, n - 1));
+    const v = activeLevel(n);
     this.previewBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.3);   // previews play at their real in-mix level
     this.mixGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.3);
+  }
+
+  // The desk follows the arrangement. The sequencer calls this on every downbeat, ahead on the audio
+  // clock (t), so pausing never shifts it:
+  //   playing  channels sounding this bar, band: channels in the band. A thinner bar is lifted only part of
+  //            the way back (half the full band's correction, in dB), so a breakdown really is quieter.
+  //   level    the phrase's own level (quiet phrases 0.8)
+  //   tone     [from, to] Hz: the band's lowpass over this bar (a quiet phrase opening up), null: wide open
+  //            (snaps open, as on an impact), undefined: leave it
+  //   solo     the featured role: its strip comes up ~2.5 dB and its reverb and delay sends by half
+  arrange(t, { playing, band, level = 1, tone, solo = null }) {
+    if (!this.ctx) return;
+    const full = activeLevel(band);
+    this.previewBus.gain.setTargetAtTime(full, t, 0.3);
+    this.mixGain.gain.setTargetAtTime(Math.sqrt(full * activeLevel(playing)) * level, t, 0.06);
+    if (tone !== undefined) {
+      const f = this.tone.frequency;
+      if (tone) { f.setValueAtTime(tone[0], t); f.exponentialRampToValueAtTime(tone[1], t + BAR_SEC - 0.005); }
+      else f.setValueAtTime(TONE_OPEN, t);
+    }
+    for (const role of ROLES) {
+      const ch = this.channels[role], on = role === solo;
+      ch.lift.gain.setTargetAtTime(on ? SOLO_LIFT : 1, t, 0.05);
+      ch.sends.gain.setTargetAtTime(on ? 1.5 : 1, t, 0.05);
+    }
   }
 
   setVolume(v) {
