@@ -113,8 +113,9 @@ function recordsHtml(meta) {
     ${hidden.length ? `<p class="kicker disco-label">Hidden tracks</p><div class="sleeves">${hidden.map((g) => sleeve(g, meta.records[g])).join('')}</div>` : ''}`;
 }
 
-// The remix crate: channels in rows, styles in columns. Found remixes are gold with their name; the rest show
-// the sound's glyph and its pedal's glyph, with the names in a tooltip.
+// The remix crate: channels in rows, styles in columns. A remix is earned with a Master Tape on its sound at
+// level 5, so a tile is the sound's glyph: gold with the remix's name once found, dim with the sound's name in a
+// tooltip until then.
 function remixesHtml(meta) {
   const styles = Object.keys(STYLES);
   const all = INSTRUMENTS.filter((d) => d.remix);
@@ -122,9 +123,8 @@ function remixesHtml(meta) {
     const def = INSTRUMENTS.find((d) => d.role === role && d.style === style);
     if (!def?.remix) return '<div class="rx none"></div>';
     const found = !!meta.remixes[def.id];
-    const pd = PEDAL_BY_ID[def.remix.pedal];
-    return `<div class="rx${found ? ' found' : ''}" style="--c:${ROLE_INFO[role].color};--p:${pd?.color || '#fff'}" title="${esc(`${def.name}${pd ? ` + ${pd.name}` : ''}`)}">
-      <span class="rx-g">${icon(def.id, role)}<i>+</i><span class="rx-p">${icon(def.remix.pedal, 'pedal')}</span></span>${found ? `<b>${esc(def.remix.name)}</b>` : ''}</div>`;
+    return `<div class="rx${found ? ' found' : ''}" style="--c:${ROLE_INFO[role].color}" title="${esc(found ? `${def.remix.name} · ${def.name}` : def.name)}">
+      <span class="rx-g">${icon(def.id, role)}</span>${found ? `<b>${esc(def.remix.name)}</b>` : ''}</div>`;
   }).join('')).join('');
   return `<p class="kicker disco-label">Found ${Object.keys(meta.remixes).length} of ${all.length}</p>
     <div class="rx-grid" style="--cols:${styles.length}">${styles.map((st) => `<span class="rx-head" style="color:${styleColor(st)}">${esc(styleName(st))}</span>`).join('')}${tiles}</div>`;
@@ -395,16 +395,19 @@ export class Screens {
   levelUp(g, offers) {
     const descs = this.descs = offers.map((o) => describeOffer(g, o));
     const cards = descs.map((d, i) => cardHtml(d, i)).join('');
-    const pending = g.pendingLevels;   // chained level-ups: one dot per pick still to make, this one lit
-    const canBan = g.banishes > 0 && offers.some(banKey);
+    // A Master Tape's remix cards: gold cards only, no reroll, banish or skip, and a reel over them.
+    const tape = !!g.tapeOffers;
+    const pending = tape ? 0 : g.pendingLevels;   // chained level-ups: one dot per pick still to make, this one lit
+    const canBan = !tape && g.banishes > 0 && offers.some(banKey);
     const el = this._mount('levelup', `
-      <div class="cards-wrap${descs.some((d) => d.kind === 'remix') ? ' has-remix' : ''}">
+      <div class="cards-wrap${descs.some((d) => d.kind === 'remix') ? ' has-remix' : ''}${tape ? ' tape-pick' : ''}">
+        ${tape ? `<div class="tape-mark" role="img" aria-label="Master Tape: pick the remix">${icon('tape')}</div>` : ''}
         ${pending > 1 ? `<div class="pending" role="img" aria-label="${pending} picks to make">${'<i></i>'.repeat(Math.min(pending, 12))}</div>` : ''}
-        <div class="cards">${cards}</div>
+        <div class="cards" style="--n:${offers.length}">${cards}</div>
         <div class="row-actions">
-          <button class="ibtn" type="button" data-act="reroll" aria-label="Reroll, ${g.rerolls} left" title="Reroll" ${g.rerolls > 0 ? '' : 'disabled'}>${icon('reroll')}${dots(g.rerolls, Math.max(REROLLS_PER_RUN, g.rerolls))}${kbd('R', 'X')}</button>
+          ${tape ? '' : `<button class="ibtn" type="button" data-act="reroll" aria-label="Reroll, ${g.rerolls} left" title="Reroll" ${g.rerolls > 0 ? '' : 'disabled'}>${icon('reroll')}${dots(g.rerolls, Math.max(REROLLS_PER_RUN, g.rerolls))}${kbd('R', 'X')}</button>
           <button class="ibtn" type="button" data-act="banish" aria-pressed="false" aria-label="Banish a card, ${g.banishes} left. It never comes back this run, upgrades included" title="Banish" ${canBan ? '' : 'disabled'}>${icon('banish')}${dots(g.banishes, Math.max(BANISHES_PER_RUN, g.banishes))}${kbd('X')}</button>
-          <button class="ibtn" type="button" data-act="skip" aria-label="Skip this level. Its notes fill the Drop meter" title="Skip">${icon('skip')}<span class="mini">${icon('drop')}</span>${kbd('Q')}</button>
+          <button class="ibtn" type="button" data-act="skip" aria-label="Skip this level. Its notes fill the Drop meter" title="Skip">${icon('skip')}<span class="mini">${icon('drop')}</span>${kbd('Q')}</button>`}
           <button class="ibtn" type="button" data-act="info" aria-label="Card details" title="Card details" aria-pressed="${this.info}">${icon('info')}${kbd('I', 'Y')}</button>
         </div>
       </div>`, ARM_MS);
@@ -412,9 +415,9 @@ export class Screens {
     this.banishing = false;
     el.querySelectorAll('.card').forEach((c, i) => c.classList.toggle('no-ban', !banKey(offers[i])));
     this._wireCards(el, (i) => (this.banishing ? this.h.onBanish(i) : this.h.onChoose(i)), (i) => this.h.onPreview(i));
-    el.querySelector('[data-act=reroll]').addEventListener('click', () => this.h.onReroll());
-    el.querySelector('[data-act=banish]').addEventListener('click', () => this.toggleBanish());
-    el.querySelector('[data-act=skip]').addEventListener('click', () => this.h.onSkip());
+    el.querySelector('[data-act=reroll]')?.addEventListener('click', () => this.h.onReroll());
+    el.querySelector('[data-act=banish]')?.addEventListener('click', () => this.toggleBanish());
+    el.querySelector('[data-act=skip]')?.addEventListener('click', () => this.h.onSkip());
     el.querySelector('[data-act=info]').addEventListener('click', () => this.toggleInfo());
     // The first card plays at once on every device, without taking focus (so Enter never takes it blind).
     if (this.playing === null) this._preview(0);

@@ -171,6 +171,12 @@ export class Sequencer {
     this.pingStep = -1e9;      // global step of the last note chime
     this.pingN = 0;
     this.pingSlots = new Array(8).fill(-1e9);   // note chimes per 8th of the last 2 seconds
+    // A queued remix { inst, bar, out } (see remixBar and _remixDownbeat): on bar - 1 the channel drops out under
+    // a riser (out), and on bar's downbeat inst.remix flips before that step's notes, so the remix's own part is
+    // what is heard there, with an impact as the downbeat's one hit and a { type: 'remix' } event.
+    this.remixAt = null;
+    this.onRemix = null;       // (inst, bar) as the flip is scheduled: the game sets the remix up at once
+    this.onRemixLost = null;   // (inst) a queued remix whose channel left the band before it landed
     this._w = 1;
   }
 
@@ -193,6 +199,57 @@ export class Sequencer {
   // stop asked for while a Drop builds would land on its impact, the moment itself, so it is dropped. The
   // song's ending is kept: its silent bar follows the impact.
   stopNext(len, home = false) { if (home || this.dropState !== 'building') this.pendingStop = { len, home }; }
+
+  // The bar a remix queued now lands on: the first 4-bar line at or after `from` that is not an arrangement
+  // impact, a Build-Up roll bar or a breakdown's first bar, and whose dropout bar and downbeat are clear of a
+  // stop bar waiting on the next downbeat and of the player's Drop (its build and impact). Else the next line.
+  remixBar(from, line = 4) {
+    let bar = Math.ceil(from / line) * line;
+    for (let guard = 0; guard < 64 && this._remixClash(bar); guard++) bar += line;
+    return bar;
+  }
+
+  _remixClash(bar) {
+    if (!this.song) return false;
+    const a = this.song.position(bar).arr;
+    if (a.impact || a.roll || (a.quiet && a.pb === 0)) return true;
+    const busy = [];
+    if (this.pendingStop) busy.push(this.bar + 1);
+    if (this.dropState === 'building') busy.push(this.bar + 1);
+    else if (this.dropState === 'queued') { const b = this.bar + 1 + (this.pendingStop ? 1 : 0); busy.push(b, b + 1); }
+    return busy.includes(bar) || busy.includes(bar - 1);
+  }
+
+  // The channel rests through its remix's dropout bar (the song moving, never the vamp).
+  _droppedOut(inst, bar) { const R = this.remixAt; return !!R && R.out && R.inst === inst && bar === R.bar - 1; }
+
+  // A queued remix on a downbeat the song moves on. clash: a stop bar or the player's Drop (impact or build)
+  // has this downbeat, so the remix moves to the next free line. Returns 'out' on the dropout bar, 'in' on the
+  // downbeat it lands (the caller plays the impact there), else null.
+  _remixDownbeat(t, A, clash, runIn, band) {
+    const R = this.remixAt;
+    if (!band.includes(R.inst) || R.inst.remix) {
+      this.remixAt = null;
+      if (!R.inst.remix) { try { this.onRemixLost?.(R.inst); } catch (e) { this._report('onRemixLost', e); } }
+      return null;
+    }
+    if (this.bar < R.bar - 1) return null;
+    if (this.bar === R.bar - 1 && !clash) {
+      R.out = true;
+      if (A && !runIn) A.riser(t, BAR_SEC);
+      return 'out';
+    }
+    if (this.bar < R.bar || clash || !R.out) {
+      R.out = false;
+      R.bar = this.remixBar(this.bar + 2);
+      return null;
+    }
+    R.inst.remix = true;
+    this.remixAt = null;
+    this.events.push({ type: 'remix', time: t, inst: R.inst, bar: this.bar });
+    try { this.onRemix?.(R.inst, this.bar); } catch (e) { this._report('onRemix', e); }
+    return 'in';
+  }
 
   // Audio time when the pending or latest stop bar is over (0 when there has been none).
   stopEnd() {
@@ -271,7 +328,11 @@ export class Sequencer {
           this.events.push({ type: 'drop', time: t, bar: this.bar });
           this.dropState = null;
         }
-      } else if (this.dropState === 'queued' && !this.hold && !landed) {   // a stop bar first: silence, riser, impact
+      }
+      // A remix whose dropout has played lands on this downbeat: a Drop queued during the dropout waits a bar.
+      const R = this.hold ? null : this.remixAt;
+      const landing = !!R && R.out && this.bar >= R.bar && !landed && !dropped;
+      if (this.dropState === 'queued' && !this.hold && !landed && !landing) {   // a stop bar first: silence, riser, impact
         this.dropState = 'building';
         // Over a section's run-in, the build adds only what that bar does not already play.
         if (A) {
@@ -284,6 +345,9 @@ export class Sequencer {
       // The song's own impact is a game event too, unless the player's Drop lands on the same downbeat:
       // then that Drop is the downbeat's one hit.
       if (songImpact && !dropped) this.events.push({ type: 'impact', time: t, bar: this.bar });
+      // A queued remix: its dropout bar, or its downbeat (the remix's impact is that downbeat's one hit). A stop or
+      // the player's Drop on either moves it to the next free 4-bar line.
+      if (R && this.remixAt === R && this._remixDownbeat(t, A, landed || dropped || this.dropState === 'building' || songImpact, runIn, band) === 'in' && impactAt === null) impactAt = t;
     }
 
     const pos = this.pos;
@@ -321,7 +385,7 @@ export class Sequencer {
     for (const inst of band) {
       const x = arr ? this.texOf(inst, arr, band.length, this.bar) : FULL_TEX;
       tex[inst.def.role] = x;
-      if (x.tf === 'out') rest.push(inst.def.role); else playing++;
+      if (x.tf === 'out' || (arr && this._droppedOut(inst, this.bar))) rest.push(inst.def.role); else playing++;
     }
     this.barRest = rest;
     this.barTex = tex;
@@ -399,6 +463,7 @@ export class Sequencer {
     this._w = 1;
     if (!part?._byStep) return null;
     if (!arr) return part._byStep[at(bar, sib, stepsOf(def, part))] || null;   // the plain loop
+    if (this._droppedOut(inst, bar)) return null;   // a remix's dropout bar
     if (sib > 0 && sib < (this.lastStop?.bar === bar ? this.lastStop.len : arr.cut)) return null;
     if (arr.brk && sib >= arr.brk) return null;
     const tex = this.texOf(inst, arr, band, bar, !live);

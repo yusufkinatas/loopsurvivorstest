@@ -131,6 +131,19 @@ export const BALANCE = {
   // The song's own impacts (the band slams back in): damage is a share of the Drop's base, never staggers a boss,
   // erases enemy shots inside `erase` of the radius.
   songImpact: { damage: 0.5, radius: 380, kb: 220, stun: 0.4, erase: 0.6 },
+  // Remixes are earned with Master Tapes: a non-final boss silenced in its own section drops one where it fell.
+  // A tape lies `tapeLife` (8 bars), blinks through its last `tapeBlink`, and is only picked up within `tapeReach`
+  // px (magnets and the boss pull-all never move it). Spent on a channel at level 5, the remix lands on the
+  // first 4-bar line (`line`) at least `lead` bars ahead: one bar of dropout and riser, then the impact ring.
+  // Its damage is `damage` x the Drop's base x (1 + perLevel x level) x the band's damage; it erases enemy shots
+  // inside it and knocks a boss in it off the beat. While a tape is banked, the level cards of the channels nearest a
+  // remix (the highest level not remixed yet) weigh at least `tapeUp` (a level 4 card alone weighs 0.1, a level 3
+  // one 0.35; 0 turns the pull off).
+  remix: {
+    tapes: 3, tapeLife: 16, tapeBlink: 2, tapeReach: 46, tapeUp: 0.85,
+    lead: 2, line: 4,
+    damage: 0.5, perLevel: 0.05, radius: 520, kb: 220, stun: 0.5, dur: 0.5,
+  },
 };
 
 // The Drop's numbers (kept as their own export for the code that already reads DROP).

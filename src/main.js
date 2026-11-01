@@ -3,7 +3,7 @@
 // Test hooks (query string, local only): ?sim=1 runs without audio on a simulated clock.
 // Also: speed=N (sim steps per frame), bot=1, autopick=smart|random|first, god=1, seed=N,
 // start=<instrumentId>, give=id:level,id:level, pedals=id:level, remix=id,id (remix given instruments),
-// gain=N (Gain tier), minutes=N (stop the sim), key=N, solo=1 (no level-ups).
+// tapes=N (Master Tapes banked at the start), gain=N (Gain tier), minutes=N (stop the sim), key=N, solo=1 (no level-ups).
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
@@ -39,6 +39,7 @@ function parseOpts() {
     give: list(get('give')),
     givePedals: list(get('pedals')),
     remix: (get('remix') || '').split(',').filter(Boolean),
+    tapes: Number(get('tapes')) || 0,
     gain: Number(get('gain')) || 0,
     minutes: Number(get('minutes')) || 0,
     key: get('key') !== null ? Number(get('key')) : undefined,
@@ -77,6 +78,7 @@ const hooks = {
   onBoss: (e) => hud.setBoss(e, game.mods.wnPhase),
   onBossCue: (kind, e, n) => hud.bossCue(kind, e, n, settings.flashes),
   onJoin: (role) => hud.onJoin(role),
+  onRemix: (def) => hud.onRemix(def.role),
   onLoadout: () => { if (mode === 'run') hud.refreshLoadout(game); },
   autopick: (offers) => autopick(offers, game, opts.autopick),
 };
@@ -267,6 +269,7 @@ function recordRun(sum) {
 
 // Skip a level-up: a lower blip (the chord's root) than a pick, and the notes go to the Drop meter.
 function skipLevel() {
+  if (game.tapeOffers) return;   // a Master Tape's remix cards cannot be skipped
   const c = seq.position?.chord;
   audio.uiBlip(c ? 440 * Math.pow(2, (72 + (c.rootPc % 12) - 69) / 12) : 523, 0.12);
   game.skip();
@@ -474,6 +477,9 @@ window.__LS = {
       genre: game.genre, key: game.key?.name, gain: game.gain,
       // Remixes taken (ids, in order) and card screens with no real choice (only bonus cards).
       remixes: game.remixed || [], deadScreens: game.deadScreens || 0, cardScreens: game.cardScreens || 0,
+      // Master Tapes (dropped by silenced bosses, collected, banked now, spent, lost on the floor) and each remix as it
+      // landed: game time, instrument, bar and section.
+      tapes: game.tapes || null, remixLog: game.remixLog || [],
       loadout: game.loadout ? game.loadout.instruments().map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg), kills: i.kills, notes: i.notes })) : [],
       retired: (game.retired || []).map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg) })),
       pedals: game.loadout ? game.loadout.pedals.map((p) => ({ id: p.def.id, level: p.level })) : [],

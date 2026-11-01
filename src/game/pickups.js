@@ -8,6 +8,7 @@ export const ITEM_INFO = {
   heal:   { color: '#ff6f8a', r: 9, label: 'Breather' },
   magnet: { color: '#7fd7ff', r: 9, label: 'Magnet' },
   vinyl:  { color: '#ffd166', r: 11, label: 'Vinyl' },
+  tape:   { color: '#ffd166', r: 15, label: 'Master Tape' },   // a silenced boss's remix (BALANCE.remix)
 };
 
 // Notes are warm white to gold: a color no channel uses, so pickups never read as attacks.
@@ -41,6 +42,7 @@ export function updatePickups(g, dt) {
   const p = g.player;
   const radius = g.stats.pickup;
   const r2 = radius * radius;
+  const tapeR = Math.min(radius, BALANCE.remix.tapeReach);
   for (let i = g.gems.length - 1; i >= 0; i--) {
     const gm = g.gems[i];
     gm.age += dt;
@@ -52,8 +54,14 @@ export function updatePickups(g, dt) {
       swapRemove(g.gems, i);
       continue;
     }
+    // A Master Tape lies 8 bars where its boss fell, and only reaches you from close by: you go and get it.
+    if (gm.kind === 'tape' && !gm.pull && gm.age > BALANCE.remix.tapeLife) {
+      g.tapeLost?.(gm);
+      swapRemove(g.gems, i);
+      continue;
+    }
     const d2 = dist2(gm.x, gm.y, p.x, p.y);
-    if (!gm.pull && d2 < r2) gm.pull = true;
+    if (!gm.pull && d2 < (gm.kind === 'tape' ? tapeR * tapeR : r2)) gm.pull = true;
     if (gm.pull) {
       // Fly straight at the player, accelerating. Steering straight in (instead of by force) means a
       // pulled note can never fall into an orbit around the player.
