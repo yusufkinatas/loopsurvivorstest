@@ -2,22 +2,27 @@
 // the band, frozen mid-fight (from --at seconds on) on the frame where most of its attack is live, cropped round the
 // speaker and the attack and tiled into one labelled sheet per channel (gallery-<channel>.png: the five styles
 // across, level 5 above, the remix below). The tiles stay next to the sheets (<id>.png, <id>-rx.png) for a closer
-// look, and gallery.json lists them. About 20 minutes for all 60.
-//   node tools/gallery.mjs [outdir] [--ids a,b] [--role beat] [--no-remix] [--at 80]
+// look, and gallery.json lists them. About 20 minutes for all 60. --ids or --role reshoots only those tiles; the
+// sheets and gallery.json keep the other tiles already in the folder.
+// --busy pins the renderer's load at 1 for the frozen frame (the late game's state: the load budget's alpha at 0.55
+// and the busy-screen detail cut), so the sheet shows each look the way a packed screen draws it.
+//   node tools/gallery.mjs [outdir] [--ids a,b] [--role beat] [--no-remix] [--at 80] [--busy]
 //   node tools/gallery.mjs --bench [/src/render/renderer.js,/src/render/other.js] [--frames 300] [--stops 4.6,6.8]
-//                          [--band id:5,id:5,... | --band "<extra query>"]
+//                          [--band id:5,id:5,... | --band "<extra query>"] [--dpr 2] [--size 390x844]
 // --bench times renderers on the late game tools/shots.mjs --late captures (god sim, seed 1; --band gives a solo band,
 // or appends a query with '=' in it): from each of --stops minutes the fight plays on for --frames frames, and on
 // each one every Renderer named (each on its own 1280x720 canvas) draws it, flushed with a 1-pixel read back so the
 // raster is paid for too, the modules taking turns at going first. It prints the mean ms per draw of each and the
 // mean effect counts. To compare with an older renderer, copy it next to the new one (src/render/) and name both.
+// --dpr sets the device pixel ratio (a retina screen draws four times the pixels) and --size the canvases' CSS size
+// (390x844 is a phone held upright: the arena zooms out to 0.62).
 import { serve, launch } from './serve.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
 const flag = (name, def) => { const i = args.indexOf(name); return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : def; };
-const VALUED = ['--ids', '--role', '--at', '--bench', '--frames', '--stops', '--band'];
+const VALUED = ['--ids', '--role', '--at', '--bench', '--frames', '--stops', '--band', '--dpr', '--size'];
 const outDir = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1])) || 'gallery';
 
 const ROWS = {
@@ -34,8 +39,8 @@ const { server, url } = await serve();
 const browser = await launch();
 const logs = [];
 
-async function newPage() {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true });
+async function newPage(dpr = 1) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: dpr, ignoreHTTPSErrors: true });
   page.on('console', (m) => { if (m.type() === 'error') logs.push(m.text()); });
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
   return page;
@@ -45,17 +50,18 @@ if (args.includes('--bench')) {
   const mods = (flag('--bench', '/src/render/renderer.js')).split(',');
   const frames = Number(flag('--frames', 300));
   const band = flag('--band', null);
-  const page = await newPage();
+  const [cw, ch] = flag('--size', '1280x720').split('x').map(Number);
+  const page = await newPage(Number(flag('--dpr', 1)));
   const out = [];
   for (const min of (flag('--stops', '4.6,6.8')).split(',').map(Number)) {
     await page.goto(`${url}/index.html?sim=1&speed=12&bot=1&god=1&seed=1&minutes=${min}${band ? (band.includes('=') ? `&${band}` : `&solo=1&give=${band}`) : ''}`);
     await page.waitForFunction(() => window.__LS?.done, null, { timeout: 600000, polling: 250 });
-    out.push(await page.evaluate(async ({ mods, frames, min }) => {
+    out.push(await page.evaluate(async ({ mods, frames, min, cw, ch }) => {
       const L = window.__LS, g = L.game, fx = g.fx;
       const rs = [];
       for (const m of mods) {
         const cv = document.createElement('canvas');
-        cv.style.cssText = 'position:fixed;left:0;top:0;width:1280px;height:720px;visibility:hidden';
+        cv.style.cssText = `position:fixed;left:0;top:0;width:${cw}px;height:${ch}px;visibility:hidden`;
         document.body.appendChild(cv);
         const { Renderer } = await import(m);
         const r = new Renderer(cv);
@@ -87,9 +93,10 @@ if (args.includes('--bench')) {
         };
         requestAnimationFrame(tick);
       });
-      return { min, frames: n, mean: Object.fromEntries(Object.entries(cnt).map(([k, v]) => [k, Math.round(v / n)])),
+      return { min, frames: n, dpr: rs[0].dpr, scale: Math.round(rs[0].scale * 100) / 100, load: Math.round(rs[0].load * 100) / 100,
+        mean: Object.fromEntries(Object.entries(cnt).map(([k, v]) => [k, Math.round(v / n)])),
         ms: Object.fromEntries(mods.map((m, j) => [m, Math.round((tot[j] / n) * 100) / 100])) };
-    }, { mods, frames, min }));
+    }, { mods, frames, min, cw, ch }));
   }
   console.log(JSON.stringify(out));
   await browser.close();
@@ -102,6 +109,7 @@ const role = flag('--role', null);
 const only = flag('--ids', null)?.split(',');
 const at = Number(flag('--at', 80));
 const remixes = !args.includes('--no-remix');
+const busy = args.includes('--busy');
 const ids = only || (role ? ROWS[role] : Object.values(ROWS).flat());
 
 // One tile: a god sim with the sound alone at level 5 (remixed with rx), in two passes over the same seeded fight (a
@@ -134,6 +142,7 @@ async function tile(page, id, rx) {
   const toStart = async () => {
     await page.goto(`${url}/index.html?${q}`);
     await page.waitForFunction(() => window.__LS?.done, null, { timeout: 120000, polling: 100 });
+    if (busy) await pinBusy(page);
   };
   await toStart();
   await page.evaluate(({ m, src }) => {
@@ -164,19 +173,40 @@ async function tile(page, id, rx) {
     const L = window.__LS, inst = Object.values(L.game.loadout.channels).find(Boolean);
     return { name: rx ? inst.def.remix.name : inst.def.name, base: inst.def.name, style: inst.def.style, t: Math.round(L.game.time * 10) / 10 };
   }, rx);
-  return { id, rx, file, ...meta, score: best.s, enemies: best.enemies };
+  return { id, rx, file, ...meta, score: best.s, enemies: best.enemies, busy };
+}
+
+// --busy: every Renderer draws with its load pinned at 1 (the smoothed load the late game sits at), so fxAlpha is 0.55
+// and the looks take their busy-screen path. The page's renderer is the module main.js imported, so patching its
+// prototype reaches it; the pin is an accessor on the instance that ignores draw()'s own update.
+async function pinBusy(page) {
+  await page.evaluate(async () => {
+    const { Renderer } = await import('/src/render/renderer.js');
+    if (Renderer.prototype.__pinned) return;
+    const draw = Renderer.prototype.draw;
+    Renderer.prototype.draw = function (...a) {
+      if (!Object.getOwnPropertyDescriptor(this, 'load')?.get) Object.defineProperty(this, 'load', { get: () => 1, set() {}, configurable: true });
+      return draw.apply(this, a);
+    };
+    Renderer.prototype.__pinned = true;
+  });
 }
 
 
 const page = await newPage();
+// A run over some tiles (--ids, --role) keeps the others already in outDir: they stay on the sheets and in gallery.json.
 const done = [];
+const prev = await readFile(path.join(outDir, 'gallery.json'), 'utf8').then(JSON.parse).catch(() => []);
+const fresh = [];
 for (const id of ids) {
   for (const rx of remixes ? [false, true] : [false]) {
     const t = await tile(page, id, rx).catch((e) => ({ id, rx, error: e.message }));
-    done.push(t);
+    fresh.push(t);
     console.log(JSON.stringify(t));
   }
 }
+for (const t of prev) if (!t.error && !fresh.some((f) => f.id === t.id && f.rx === t.rx)) done.push(t);
+done.push(...fresh);
 
 // The sheets: one per channel, the five styles across, level 5 above, the remix below.
 const sheet = await newPage();
@@ -191,7 +221,7 @@ for (const [r, row] of Object.entries(ROWS)) {
   if (!cells.some((c) => c.t && !c.t.error)) continue;
   const imgs = await Promise.all(cells.map(async (c) => (c.t && !c.t.error ? `data:image/png;base64,${(await readFile(c.t.file)).toString('base64')}` : '')));
   const html = `<!doctype html><meta charset="utf-8"><body style="margin:0;background:#0d0a17;color:#f3eeff;font:600 15px system-ui;padding:10px">
-    <div style="font:700 20px system-ui;margin:2px 4px 8px">${r.toUpperCase()}</div>
+    <div style="font:700 20px system-ui;margin:2px 4px 8px">${r.toUpperCase()}${busy ? ' <span style="font-weight:600;color:#a89fc8">busy screen: load 1, fxAlpha 0.55</span>' : ''}</div>
     <div style="display:grid;grid-template-columns:repeat(5,456px);gap:8px">${cells.map((c, i) => `<figure style="margin:0">
       <div style="padding:3px 4px;color:#a89fc8">${c.style} · <span style="color:#f3eeff">${c.label}</span></div>
       ${imgs[i] ? `<img src="${imgs[i]}" style="width:456px;height:300px;display:block;border:1px solid #2f2650">` : '<div style="width:456px;height:300px;border:1px dashed #43386b"></div>'}
@@ -202,7 +232,7 @@ for (const [r, row] of Object.entries(ROWS)) {
   await sheet.screenshot({ path: path.join(outDir, `gallery-${r}.png`), fullPage: true });
 }
 await writeFile(path.join(outDir, 'gallery.json'), JSON.stringify(done, null, 2));
-console.log(JSON.stringify({ tiles: done.length, errors: done.filter((d) => d.error).length, logs: logs.filter((l) => !/Failed to load resource/.test(l)).slice(0, 20) }));
+console.log(JSON.stringify({ tiles: fresh.length, kept: done.length - fresh.length, errors: fresh.filter((d) => d.error).length, logs: logs.filter((l) => !/Failed to load resource/.test(l)).slice(0, 20) }));
 await browser.close();
 server.close();
 process.exit(logs.some((l) => /^pageerror/.test(l)) ? 1 : 0);

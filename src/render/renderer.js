@@ -1039,14 +1039,6 @@ export class Renderer {
     looks.end();
   }
 
-  // Remixed attacks wear a thin gold rim around their core, so a remix reads from across the room (looks.goldRims:
-  // one path and one stroke per batch).
-  _goldRims(c, items, radius, inView = null) {
-    looks.begin(c, this);
-    looks.goldRims(items, radius, false, inView);
-    looks.end();
-  }
-
   // Shots, batched by look and color (looks.bullets).
   _bullets(c, g, inView) {
     looks.begin(c, this);

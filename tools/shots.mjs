@@ -7,11 +7,16 @@
 // a busy Chorus II with The Clipper (late-1-chorus2, 4.6 min), The Drop with The Glitch King (late-2-drop, 6.8 min)
 // and the Finale with White Noise (late-3-finale, 8.3 min). The same seed draws the same fight, so two builds compare
 // frame for frame (the visual-clarity check: enemies, enemy shots and your attacks, each found at a glance).
+// --band "<query>" plays a fixed band instead of the autopilot's picks (solo=1: no level-ups), e.g.
+// --band "start=taiko&give=taiko:5,shaker:5&remix=taiko,shaker", --tag names the shots (d-late-<tag>-1-chorus2.png)
+// and --stops picks the minutes (default 4.6,6.8,8.3).
 import { serve, launch } from './serve.mjs';
 import { mkdir } from 'node:fs/promises';
 
 const args = process.argv.slice(2);
-const outDir = args.find((a) => !a.startsWith('--')) || 'shots';
+const VALUED = ['--band', '--tag', '--stops'];
+const flag = (name, def) => { const i = args.indexOf(name); return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : def; };
+const outDir = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1])) || 'shots';
 const mobile = args.includes('--mobile');
 await mkdir(outDir, { recursive: true });
 
@@ -27,9 +32,11 @@ if (args.includes('--late')) {
   const page = await ctx.newPage();
   page.on('console', (m) => { if (m.type() === 'error') logs.push(m.text()); });
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
-  const stops = [['1-chorus2', 4.6], ['2-drop', 6.8], ['3-finale', 8.3]];
+  const names = { 4.6: '1-chorus2', 6.8: '2-drop', 8.3: '3-finale' };
+  const stops = flag('--stops', '4.6,6.8,8.3').split(',').map(Number).map((m) => [names[m] || `m${m}`, m]);
+  const band = flag('--band', null), tag = flag('--tag', null);
   const t0 = Date.now();
-  await page.goto(`${url}/index.html?sim=1&speed=12&bot=1&god=1&seed=1&minutes=${stops[0][1]}`);
+  await page.goto(`${url}/index.html?sim=1&speed=12&bot=1&god=1&seed=1&minutes=${stops[0][1]}${band ? `&solo=1&${band}` : ''}`);
   await page.waitForFunction(() => window.__LS?.game, null, { timeout: 30000 });
   const out = [];
   for (const [name, min] of stops) {
@@ -37,7 +44,7 @@ if (args.includes('--late')) {
     await page.evaluate((m) => { const L = window.__LS; L.opts.minutes = m; L.done = false; }, min);
     await page.waitForFunction(() => window.__LS.done, null, { timeout: 600000, polling: 250 });
     await page.waitForTimeout(400);
-    const file = `${outDir}/${mobile ? 'm' : 'd'}-late-${name}.png`;
+    const file = `${outDir}/${mobile ? 'm' : 'd'}-late-${tag ? `${tag}-` : ''}${name}.png`;
     await page.screenshot({ path: file });
     const s = await page.evaluate(() => {
       const g = window.__LS.game;

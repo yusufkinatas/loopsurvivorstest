@@ -153,10 +153,12 @@ export class Effects {
   // Delayed impact at a spot: a marker shows where it will land. o: x, y, delay (s), r, damage, kb, stun,
   // slow, color, target (enemy to track until impact), style ('drop'|'star'|'ring').
   strike(o) {
+    const p = this.g.player;
     const s = {
       x: o.x, y: o.y, delay: o.delay ?? 0.25, t: 0, r: o.r ?? 50, damage: o.damage ?? 15, kb: o.kb ?? 100,
       stun: o.stun ?? 0, slow: o.slow ?? 0, color: o.color ?? '#fff', target: o.target ?? null, style: o.style ?? 'drop',
       src: this.g.src, onLand: o.onLand ?? null,
+      ox: o.ox ?? p?.x, oy: o.oy ?? p?.y,   // for the renderer: where it was fired from (a lobbed shell starts there)
     };
     this.strikes.push(s);
     return s;

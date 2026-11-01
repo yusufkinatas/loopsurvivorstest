@@ -30,7 +30,7 @@ export const STYLES = {
   synth:     { name: 'Synth',     color: '#7ab0ff', blurb: 'Electronic' },
   organic:   { name: 'Live',      color: '#f0b884', blurb: 'Played by hand' },
   chip:      { name: '8-Bit',     color: '#c2f25e', blurb: 'Retro console' },
-  heavy:     { name: 'Heavy',     color: '#e65cff', blurb: 'Rock and metal' },
+  heavy:     { name: 'Heavy',     color: '#c9d1e0', blurb: 'Rock and metal' },
   orchestra: { name: 'Orchestra', color: '#d4a6ff', blurb: 'Cinematic' },
 };
 
