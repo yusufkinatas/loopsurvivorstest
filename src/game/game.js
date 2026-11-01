@@ -701,11 +701,28 @@ export class Game {
     return !s.hold && !s.pendingStop && !s.dropState && !this._remixDue() && (s.bar + 1) % DROP.phrase === 0;
   }
 
+  // The fill is judged by ear: the sequencer schedules lookahead plus output latency ahead of what is heard, so
+  // a press on the fill's last hits can come once the phrase downbeat is already scheduled. The Drop still lands
+  // on that downbeat while it is not heard yet and is free (Sequencer.dropDownbeat). Returns that bar, else -1.
+  _lateFill() {
+    const s = this.seq, now = this._heardNow();
+    if (s.bar % DROP.phrase !== 0) return -1;
+    const heard = s.sounding(now);
+    if (!heard || heard.bar !== s.bar - 1) return -1;
+    const d = s.dropDownbeat(s.bar);
+    return d && d.time > now ? s.bar : -1;
+  }
+
+  // Audio time of what is heard now (the output latency behind the audio clock; none in a sim).
+  _heardNow() { return this.clock.now() - (this.opts.sim ? 0 : this.audio?.latency || 0); }
+
   // The bar a Drop pressed now would land on. A perfect drop lands on a phrase downbeat (dropPerfectNow), so the
-  // HUD and the autopilot can read the window.
+  // HUD and the autopilot can read the window. The same rules as requestDrop.
   dropLandsOn() {
     const s = this.seq;
-    return this._fillBuild() ? s.bar + 1 : s.bar + 2 + (s.pendingStop || this._remixDue() ? 1 : 0);
+    if (this._fillBuild()) return s.bar + 1;
+    const late = this._lateFill();
+    return late >= 0 ? late : s.bar + 2 + (s.pendingStop || this._remixDue() ? 1 : 0);
   }
   dropPerfectNow() { return this.dropLandsOn() % DROP.phrase === 0; }
 
@@ -718,12 +735,15 @@ export class Game {
     if (this.dropState && !this.seq.dropState && !this.seq.events.some((ev) => ev.type === 'drop')) this.dropState = null;
     if (this.state !== 'playing' || this.won || this.dropCharge < this.dropMax || this.dropState) return false;
     const fill = this._fillBuild();
-    if (!this.seq.requestDrop()) return false;
+    const late = fill ? -1 : this._lateFill();
+    // A late press lands on the downbeat already scheduled (its 'drop' event is queued, nothing is left to build).
+    if (late >= 0 ? !this.seq.landDropAt(late) : !this.seq.requestDrop()) return false;
     this.dropCharge = 0;
     this.dropState = 'queued';
     this.hooks.onDrop?.('queued');
-    if (fill) {
-      this.seq.dropState = this.dropState = 'building';
+    if (fill || late >= 0) {
+      if (fill) this.seq.dropState = 'building';
+      this.dropState = 'building';
       this.hooks.onDrop?.('building');
     }
     return true;
