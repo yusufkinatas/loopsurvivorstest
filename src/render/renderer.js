@@ -177,6 +177,10 @@ export class Renderer {
     const prog = cur ? cur.sib / 16 : 0;
     if (g.drops > this._drops) this.zoom = 0.94;
     this._drops = g.drops;
+    // A remix landing punches out the same way.
+    const remixes = g.remixLog?.length || 0;
+    if (remixes > this._remixes) this.zoom = 0.95;
+    this._remixes = remixes;
     if (!g.settings.shake) this.zoom = 1;
     else this.zoom += ((building && g.state === 'playing' ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
     const s = this.scale * this.zoom;
@@ -298,6 +302,23 @@ export class Renderer {
       circle(c, px, py, R * (1.02 + 0.04 * (1 - g.perfectFlash))); c.stroke();
       c.globalCompositeOperation = 'source-over';
     }
+    // A remix lands: a gold wash over its ring (flashes on) and a gold rim that holds at the ring's edge.
+    if (g.remixFlash > 0.02) {
+      const R = (g.remixR || 520) * s;
+      c.globalCompositeOperation = 'lighter';
+      if (g.settings.flashes) {
+        const fl = c.createRadialGradient(px, py, 0, px, py, R * 1.1);
+        fl.addColorStop(0, `rgba(255,209,102,${g.remixFlash * 0.32})`);
+        fl.addColorStop(0.8, `rgba(255,209,102,${g.remixFlash * 0.16})`);
+        fl.addColorStop(1, 'rgba(255,209,102,0)');
+        c.fillStyle = fl;
+        c.fillRect(0, 0, this.w, this.h);
+      }
+      c.strokeStyle = `rgba(255,209,102,${g.remixFlash * 0.85})`;
+      c.lineWidth = 2 + 6 * g.remixFlash;
+      circle(c, px, py, R * (1 + 0.05 * (1 - g.remixFlash))); c.stroke();
+      c.globalCompositeOperation = 'source-over';
+    }
   }
 
   // ------------------------------------------------------------------------------------------
@@ -305,12 +326,15 @@ export class Renderer {
   _pickups(c, g, inView) {
     const t = this.time;
     // A note about to fade blinks on 16ths through its last BALANCE.notes.blink seconds.
-    const N = BALANCE.notes;
-    const fading = (gm) => gm.kind === 'xp' && !gm.pull && gm.age > N.life - N.blink && Math.floor(gm.age / (BEAT_SEC / 4)) % 2 === 1;
+    const N = BALANCE.notes, T = BALANCE.remix;
+    // A Master Tape blinks the same way through its last BALANCE.remix.tapeBlink seconds.
+    const fading = (gm) => !gm.pull && (gm.kind === 'xp' ? gm.age > N.life - N.blink : gm.kind === 'tape' && gm.age > T.tapeLife - T.tapeBlink)
+      && Math.floor(gm.age / (BEAT_SEC / 4)) % 2 === 1;
     c.globalCompositeOperation = 'lighter';
     for (const gm of g.gems) {
       if (!inView(gm.x, gm.y, 20) || fading(gm)) continue;
-      this.drawGlow(gm.x, gm.y, gm.r * 2.2, gm.color, gm.kind === 'xp' ? 0.25 : 0.5);
+      if (gm.kind === 'tape') this.drawGlow(gm.x, gm.y, gm.r * (3.4 + g.beatPulse * 0.8), gm.color, 0.7);
+      else this.drawGlow(gm.x, gm.y, gm.r * 2.2, gm.color, gm.kind === 'xp' ? 0.25 : 0.5);
     }
     c.globalCompositeOperation = 'source-over';
     for (const gm of g.gems) {
@@ -324,6 +348,8 @@ export class Renderer {
         c.fillStyle = ITEM_INFO.vinyl.color; circle(c, 0, 0, gm.r * 0.38); c.fill();
         c.fillStyle = '#121016'; circle(c, 0, 0, 1.6); c.fill();
         c.restore();
+      } else if (gm.kind === 'tape') {
+        this._tape(c, gm, t, g.beatPulse);
       } else if (gm.kind === 'heal') {
         c.fillStyle = ITEM_INFO.heal.color;
         heart(c, gm.x, gm.y, gm.r * (1 + Math.sin(t * 6) * 0.08));
@@ -333,6 +359,27 @@ export class Renderer {
         c.lineCap = 'round';
       }
     }
+  }
+
+  // A Master Tape: a gold reel spinning on the floor (wound tape, three windows in the flange, a hub), and a
+  // ring that pulses out from it on the beat so it reads from across a fight.
+  _tape(c, gm, t, pulse) {
+    const r = gm.r, col = ITEM_INFO.tape.color;
+    c.strokeStyle = rgba(col, 0.25 + 0.45 * pulse);
+    c.lineWidth = 2;
+    circle(c, gm.x, gm.y, r * (1.5 + 0.9 * (1 - pulse))); c.stroke();
+    c.save(); c.translate(gm.x, gm.y); c.rotate(t * 2.4);
+    c.fillStyle = col; circle(c, 0, 0, r); c.fill();
+    c.fillStyle = '#3a2a0c'; circle(c, 0, 0, r * 0.66); c.fill();   // the wound tape
+    c.fillStyle = '#121016';
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * TAU;
+      c.beginPath(); c.arc(0, 0, r * 0.56, a + 0.35, a + 1.75); c.arc(0, 0, r * 0.3, a + 1.75, a + 0.35, true); c.closePath(); c.fill();
+    }
+    c.fillStyle = col; circle(c, 0, 0, r * 0.22); c.fill();
+    c.fillStyle = '#121016'; circle(c, 0, 0, r * 0.08); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.55)'; c.lineWidth = 1.2; circle(c, 0, 0, r); c.stroke();
+    c.restore();
   }
 
   // The band's play rules, as quiet tells on the floor in their style's color (no text): Long throw's dotted
@@ -793,9 +840,15 @@ export class Renderer {
   }
 
   // An arrow pointing at a boss that is off-screen or hidden under the HUD, drawn inside the clear play area.
+  // An arrow at the edge of the view toward the boss, and toward a Master Tape lying off screen (gold).
   _bossArrow(c, g, s) {
+    for (const gm of g.gems) if (gm.kind === 'tape') this._edgeArrow(c, gm, ITEM_INFO.tape.color, s, 12);
     const e = g.boss;
     if (!e || e.dead) return;
+    this._edgeArrow(c, e, e.color, s, 15);
+  }
+
+  _edgeArrow(c, e, color, s, sz) {
     // Clear of the HUD: the top bar, the boss bar and the fight note under it (styles.css), and the mixer.
     const top = this.w < 760 ? 140 : 152, bottom = this.w < 760 ? 150 : 104, side = 24;
     const sxp = (e.x - this.cam.x) * s + this.w / 2, syp = (e.y - this.cam.y) * s + this.h / 2;
@@ -810,8 +863,7 @@ export class Renderer {
     c.save();
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.translate(x, y); c.rotate(a);
-    const sz = 15;
-    c.fillStyle = e.color;
+    c.fillStyle = color;
     c.strokeStyle = 'rgba(8,4,12,0.9)'; c.lineWidth = 3;
     c.beginPath(); c.moveTo(sz, 0); c.lineTo(-sz * 0.7, sz * 0.75); c.lineTo(-sz * 0.35, 0); c.lineTo(-sz * 0.7, -sz * 0.75); c.closePath();
     c.stroke(); c.fill();

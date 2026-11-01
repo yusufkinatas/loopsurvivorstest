@@ -16,8 +16,11 @@
 //   level at the start + levels gained, cards picked, kills @ mean kill distance (px), share of kills within
 //   120 px, enemies alive on average, hearts spawned/taken, Drops (*perfect), Snare marks that hit/landed,
 //   note value that faded on the floor.
+// It also adds `tapes` (Master Tapes: d dropped, c collected, s spent, b banked at the end, l lost on the floor) and
+// `remixLog` (each remix as it landed: instrument, bar, section, game second).
 // With --runs > 1 it then prints one AGGREGATE line (wins, where runs died, median lowest health before the
-// Finale, contact share, picks, levels at Chorus II and the Finale, Drops, boss fight lengths, channels at L5).
+// Finale, contact share, picks, levels at Chorus II and the Finale, Drops, boss fight lengths, channels at L5,
+// tapes dropped/collected/lost and the remixes of each run with the bars they landed on).
 // With god=1 the ledger still records the damage you would have taken.
 import { serve, launch } from './serve.mjs';
 
@@ -55,13 +58,14 @@ async function run(browser, url, r) {
     ? { state: m.state, time: Math.round(m.time), level: m.level, kills: m.kills, hp: Math.round(m.hp), section: m.section, bosses: m.bosses, errors: m.errors,
         damageTaken: round(m.damageTaken), damageBy: round(m.damageBy), lastHitBy: m.lastHitBy,
         bossLog: (m.bossLog || []).map((b) => `${b.type}:${b.spawn.toFixed(1)}-${b.end === null ? 'alive' : `${b.end.toFixed(1)}:${b.how}`}`),
-        drops: m.drops, bossAlive: m.bossesAlive, bossesSpawned: m.bossesSpawned, sectionIndex: m.sectionIndex, cap: m.cap, dropState: m.dropState, filledAt: (m.samples.find((s) => s.filled >= 6) || {}).t ?? null, loadout: m.loadout.map((i) => `${i.id}:${i.level}:${i.dmg}`), pedals: m.pedals.map((p) => `${p.id}:${p.level}`), genre: m.genre, remixes: m.remixes, deadScreens: m.deadScreens, perfectDrops: m.perfectDrops, sections: sectionLines(m), wall, logs: logs.slice(0, 12) }
+        drops: m.drops, bossAlive: m.bossesAlive, bossesSpawned: m.bossesSpawned, sectionIndex: m.sectionIndex, cap: m.cap, dropState: m.dropState, filledAt: (m.samples.find((s) => s.filled >= 6) || {}).t ?? null, loadout: m.loadout.map((i) => `${i.id}:${i.level}:${i.dmg}`), pedals: m.pedals.map((p) => `${p.id}:${p.level}`), genre: m.genre, remixes: m.remixes, tapes: tapeLine(m.tapes), remixLog: (m.remixLog || []).map((r) => `${r.id} b${r.bar} ${r.sec} ${Math.round(r.t)}s`), deadScreens: m.deadScreens, perfectDrops: m.perfectDrops, sections: sectionLines(m), wall, logs: logs.slice(0, 12) }
     : { ...m, wall, logs: logs.slice(0, 40) };
   Object.defineProperty(out, 'raw', { value: m, enumerable: false });   // for the aggregate line, not printed
   return out;
 }
 
 const pct = (x) => `${Math.round(x * 100)}%`;
+const tapeLine = (t) => (t ? `d${t.dropped} c${t.collected} s${t.spent} b${t.banked} l${t.lost}` : null);
 const sum = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
 const median = (a) => { const b = a.filter((x) => x != null && !Number.isNaN(x)).sort((x, y) => x - y); return b.length ? b[Math.floor((b.length - 1) / 2)] : null; };
 
@@ -97,7 +101,9 @@ function aggregate(rs) {
   return `AGGREGATE runs ${ms.length} | wins ${wins} | died in ${deaths.join(',') || '-'} | lowest HP before the Finale ${minPre.map(pct).join(' ')} (median ${pct(median(minPre))})`
     + ` | contact ${pct(contact / Math.max(1, all))} +marks ${pct((contact + marks) / Math.max(1, all))} | picks ${picks.join(' ')} | lv at Chorus II ${lvAt(CHORUS2).join(' ')} at Finale ${lvAt(FINALE).join(' ')}`
     + ` | drops ${ms.map((m) => `${m.drops}${m.perfectDrops ? `*${m.perfectDrops}` : ''}`).join(' ')} | hearts ${hearts.join(' ')} | marks hit ${mk[0]}/${mk[1]}`
-    + ` | channels at L5 ${maxed.join(' ')} | fights ${Object.entries(fights).map(([k, v]) => `${k} ${v.join(',')}`).join('; ')}`;
+    + ` | channels at L5 ${maxed.join(' ')} | fights ${Object.entries(fights).map(([k, v]) => `${k} ${v.join(',')}`).join('; ')}`
+    + ` | tapes d/c/l ${ms.map((m) => (m.tapes ? `${m.tapes.dropped}/${m.tapes.collected}/${m.tapes.lost}` : '-')).join(' ')}`
+    + ` | remixes ${ms.map((m) => `${(m.remixLog || []).length}${(m.remixLog || []).length ? `(${m.remixLog.map((r) => `b${r.bar}`).join(',')})` : ''}`).join(' ')}`;
 }
 
 const { server, url } = await serve();

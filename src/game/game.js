@@ -12,7 +12,7 @@ import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat } from './enemie
 import { bossCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName, isFusion, RULES } from './loadout.js';
-import { buildOffers, applyOffer as applyCard, banKey, deadScreen } from './upgrades.js';
+import { buildOffers, applyOffer as applyCard, banKey, deadScreen, remixReady } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
@@ -65,6 +65,8 @@ export class Game {
     this.seq.reset(this.song);
     this.seq.getInstruments = () => (this.loadout ? this.loadout.instruments() : []);
     this.seq.getFeatured = () => this.featured();
+    this.seq.onRemix = (inst, bar) => this._remixFlipped(inst, bar);
+    this.seq.onRemixLost = (inst) => this._remixLost(inst);
     // The sequencer asks a beat ahead which boss cues to play on it (sound only, while playing).
     const cues = [];
     this.seq.getBossCues = (bar, beat) => {
@@ -115,6 +117,16 @@ export class Game {
     this.banishes = BANISHES_PER_RUN;
     this.banished = new Set();   // ids of the sounds and pedals banished from the cards
     this.remixed = [];           // ids of the instruments remixed this run, in order
+    // Master Tapes (BALANCE.remix): dropped by silenced bosses, collected, banked (no channel ready yet), spent
+    // on a remix, or lost (left on the floor). remixQueue waits for the sequencer's one queued remix to land.
+    this.tapes = { dropped: 0, collected: 0, banked: 0, spent: 0, lost: 0 };
+    this.remixQueue = [];
+    this.remixLog = [];          // { t, id, bar, sec } each remix as it lands
+    this.tapePick = false;       // two or more channels were ready: the remix cards open when play allows
+    this.tapeOffers = false;     // the cards up are a tape's remix cards (no reroll, banish or skip)
+    this._remixLanding = 0;      // remixes flipped by the sequencer whose downbeat has not been heard yet
+    this.remixFlash = 0;
+    this.remixR = BALANCE.remix.radius;
     this.cardScreens = 0;
     this.deadScreens = 0;
     this.dropCharge = 0;
@@ -163,6 +175,8 @@ export class Game {
       const pd = PEDAL_BY_ID[p.id];
       if (pd && !this.loadout.pedal(p.id)) this.loadout.pedals.push({ def: pd, level: clamp(p.level || 1, 1, 3) });
     }
+    // Sims: tapes=N starts with N Master Tapes banked (spent as soon as a channel is ready).
+    this.tapes.banked = clamp(this.opts.tapes | 0, 0, 9);
     this.onLoadoutChanged();
     this.player.hp = this.player.maxHp;
     this.state = 'playing';
@@ -233,18 +247,140 @@ export class Game {
     this.onLoadoutChanged();
   }
 
-  // Remix: the level 5 part keeps playing, its notes become the remix's attack, and the remix pedal opens up
-  // on that channel's strip so the change is heard. Taken from a card, the banner waits until play resumes.
-  remixInstrument(inst) {
-    if (!inst.def.remix || inst.remix) return;
+  // ------------------------------------------------------------------ Master Tapes and remixes
+  //
+  // A non-final boss silenced in its own section drops a Master Tape where it fell (onBossDeath). Walking into
+  // it spends it on a channel at level 5 that is not remixed yet (remixReady): none ready banks it (the HUD shows
+  // a reel), one is queued, two or more open the remix cards. A queued remix lands on the song's next free
+  // 4-bar line (Sequencer.remixBar): the channel drops out for a bar under a riser, then on the downbeat the
+  // remix's own part comes in with an impact ring (landRemix).
+
+  // Channels a tape can remix: level 5, a remix of their own, not remixed or queued yet.
+  remixReady() { return this.loadout.instruments().filter((i) => remixReady(i) && !this.remixQueued(i)); }
+  remixQueued(inst) { return this.seq.remixAt?.inst === inst || this.remixQueue.includes(inst); }
+
+  // A tape reached you.
+  _collectTape() {
+    this.tapes.collected++;
+    this.tapes.banked++;
+    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 16, r1: 140, dur: 0.5, damage: 0, kb: 0, width: 8, color: '#ffd166' });
+    this._spendTape();
+  }
+
+  // A tape left on the floor too long (pickups.js).
+  tapeLost() { this.tapes.lost++; }
+
+  // Spend banked tapes while channels are ready: one ready is queued at once, two or more wait for the cards.
+  _spendTape() {
+    if (!(this.tapes?.banked > 0) || this.won || this.state === 'dying') return;
+    const ready = this.remixReady();
+    if (ready.length === 1) {
+      this.tapes.banked--;
+      this.tapes.spent++;
+      this.queueRemix(ready[0]);
+    } else if (ready.length > 1) this.tapePick = true;
+  }
+
+  // Queue a remix: the sequencer holds one at a time, the rest wait their turn (each on the next free line).
+  queueRemix(inst) {
+    if (!remixReady(inst) || this.remixQueued(inst)) return;
+    if (this.seq.remixAt) { this.remixQueue.push(inst); return; }
+    this.seq.remixAt = { inst, bar: this.seq.remixBar(this.seq.bar + BALANCE.remix.lead, BALANCE.remix.line), out: false };
+  }
+
+  // The next queued remix goes to the sequencer once the last one has landed. One whose channel left the band
+  // (or can no longer be remixed) gives its tape back.
+  _nextRemix() {
+    let refund = false;
+    while (!this.seq.remixAt && this.remixQueue.length) {
+      const inst = this.remixQueue.shift();
+      if (this.loadout.has(inst) && remixReady(inst)) this.queueRemix(inst);
+      else { this.tapes.banked++; this.tapes.spent--; refund = true; }
+    }
+    if (refund) this._spendTape();
+  }
+
+  // The sequencer flips inst.remix as it schedules the remix's downbeat, so the remix part is what plays there.
+  // The game follows at once (the remix's setup and stats, its pedal on the strip) and the moment itself waits
+  // for that downbeat to be heard (the 'remix' event, landRemix). The strip turns gold then too.
+  _remixFlipped(inst) {
     inst.level = MAX_INSTRUMENT_LEVEL;
-    inst.remix = true;
     this.remixed.push(inst.def.id);
-    this.onLoadoutChanged();
-    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 300, dur: 0.6, damage: 0, kb: 0, width: 12, color: '#ffd166' });
-    if (this.state === 'levelup') (this._remixNames ||= []).push(inst.def.remix.name);
-    else this.banner(inst.def.remix.name, '', false, 'gold');
-    this.hooks.onRemix?.(inst.def);
+    this._remixLanding++;
+    this.onLoadoutChanged(true);
+    this._nextRemix();
+  }
+
+  // A queued remix whose channel was swapped out before it landed: the tape comes back.
+  _remixLost() {
+    this.tapes.banked++;
+    this.tapes.spent--;
+    this._nextRemix();
+    this._spendTape();
+  }
+
+  // Spend a tape on the remix card picked: it queues like any other.
+  _takeRemix(o) {
+    if (!o?.inst || !remixReady(o.inst) || this.remixQueued(o.inst) || !(this.tapes.banked > 0)) return;
+    this.tapes.banked--;
+    this.tapes.spent++;
+    this.queueRemix(o.inst);
+  }
+
+  // The remix cards for a banked tape (the channels with the most damage first, at most three), or false when
+  // fewer than two channels are ready any more (then one ready is queued at once).
+  _dealTape() {
+    this.tapePick = false;
+    const ready = this.remixReady();
+    if (ready.length < 2 || !(this.tapes.banked > 0)) { this._spendTape(); return false; }
+    this.offers = ready.sort((a, b) => b.dmg - a.dmg).slice(0, 3)
+      .map((inst) => ({ kind: 'remix', def: inst.def, role: inst.def.role, inst, level: MAX_INSTRUMENT_LEVEL }));
+    this.tapeOffers = true;
+    return true;
+  }
+
+  // Open the remix cards (the run pauses, like a level-up). With autopick (sims) the pick is made at once.
+  openTapePick() {
+    if (!this._dealTape()) return;
+    if (this.opts.autopick) {
+      const i = this.hooks.autopick ? this.hooks.autopick(this.offers) : 0;
+      this._takeRemix(this.offers[i] || this.offers[0]);
+      this.offers = null;
+      this.tapeOffers = false;
+      this._spendTape();
+      return;
+    }
+    this._pause('levelup');
+    this._cardChime();
+    this.hooks.onLevelUp?.(this.offers);
+  }
+
+  // The remix's downbeat, as it is heard: the band slams back in with the new part. A gold ring (BALANCE.remix)
+  // hits and knocks back the crowd, erases enemy shots inside it and knocks a boss in it off the beat; the strip
+  // flips gold with the remix's name as the banner.
+  landRemix(ev) {
+    this._remixLanding = Math.max(0, this._remixLanding - 1);
+    const inst = ev.inst, def = inst.def;
+    this.remixLog.push({ t: this.time, id: def.id, bar: ev.bar, sec: this.section?.id });
+    this.hooks.onLoadout?.();
+    this.hooks.onRemix?.(def);
+    if (this.state !== 'playing' || this.won) return;
+    const K = BALANCE.remix, p = this.player;
+    const dmg = K.damage * DROP.damage * (1 + this.level * K.perLevel) * this.stats.damage;
+    this.remixFlash = 1;
+    this.remixR = K.radius;
+    this.shake = Math.max(this.shake, 12);
+    this.chanPulse[def.role] = 1;
+    const prev = this.src; this.src = null;
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: K.radius, dur: K.dur, damage: dmg, kb: K.kb, stun: K.stun, erase: 1, width: 16, color: '#ffd166' });
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 14, r1: K.radius * 0.8, dur: K.dur * 1.3, damage: 0, kb: 0, width: 8, color: this.color(def.role) });
+    this.src = prev;
+    // A boss can arrive on the same downbeat: index this frame's spawns before the query.
+    this.grid.clear();
+    for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
+    const b = this.bossInRange(p.x, p.y, K.radius);
+    if (b) knockOffBeat(this, b, ev.bar);
+    this.banner(def.remix.name, '', false, 'gold');
   }
 
   // A remixed instrument plays with its remix's stats, and its remix's fire/setup/update where it has them.
@@ -268,7 +404,8 @@ export class Game {
     if (inst.notes > 0 || inst.dmg > 0) (this.retired ||= []).push(inst);
   }
 
-  onLoadoutChanged() {
+  // quiet: the HUD waits (a remix flips its strip when its downbeat is heard, landRemix).
+  onLoadoutChanged(quiet = false) {
     const oldMax = this.player?.maxHp ?? PLAYER_BASE.maxHp;
     this.stats = computeStats(this.loadout);
     if (this.player) {
@@ -290,7 +427,9 @@ export class Game {
     this.fullBand ||= full;
     this.fused ||= isFusion(counts);
     this.maxedAll ||= full && this.loadout.instruments().every((i) => i.level >= MAX_INSTRUMENT_LEVEL);
-    this.hooks.onLoadout?.();
+    // A channel that just reached level 5 takes a banked tape.
+    this._spendTape();
+    if (!quiet) this.hooks.onLoadout?.();
   }
 
   // ------------------------------------------------------------------ API for instruments
@@ -544,6 +683,8 @@ export class Game {
       if (!this.opts.solo) this.pendingLevels++;
       this._led().levels++;
       this.fx.text(this.player.x, this.player.y - 26, 'Vinyl!', '#ffd166', 14);
+    } else if (gm.kind === 'tape') {
+      this._collectTape();
     }
     this._ping(gm.kind === 'xp' ? 'note' : 'run');
   }
@@ -557,16 +698,20 @@ export class Game {
   // be the build: the Drop lands on the phrase downbeat. Otherwise it builds through the next bar.
   _fillBuild() {
     const s = this.seq;
-    return !s.hold && !s.pendingStop && !s.dropState && (s.bar + 1) % DROP.phrase === 0;
+    return !s.hold && !s.pendingStop && !s.dropState && !this._remixDue() && (s.bar + 1) % DROP.phrase === 0;
   }
 
   // The bar a Drop pressed now would land on. A perfect drop lands on a phrase downbeat (dropPerfectNow), so the
   // HUD and the autopilot can read the window.
   dropLandsOn() {
     const s = this.seq;
-    return this._fillBuild() ? s.bar + 1 : s.bar + 2 + (s.pendingStop ? 1 : 0);
+    return this._fillBuild() ? s.bar + 1 : s.bar + 2 + (s.pendingStop || this._remixDue() ? 1 : 0);
   }
   dropPerfectNow() { return this.dropLandsOn() % DROP.phrase === 0; }
+
+  // A remix whose dropout is playing lands on the next downbeat, and a Drop pressed meanwhile waits a bar for
+  // it (Sequencer._step): queued now, it builds on the bar after the remix and lands on the one after that.
+  _remixDue() { const R = this.seq.remixAt; return !!R && R.out; }
 
   requestDrop() {
     // Safety net: if the game still thinks a Drop is building but the sequencer has none pending, clear it.
@@ -683,6 +828,7 @@ export class Game {
         case 'build': this.dropState = 'building'; this.hooks.onDrop?.('building'); break;
         case 'drop': this._dropBar = ev.bar; if (this.won) this.dropState = null; else this.doDrop(ev.bar); break;   // on the ending it only sounds
         case 'impact': this.songImpact(ev.bar); break;
+        case 'remix': this.landRemix(ev); break;
       }
     }
     evs.length = 0;
@@ -838,6 +984,10 @@ export class Game {
   onBossSpawn(e) {
     if (this.audio?.ready) this.audio.bossQuiet(false);
     this.boss = e;
+    // A boss belongs to its section and fades when it ends: the boss bar's clock line runs over those bars
+    // (from the section's start to its end; the open-ended Finale has none).
+    const pos = this.song?.position(this.seq.bar);
+    if (pos && !e.def.final && Number.isFinite(pos.barsLeft)) e.clock = { from: pos.sectionStart, to: pos.sectionStart + pos.section.bars };
     (this.bossesSpawned ||= []).push(e.type);
     this.bossLog.push({ type: e.type, spawn: this.time, end: null, how: null });
     this.hooks.onBoss?.(e);
@@ -872,12 +1022,21 @@ export class Game {
       // The ending is one hit and a silent bar, so a Drop still waiting for its build bar is called off.
       if (this.seq.dropState === 'queued') this.seq.dropState = this.dropState = null;
       this.banner('Encore!');
-      // The silence wave grows from where it fell and silences the arena (see step()).
+      // The silence wave grows from where it fell and silences the arena (see step()). A remix still waiting for
+      // its line is called off: the song is ending.
       this.silence = { x: e.x, y: e.y, r: 0 };
+      this.seq.remixAt = null;
+      this.remixQueue.length = 0;
+      this.tapePick = false;
     } else {
       magnetAll(this);
       // A heart where it fell: silencing a boss inside its chorus is how a fight pays you back.
       if (BALANCE.hearts.bossHeart) this.dropHeart(e.x, e.y);
+      // And its Master Tape (at most BALANCE.remix.tapes a run): the magnet leaves it where it fell.
+      if (this.tapes.dropped < BALANCE.remix.tapes) {
+        this.tapes.dropped++;
+        dropItem(this, e.x, e.y, 'tape');
+      }
       // The boss implodes, then bursts outward in its color (cosmetic).
       this.fx.ring({ x: e.x, y: e.y, r0: e.r * 3.2, r1: 6, dur: 0.22, damage: 0, kb: 0, width: 12, color: e.color });
       this.later.push({ at: this.time + 2 * STEP_SEC, fn: () => this.fx.ring({ x: e.x, y: e.y, r0: 10, r1: 640, dur: 0.7, damage: 0, kb: 0, width: 16, color: e.color }) });
@@ -911,6 +1070,7 @@ export class Game {
     this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat' && ev.type !== 'build' && ev.type !== 'drop');
     this.seq.dropState = null;
     this.seq.pendingStop = null;
+    this.seq.remixAt = null;   // no remix lands on the band playing on after the run
     this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     for (const inst of this.loadout.instruments()) this.fx.particles(p.x, p.y, this.color(inst), 16, 340, 1.1, 3.5);
@@ -989,6 +1149,7 @@ export class Game {
     this.hurtFlash *= Math.exp(-dt * 5);
     this.dropFlash *= Math.exp(-dt * 2.5);
     this.perfectFlash *= Math.exp(-dt * 2);
+    this.remixFlash *= Math.exp(-dt * 2);
     for (const r of ROLES) this.chanPulse[r] *= Math.exp(-dt * 9);
     if (this.sectionBanner) this.sectionBanner.t += dt;
 
@@ -1019,10 +1180,15 @@ export class Game {
     if (ready && !this.dropReady) this._ping('run');
     this.dropReady = ready;
 
-    // Card screens wait until a pending or playing stop bar is over (two bars at most), and until a Drop
-    // that has started its build bar has landed (one more bar), so the vamp never loops the build.
-    const building = this.dropState === 'building' || this.seq.dropState === 'building';
-    if (this.pendingLevels > 0 && this.state === 'playing' && !this.won && !building && this._stopLeft() <= 0) this.openLevelUp();
+    // Card screens wait until a pending or playing stop bar is over (two bars at most), until a Drop that has
+    // started its build bar has landed (one more bar), so the vamp never loops the build, and until a remix whose
+    // dropout is playing has landed and been heard. A tape's remix cards come before the level-ups.
+    // Safety net: a remix counted as landing has its event waiting in the sequencer.
+    if (this._remixLanding > 0 && !this.seq.events.some((ev) => ev.type === 'remix')) this._remixLanding = 0;
+    const building = this.dropState === 'building' || this.seq.dropState === 'building' || this._remixDue() || this._remixLanding > 0;
+    const clear = this.state === 'playing' && !this.won && !building && this._stopLeft() <= 0;
+    if (clear && this.tapePick) this.openTapePick();
+    if (clear && this.state === 'playing' && this.pendingLevels > 0) this.openLevelUp();
   }
 
   // Seconds until the pending or playing stop bar has been heard to its end (negative when there is none).
@@ -1041,12 +1207,17 @@ export class Game {
       return;
     }
     this._pause('levelup');
+    this._cardChime();
+    this.hooks.onLevelUp?.(this.offers);
+  }
+
+  // A card screen opens on an arpeggio of the chord.
+  _cardChime() {
     if (this.audio?.ready && this.seq.position) {
       const c = this.seq.position.chord;
       const base = 72 + ((c.rootPc - 72) % 12 + 12) % 12;
       this.audio.levelUpChime([base, base + c.intervals[1], base + c.intervals[2], base + 12]);
     }
-    this.hooks.onLevelUp?.(this.offers);
   }
 
   // Deal a new set of cards. Screens with no real choice are counted for the sim metrics.
@@ -1057,8 +1228,9 @@ export class Game {
     return this.offers;
   }
 
+  // A tape's remix cards cannot be rerolled, banished or skipped.
   reroll() {
-    if (this.state !== 'levelup' || this.rerolls <= 0) return null;
+    if (this.state !== 'levelup' || this.rerolls <= 0 || this.tapeOffers) return null;
     this.rerolls--;
     this.previewOffer(null);
     return this._deal();
@@ -1067,7 +1239,7 @@ export class Game {
   // Banish card i: its sound or pedal never comes back this run (Remix, Fader and bonus cards cannot go).
   // The cards are dealt again, like a reroll.
   banish(i) {
-    const key = this.state === 'levelup' && this.banishes > 0 && this.offers?.[i] ? banKey(this.offers[i]) : null;
+    const key = this.state === 'levelup' && !this.tapeOffers && this.banishes > 0 && this.offers?.[i] ? banKey(this.offers[i]) : null;
     if (!key) return null;
     this.banished.add(key);
     this.banishes--;
@@ -1077,22 +1249,33 @@ export class Game {
 
   // Pass on this level: its notes go to the Drop meter instead.
   skip() {
-    if (this.state !== 'levelup' || !this.offers) return;
+    if (this.state !== 'levelup' || !this.offers || this.tapeOffers) return;
     this.chargeDrop(DROP.charge * DROP.skip);
     this.choose(-1);
   }
 
-  // i = -1 takes no card (a skip).
+  // i = -1 takes no card (a skip). On a tape's remix cards the pick queues that remix.
   choose(i) {
     if (this.state !== 'levelup' || !this.offers) return;
     const o = this.offers[i];
-    if (!o && i !== -1) return;
+    if (!o && (i !== -1 || this.tapeOffers)) return;
     this.previewOffer(null);
-    this.pendingLevels--;
-    if (o) applyOffer(this, o);
+    if (this.tapeOffers) {
+      this._takeRemix(o);
+      this.tapeOffers = false;
+      this._spendTape();   // another banked tape, if two channels are still ready, deals its cards next
+    } else {
+      this.pendingLevels--;
+      if (o) applyOffer(this, o);
+    }
     this.offers = null;
+    // Next: the remaining level-ups, then a tape's remix cards, then back to the song.
     if (this.pendingLevels > 0) {
       this._deal();
+      this.hooks.onLevelUp?.(this.offers);
+      return;
+    }
+    if (this.tapePick && this._dealTape()) {
       this.hooks.onLevelUp?.(this.offers);
       return;
     }
@@ -1148,7 +1331,6 @@ export class Game {
     this.preview = null;
     if (this.audio?.ready) { this.audio.setPreviewRole(null); this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost()); this.audio.setMuffle(false); }
     this.hooks.onResume?.();
-    if (this._remixNames) { this.banner(this._remixNames.join(' · '), '', false, 'gold'); this._remixNames = null; }
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
@@ -1169,6 +1351,7 @@ export class Game {
     this.seq.clearEvents();
     // A Drop still queued or building would play its build and impact over the end screen: call it off, as _die() does.
     this.seq.dropState = null;
+    this.seq.remixAt = null;
     this.dropState = null;
     if (this.audio?.ready) this.audio.setMuffle(true);
     this.hooks.onVictory?.(this.summary(true));

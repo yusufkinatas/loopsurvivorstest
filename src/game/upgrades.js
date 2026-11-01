@@ -1,20 +1,28 @@
 // Level-up offers. Each card is a musical decision: add a new sound to an empty channel, push an
-// existing one further, swap a channel to a different style, add a pedal, or remix a finished part.
+// existing one further, swap a channel to a different style, or add a pedal. Remixes are not level-up cards:
+// a Master Tape from a silenced boss spends on a channel at level 5 (game.js), and when two or more are ready
+// it deals remix cards of its own (describeOffer still draws them).
 
-import { ROLES, ROLE_INFO, STYLES, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, FADER } from '../config.js';
+import { ROLES, ROLE_INFO, STYLES, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, FADER, BALANCE } from '../config.js';
 import { rng, weightedPick, shuffle } from '../util.js';
 import { INSTRUMENTS } from '../content/instruments/index.js';
 import { PEDALS, PEDAL_BY_ID } from '../content/pedals.js';
 import { CHEMISTRY, FUSION, isFusion } from './loadout.js';
 
-// A level 5 instrument can be remixed once its remix pedal is on the board, at any level.
-const remixReady = (L, inst) => !!(inst.def.remix && !inst.remix && inst.level >= MAX_INSTRUMENT_LEVEL && L.pedal(inst.def.remix.pedal));
+// A Master Tape can remix an instrument at level 5 that has a remix and is not remixed yet. Its remix pedal is
+// what opens up on the strip once it is, not a requirement.
+export const remixReady = (inst) => !!(inst?.def?.remix && !inst.remix && inst.level >= MAX_INSTRUMENT_LEVEL);
 
 function candidates(g) {
   const L = g.loadout;
   const filled = L.filled();
   const room = filled < g.channelCap();
   const out = [];
+  // A banked Master Tape waits for a channel at level 5: meanwhile the level cards of the channels nearest a remix
+  // (the highest level among those not remixed yet) come up at least this often (BALANCE.remix.tapeUp, about a
+  // first level's weight), so a boss's tape is worth finishing a channel for.
+  const tapeUp = g.tapes?.banked > 0 ? BALANCE.remix.tapeUp || 0 : 0;
+  const nearest = tapeUp ? Math.max(0, ...L.instruments().filter((i) => i.def.remix && !i.remix && i.level < MAX_INSTRUMENT_LEVEL).map((i) => i.level)) : 0;
   for (const role of ROLES) {
     const cur = L.channels[role];
     const inRole = INSTRUMENTS.filter((d) => d.role === role);
@@ -26,9 +34,11 @@ function candidates(g) {
       const w = (filled < 3 ? 1.1 : 0.8) * newW;
       for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w });
     } else {
-      if (remixReady(L, cur)) out.push({ kind: 'remix', def: cur.def, role, inst: cur, level: MAX_INSTRUMENT_LEVEL, w: 3 });
-      if (cur.remix) continue;   // a remixed channel is never swapped by a card
-      if (cur.level < MAX_INSTRUMENT_LEVEL) out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: 1.1 - 0.25 * cur.level });
+      if (cur.remix || g.remixQueued?.(cur)) continue;   // a remixed (or remix-queued) channel is never swapped by a card
+      if (cur.level < MAX_INSTRUMENT_LEVEL) {
+        const w = 1.1 - 0.25 * cur.level;
+        out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: tapeUp && cur.level === nearest ? Math.max(w, tapeUp) : w });
+      }
       // A swap keeps the channel's level: it changes the style, not the strength.
       for (const d of inRole) {
         if (d === cur.def) continue;
@@ -63,9 +73,6 @@ export function buildOffers(g, count = 3) {
     if (c.role && picked.filter((p) => p.role === c.role).length >= 2) return false;
     return true;
   };
-  // A ready remix is always on the next screen.
-  const remixes = pool.filter((c) => c.kind === 'remix');
-  if (remixes.length) take(weightedPick(remixes, (c) => c.w));
   // Keep the band growing early. Upgrades are no longer forced onto the offer (chance 0): they come
   // up by weight, rarer the higher the level, so early picks also go to pedals and levels 5 land late.
   // Once the pedals are full, upgrades are most of what is left, so they still come.
@@ -96,7 +103,6 @@ export function applyOffer(g, o) {
     case 'new': g.addInstrument(o.def, 1); break;
     case 'up': g.setInstrumentLevel(o.inst, o.level); break;
     case 'swap': g.addInstrument(o.def, o.level); break;
-    case 'remix': g.remixInstrument(o.inst); break;
     case 'fader': L.faders[o.role] = o.level; break;
     case 'pedal-new': L.pedals.push({ def: o.pedal, level: 1 }); g.onLoadoutChanged(); break;
     case 'pedal-up': o.own.level = o.level; g.onLoadoutChanged(); break;
@@ -130,26 +136,6 @@ export function chemistryLine(g, style, delta) {
   }
   if (isFusion(c) && !isFusion(before)) lines.push({ good: true, text: FUSION.text });
   return lines;
-}
-
-// The remix a level 5 instrument leads to: unlocked when its pedal is on the board, otherwise the recipe
-// (only while that pedal can still join the board).
-function recipeLine(g, def) {
-  const rm = def.remix;
-  if (!rm) return [];
-  const pd = PEDAL_BY_ID[rm.pedal];
-  if (g.loadout.pedal(pd.id)) return [{ good: true, remix: true, text: `Unlocks the ${rm.name} remix` }];
-  return g.loadout.pedalSlotsFree() > 0 && !g.banished.has(pd.id) ? [{ good: null, remix: true, text: `+ ${pd.name} pedal = ${rm.name} remix` }] : [];
-}
-
-// The remixes a new pedal unlocks for instruments already in your band (not one banished below level 5:
-// its level cards are gone, so it never gets there).
-function pedalRecipes(g, pd) {
-  return g.loadout.instruments()
-    .filter((i) => i.def.remix?.pedal === pd.id && !i.remix && (i.level >= MAX_INSTRUMENT_LEVEL || !g.banished.has(i.def.id)))
-    .map((i) => (i.level >= MAX_INSTRUMENT_LEVEL
-      ? { good: true, remix: true, text: `Unlocks the ${i.def.remix.name} remix` }
-      : { good: null, remix: true, text: `+ ${i.def.name} at Lv 5 = ${i.def.remix.name} remix` }));
 }
 
 const STAT_NAMES = {
@@ -228,12 +214,13 @@ export function describeOffer(g, o) {
     const steps = def.steps || 16;
     const out = { ...base, title: def.name, color: role.color, style: def.style, glyph: def.id, level: o.level, maxLevel: MAX_INSTRUMENT_LEVEL, slot: { role: def.role } };
     if (o.kind === 'remix') {
-      // Remix: its own part where it has one (else the level 5 part), a new attack, and its pedal opened up on the strip.
+      // A tape's remix card: its own part where it has one (else the level 5 part), a new attack, and its pedal
+      // opened up on the strip.
       const rm = def.remix, pd = PEDAL_BY_ID[rm.pedal];
       return {
         ...out, title: rm.name,
         cells: rm.pattern ? laneCells(rm.pattern, rm.steps || steps, null) : laneCells(lv.pattern, steps, null),
-        info: [rm.text, `You hear it: ${rm.sound || `${pd?.name || 'Its pedal'} opens up on your ${role.name} channel.`}`, `${def.name}${pd ? ` + ${pd.name}` : ''}`],
+        info: [rm.text, `You hear it: ${rm.sound || `${pd?.name || 'Its pedal'} opens up on your ${role.name} channel.`}`],
       };
     }
     out.cells = laneCells(lv.pattern, steps, prev?.pattern);
@@ -241,14 +228,13 @@ export function describeOffer(g, o) {
       out.gems = styleGems(g, def.style, null);
       out.info = [def.blurb, lv.text, ...texts(chemistryLine(g, def.style, { add: 1 }))];
     } else if (o.kind === 'up') {
-      out.info = [`Level ${o.level - 1} → ${o.level}`, lv.text, statDiff(prev.stats, lv.stats), ...(o.level === MAX_INSTRUMENT_LEVEL ? texts(recipeLine(g, def)) : [])];
+      out.info = [`Level ${o.level - 1} → ${o.level}`, lv.text, statDiff(prev.stats, lv.stats)];
     } else {
       out.from = o.from.def.id;
       const restyle = o.from.def.style !== def.style;
       out.gems = restyle ? styleGems(g, def.style, o.from.def.style) : [];
       out.info = [`Swap · replaces ${o.from.def.name}, keeps Lv ${o.level}`, def.blurb, lv.text,
-        ...(restyle ? texts(chemistryLine(g, def.style, { add: 1, remove: o.from.def.style })) : []),
-        ...(o.level === MAX_INSTRUMENT_LEVEL ? texts(recipeLine(g, def)) : [])];
+        ...(restyle ? texts(chemistryLine(g, def.style, { add: 1, remove: o.from.def.style })) : [])];
     }
     out.info = out.info.filter(Boolean);
     return out;
@@ -261,8 +247,7 @@ export function describeOffer(g, o) {
     return {
       ...base, title: pd.name, color: pd.color, glyph: pd.id, level: o.level, maxLevel: MAX_PEDAL_LEVEL,
       slot: { pedal: o.kind === 'pedal-new' ? g.loadout.pedals.length : Math.max(0, own) },
-      info: [pd.text(st), pd.sound, o.kind === 'pedal-new' ? `New pedal · ${free} slot${free === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`,
-        ...(o.kind === 'pedal-new' ? texts(pedalRecipes(g, pd)) : [])],
+      info: [pd.text(st), pd.sound, o.kind === 'pedal-new' ? `New pedal · ${free} slot${free === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`],
     };
   }
   if (o.kind === 'fader') {

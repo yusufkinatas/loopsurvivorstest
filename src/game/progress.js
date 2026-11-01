@@ -27,7 +27,7 @@ export const GOALS = [
   { id: 'drone',    name: 'Soundcheck',    text: 'Silence The Drone.',                          unlock: 'taiko',      test: (s) => has(s, 'drone') },
   { id: 'fullband', name: 'Full band',     text: 'Fill all six channels.',                      unlock: 'hats909',    test: (s) => s.fullBand },
   { id: 'clipper',  name: 'Clean signal',  text: 'Silence The Clipper.',                        unlock: 'sawlead',    test: (s) => has(s, 'clipper') },
-  { id: 'stagger',  name: 'Off the beat',  text: 'Knock a boss off the beat with the Drop.',    unlock: 'chipdrums',  test: (s) => s.staggers > 0 },
+  { id: 'stagger',  name: 'Off the beat',  text: 'Knock a boss off the beat.',                  unlock: 'chipdrums',  test: (s) => s.staggers > 0 },
   { id: 'synth4',   name: 'Electric',      text: 'Have 4 Synth sounds at once.',                unlock: 'supersaw',   test: (s) => s.peak.synth >= 4 },
   { id: 'live4',    name: 'Acoustic set',  text: 'Have 4 Live sounds at once.',                 unlock: 'rhodes',     test: (s) => s.peak.organic >= 4 },
   { id: 'chip4',    name: 'Insert coin',   text: 'Have 4 8-Bit sounds at once.',                unlock: 'chipchords', test: (s) => s.peak.chip >= 4 },

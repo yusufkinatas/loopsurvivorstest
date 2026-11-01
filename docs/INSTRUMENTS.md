@@ -229,20 +229,39 @@ note. Persistent things (orbiters, mines) may exist between notes, but they stri
 
 ## Remix
 
-Every instrument has one remix: a new attack for its finished part. It is ready once the instrument is
-at level 5 and its paired pedal is on the board at any level, and the next level-up always shows it as a
-gold card. Taking it keeps the instrument at level 5 for the rest of the run. The channel gets no more
-swap cards, the HUD strip shows the remix name with gold pips, and the end screen lists the remix name.
+Every instrument has one remix: a new part for its channel, a new timbre and a bigger attack. It is earned,
+never dealt on a level-up. A non-final boss silenced inside its own section drops a **Master Tape** where it
+fell (at most three a run, `BALANCE.remix`). The tape lies 8 bars, blinks through its last 2 s and is never
+pulled in by magnets or the boss's pull-all, so you walk into the fight to get it; the boss bar's thin clock
+line shows how many bars of its section are left. A tape spends on a channel at level 5 that is not remixed yet:
+
+- none ready: it is banked (a gold reel by the mixer) and spent the moment a channel reaches level 5;
+- one ready: that remix is queued;
+- two or more: the run pauses on gold remix cards (name, glyph in a vinyl, the remix's step lane, auditioned on
+  hover or hold; no reroll, banish or skip). The pick is queued.
+
+The paired pedal is not a requirement any more. It is what opens up on the channel's strip once the remix lands.
+
+**The moment.** A queued remix lands on the first 4-bar line at least two bars ahead that is not a stop bar,
+the player's Drop (its build or impact), a Build-Up roll bar, an arrangement impact or a breakdown's first bar
+(`Sequencer.remixBar`; else the next line). The bar before it the channel drops out while a riser plays. On
+the downbeat `inst.remix` flips before that step's notes are scheduled, so the first thing heard is the
+remix's own part, with an impact as the downbeat's one hit. The game answers when it is heard: a gold ring
+(about half a Drop's damage, 520 px, knockback and stun, enemy shots inside it erased, a boss inside it knocked
+off the beat), a gold flash, the remix's name as a gold banner and the strip turning gold. One remix is queued
+at a time; a second lands on the next free line. A pause or a card screen during the dropout holds the song
+(bars do not advance), and card screens wait for a remix that is dropping out to land. A stop or a Drop that
+lands on the dropout or the downbeat after it was queued moves the remix to the next free line.
 
 ```js
 remix: {
-  id: 'canon',              // unique, lowercase
-  name: 'Canon',            // shown on the card, the HUD strip and the end screen
-  pedal: 'delay',           // the paired pedal: one the desk already puts on this channel (see 2)
-  text: 'What the remix does, in one or two plain sentences.',
-  sound: 'optional: what you hear, for a pedal with no insert on this strip',
+  id: 'canon',              // unique, lowercase, stable (the career stores it)
+  name: 'Canon',            // shown on the card, the banner, the HUD strip and the end screen
+  pedal: 'delay',           // opens up on this channel's strip once remixed: one the desk routes here (see 3)
+  text: 'What the remix does, in one short sentence.',
+  sound: 'optional: what you hear, for the card\'s info layer',
   stats: { canon: 0.6 },    // only what changes: merged over level 5's stats at load
-  pattern: [...notes],      // optional: the remix's own part, played instead of level 5's (see 1)
+  pattern: [...notes],      // the remix's own part, played instead of level 5's from the remix bar on (see 1)
   steps: 32,                // optional: its length, when it differs from the instrument's `steps`
   fire(g, note, st, inst) {},     // optional, replaces fire()
   setup(g, st, inst) {},          // optional, replaces setup()
@@ -250,31 +269,40 @@ remix: {
 }
 ```
 
-1. **A new part, or level 5's.** With `remix.pattern`, the remixed channel plays that part instead of level 5's
-   (over `remix.steps`, else the instrument's `steps`); the registry indexes and validates it like a level's
-   pattern, and on the Beat channel its first sound that is not a kick plays the fills. Without one, the
-   sequencer keeps playing the level 5 part. `sound()` may read `inst.remix` for a timbre change or a
-   strip-level signature (Sidechain 808's deeper duck). Every kind the remix part plays must fire with the
-   remix's stats.
-2. **You hear the remix.** The paired pedal is one the desk already routes to the channel: inserts
+1. **A new part.** `remix.pattern` (over `remix.steps`, else the instrument's `steps`) is what the channel plays
+   from the remix's downbeat on; a listener notices it within one bar. The registry indexes and validates it like
+   a level's pattern (in key, on the grid), and on the Beat channel its first sound that is not a kick plays the
+   fills. A remixed channel never goes fully out in the arrangement (it plays 'sparse'), and it takes the solo
+   phrases first. Without a pattern the level 5 part keeps playing, and the moment lands on nothing new.
+2. **A new timbre.** `sound()` reads `inst.remix` for the remix's own voice (a different wave, drive, an octave,
+   a strip-level signature such as Sidechain 808's deeper duck). Every kind the remix part plays must fire with
+   the remix's stats.
+3. **You hear the pedal.** The paired pedal is one the desk already routes to the channel: inserts
    (Bitcrusher on Beat and Groove, Overdrive on Bass and Lead, Auto-Wah on Bass and Chords, Chorus on
    Chords and Lead) or sends (Hall Reverb on every channel, Tape Delay on Groove, Chords, Lead and
    Sparkle). `audio.applyPedals(levels, boost)` runs it at level 3 on the remixed strip only, with the
    settings a level 3 pedal already uses. The Compressor lives on the bus, so its two remixes carry their
    own signature: Sidechain 808 ducks the mix deeper on the downbeat, and a Compressor-boosted melodic
    strip (Soul Keys) pumps hard under every kick.
-3. **Two ways to write the attack.** Replace `fire()`: it runs with `this` = the definition, so
-   `this.fire(g, note, st, inst)` plays the level 5 attack first. Or add a stat that the level 5
-   `fire()` reads as an option (`st.erase`, `st.split`, `st.curve`). No level sets those stats.
-4. **Safe on any note.** Beat fills and rolls add notes, and Tape Delay echoes call `fire()` again with
-   `g.dmgScale` below 1. Assume nothing about steps beyond what the level 5 pattern guarantees, and check
-   `g.dmgScale === 1` before scheduling a delayed part, so an echo does not echo.
-5. **Delayed parts land on the grid.** Push them onto `g.later` at whole 16th steps of game time
+4. **A bigger, different attack.** Replace `fire()`: it runs with `this` = the definition, so
+   `this.fire(g, note, st, inst)` plays the level 5 attack first. Or add a stat that the level 5 `fire()`
+   reads as an option (`st.erase`, `st.split`, `st.curve`). Where it fits, the attack reads your movement:
+   `g.aim()` (facing), `g.player.vx`/`vy`, where you stood a beat ago. Target about 1.6x to 2.0x its level 5
+   damage on The Drone in `tools/parity.mjs`. The remix's `fire`, `setup` and `update` take over from the remix
+   bar on: `setup` runs as the flip is scheduled (a fraction of a beat before the downbeat is heard), so
+   `update` never runs without it.
+5. **Safe on any note.** Beat fills and rolls add notes, and Tape Delay echoes call `fire()` again with
+   `g.dmgScale` below 1. Assume nothing about steps beyond what the remix pattern guarantees, and check
+   `g.dmgScale === 1` before scheduling a delayed part or spawning anything that stays (walls, followers,
+   shields, tethers), so an echo does not echo.
+6. **Delayed parts land on the grid.** Push them onto `g.later` at whole 16th steps of game time
    (`{ at: g.time + k * STEP_SEC, fn }`), the way Tape Delay echoes do, so a pause holds them too. In `fn`,
    return if `!g.loadout.has(inst)`, and set `g.src = inst` around the attack (or call
    `g.fireNote(inst, note, scale)`).
-6. **Stronger than level 5.** A remix beats its level 5 on crowds or on a single target, or gives the
-   band a clear defensive or Drop role, measured with the paired pedal at 3 on both sides (see below).
+
+Hearing a remix arrive: `node tools/check.mjs --mix kick808,subbass,supersaw --start 92 --bars 8 --remixAt 96
+--remixId subbass` renders the band bar by bar with that remix queued on bar 96 (the dropout on 95). In a sim,
+`tapes=N` starts a run with N tapes banked, and `--summary` prints `tapes` and `remixLog` (each remix's bar).
 
 ## Balance targets
 

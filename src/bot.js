@@ -89,10 +89,11 @@ function plan(g) {
     const d = Math.hypot(gm.x - p.x, gm.y - p.y);
     let w;
     if (gm.kind === 'heal') w = hurt < 0.75 ? 3 : 0.3;
+    else if (gm.kind === 'tape') w = 4;   // a Master Tape: worth walking into the fight for
     else if (gm.kind === 'vinyl') w = 2.5;
     else if (gm.kind === 'magnet') w = 1.6;
     else w = 1.1;
-    const lim = gm.kind === 'xp' ? 420 : 700;
+    const lim = gm.kind === 'xp' ? 420 : gm.kind === 'tape' ? 1000 : 700;
     if (d > lim) continue;
     const s = w / (1 + d / 160);
     if (s > goalW) { goalW = s; goal = gm; }
@@ -248,16 +249,34 @@ function plan(g) {
   return { x: best[0], y: best[1] };
 }
 
-// Card choice for autopilot runs. 'smart' fills the band, then levels it; 'random' is uniform.
+// The channels a focused build deepens first: the highest levels (ties: the most damage), best first.
+function focus(g) {
+  return g.loadout.instruments().slice().sort((a, b) => b.level - a.level || b.dmg - a.dmg);
+}
+
+// Card choice for autopilot runs. 'smart' fills the band, then plays a focused build: once four channels are
+// filled, level cards on its two highest channels come first (the third next), so a level 5 is ready for a Master
+// Tape by the second boss. 'random' is uniform. A tape's remix cards (all 'remix'): the channel with the most damage.
 export function autopick(offers, g, mode = 'smart') {
+  if (offers.length && offers.every((o) => o.kind === 'remix')) {
+    let best = 0;
+    offers.forEach((o, i) => { if ((o.inst?.dmg || 0) > (offers[best].inst?.dmg || 0)) best = i; });
+    return mode === 'random' ? Math.floor(rng() * offers.length) : best;
+  }
   if (mode === 'random') return Math.floor(rng() * offers.length);
   if (mode === 'first') return 0;
+  const top = g.loadout.filled() >= 4 ? focus(g) : null;
   let best = 0, bs = -Infinity;
   offers.forEach((o, i) => {
     let s = 0;
     switch (o.kind) {
       case 'new': s = 6 + (g.loadout.filled() < 3 ? 2 : 0); break;
-      case 'up': s = 4 + o.level * 0.6; break;
+      case 'up': {
+        const rank = top ? top.indexOf(o.inst) : -1;
+        s = !top ? 4 + o.level * 0.6 : rank >= 0 && rank < 2 ? 7.5 + o.level * 0.3 : rank === 2 ? 6.2 : 3 + o.level * 0.2;
+        if (o.level >= 5 && g.tapes?.banked > 0) s = 9.5;   // a banked Master Tape is waiting for this level 5
+        break;
+      }
       case 'swap': {
         const c = g.loadout.styleCounts();
         s = c[o.def.style] >= c[o.from.def.style] ? 2.5 : 0.5;

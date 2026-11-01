@@ -109,8 +109,11 @@ export class Hud {
     [this.songHead, this.songOpen] = this.song.querySelectorAll('.songmap b');
     this.top.append(bars, this.song);
 
-    this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div>');
+    // The boss bar, and under it a thin clock line that drains with the bars left in the boss's section: a boss
+    // silenced before it runs out drops a Master Tape.
+    this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div><div class="bossbar-clock"><i></i></div>');
     this.boss.hidden = true;
+    this.bossClock = this.boss.querySelector('.bossbar-clock');
     this.banner = el('div', 'banner', '<div class="banner-title"></div>');
     this.note = el('div', 'fightnote');
     this.stamp = el('div', 'stamp');
@@ -139,8 +142,12 @@ export class Hud {
       this.pedalSlots.push(p);
       this.pedals.append(p);
     }
+    // Master Tapes waiting for a channel at level 5: one gold reel each, by the mixer.
+    this.tapes = el('div', 'tapes');
+    this.tapes.setAttribute('role', 'img');
+    this.tapes.hidden = true;
     const mixWrap = el('div', 'mixwrap');
-    mixWrap.append(this.leds, this.mixer);
+    mixWrap.append(this.leds, this.mixer, this.tapes);
     this.bottom.append(mixWrap, this.pedals);
 
     // Touch only, and only while the Drop is full (styles.css). Keyboard and pads use Space or A.
@@ -166,6 +173,7 @@ export class Hud {
     this.target(null);
     this.hint(null);
     this._last = {};
+    this._tapesN = 0;
   }
 
   // Banners are for moments only: a section name, a remix name (style 'gold') or the Encore.
@@ -204,7 +212,12 @@ export class Hud {
     // Notches where the boss changes its attack pattern. White Noise's break as it passes them.
     const marks = { drone: [0.8], clipper: [0.7], glitchking: [], whitenoise: [0.66, 0.33].slice(wnPhase - 1) }[e.type] || [];
     this.boss.querySelector('.bossbar-track').innerHTML = '<div class="bossbar-chip"></div><div class="bossbar-fill"></div>' + marks.map((m) => `<i class="bossbar-notch" data-at="${m}" style="left:${m * 100}%"></i>`).join('');
+    this.bossClock.hidden = !e.clock;
+    this._clock = null;
   }
+
+  // A remix landed: its strip pops (it turns gold with the loadout refresh).
+  onRemix(role) { kick(this.strips[role]?.el, 'pop'); }
 
   // Boss moments without words. 'stagger': the Drop knocked it off the beat (the bar shakes and flashes white).
   // 'phase': White Noise got louder (the passed notch breaks red, and one static flash if flashes are on).
@@ -327,12 +340,35 @@ export class Hud {
 
     set('drop', g.dropCharge >= g.dropMax && !g.dropState && !g.won && g.state === 'playing', (v) => this.root.classList.toggle('drop-ready', v));
 
+    // Banked Master Tapes (a reel each, a pop when one comes in), and the channel a remix is queued on (its strip
+    // glows gold until the remix lands; through its dropout bar it dims like any resting channel).
+    const banked = Math.min(3, g.tapes?.banked || 0);
+    set('tapes', banked, (n) => {
+      const more = n > (this._tapesN || 0);
+      this._tapesN = n;
+      this.tapes.hidden = !n;
+      this.tapes.innerHTML = icon('tape').repeat(n);
+      this.tapes.setAttribute('aria-label', `${n} Master Tape${n === 1 ? '' : 's'} waiting for a channel at level 5`);
+      if (more) kick(this.tapes, 'pop');
+    });
+    set('queued', seq.remixAt?.inst?.def.role || '', (role) => { for (const r of ROLES) this.strips[r].el.classList.toggle('queued', r === role); });
+
     if (this.bossEnemy) {
       const e = this.bossEnemy;
       const fill = `scaleX(${Math.max(0, e.hp / e.maxHp)})`;
       this.boss.querySelector('.bossbar-fill').style.transform = fill;
       // The chip shows the health just taken off in white, then catches up every 0.6 s of play.
       if (g.time - this.chipAt >= 0.6) { this.chipAt = g.time; this.boss.querySelector('.bossbar-chip').style.transform = fill; }
+      // The clock: the bars left in the boss's section, on the 16th heard now (it holds while the song is held).
+      if (e.clock && cur) {
+        const left = Math.max(0, Math.min(1, (e.clock.to - (cur.bar + cur.sib / 16)) / Math.max(1, e.clock.to - e.clock.from)));
+        const k = Math.round(left * 400);
+        if (k !== this._clock) {
+          this._clock = k;
+          this.bossClock.firstElementChild.style.transform = `scaleX(${k / 400})`;
+          this.bossClock.classList.toggle('late', k < 100);
+        }
+      }
       if (e.dead) this.setBoss(null);
     }
   }
