@@ -73,10 +73,11 @@ const hooks = {
   onResume: () => { screens.hide(); input.releaseStick(); },
   onGameOver: (sum) => endRun(sum),
   onVictory: (sum) => endRun(sum),
-  onBanner: (t, s, compact) => hud.showBanner(t, s, compact),
+  onBanner: (t, s, compact, style) => hud.showBanner(t, s, compact, style),
   onBoss: (e) => hud.setBoss(e, game.mods.wnPhase),
+  onBossCue: (kind, e, n) => hud.bossCue(kind, e, n, settings.flashes),
+  onJoin: (role) => hud.onJoin(role),
   onLoadout: () => { if (mode === 'run') hud.refreshLoadout(game); },
-  onDrop: (state) => { if (state === 'queued') hud.tip(''); },
   autopick: (offers) => autopick(offers, game, opts.autopick),
 };
 
@@ -85,6 +86,13 @@ const game = new Game({ audio, clock, seq, opts: { ...opts, autopick: opts.sim &
 const hud = new Hud(hudRoot, {
   onDrop: () => game.requestDrop(),
   onPause: () => pauseRun(),
+  // A style's chemistry tier rose: a short chime on the chord, an octave over the level-up chime.
+  onChime: () => {
+    const c = seq.position?.chord;
+    if (!c || !audio.ready) return;
+    const base = 84 + ((c.rootPc % 12) + 12) % 12;
+    audio.levelUpChime([base, base + c.intervals[1], base + c.intervals[2]]);
+  },
 });
 
 const screens = new Screens(screensRoot, {
@@ -99,6 +107,7 @@ const screens = new Screens(screensRoot, {
     game.choose(i);
   },
   onPreview: (i) => game.previewOffer(i === null ? null : game.offers?.[i] ?? null),
+  onTarget: (slot, d) => hud.target(slot, d),
   onReroll: () => { const o = game.reroll(); if (o) screens.levelUp(game, o); },
   onBanish: (i) => { const o = game.banish(i); if (o) screens.levelUp(game, o); },
   onSkip: () => skipLevel(),
@@ -146,7 +155,7 @@ function showTitle() {
   game.state = 'idle';
   hudRoot.hidden = true;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
-  screens.title(loadBest(), loadMeta());
+  screens.title(loadBest());
 }
 
 // The radio edit of a track sheet (src/music/replay.js), from the end screen or a Discography sleeve. One plays
@@ -210,20 +219,20 @@ function startRun(id) {
   screens.hide();
   hudRoot.hidden = false;
   game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain });
+  hud.reset();
   hud.refreshLoadout(game);
   hud.setBoss(null);
-  dropTipShown = false;
-  hud.tip(`${byDevice('Drag anywhere to move.', 'Move with the left stick.', 'Move with WASD or the arrow keys.')} Your sounds attack on their own.`, 7);
+  // The first runs show how to move as a glyph under the player, for the device used last.
+  moveHint = loadMeta().runs < 3 ? 0 : -1;
+  if (moveHint === 0) hud.hint(input.device === 'touch' ? 'finger' : input.device === 'pad' ? 'stick' : 'keys');
 }
 
-let dropTipShown = false;
-// Prompts in the words of the device used last (touch, gamepad, or keyboard and mouse).
-const byDevice = (touch, pad, keys) => (input.device === 'touch' ? touch : input.device === 'pad' ? pad : keys);
-function tips() {
-  if (!dropTipShown && game.state === 'playing' && game.dropCharge >= game.dropMax && !game.dropState && !game.won) {
-    dropTipShown = true;
-    hud.tip(`The Drop is ready. ${byDevice('Tap the Drop meter.', 'Press A.', 'Press Space.')}`, 6);
-  }
+// The move hint: seconds of movement so far (it goes after 0.3 s), or -1 once it is gone.
+let moveHint = -1;
+function hintTick(dt, mv) {
+  if (moveHint < 0 || game.state !== 'playing') return;
+  if (Math.hypot(mv.x, mv.y) > 0.1) moveHint += dt;
+  if (moveHint > 0.3) { moveHint = -1; hud.hint(null); }
 }
 
 function pauseRun() {
@@ -276,7 +285,9 @@ function onKey(k) {
   if (screens.current && (k === 'pad-b' || (k === 'Escape' && screens.current === 'disco'))) { screensRoot.querySelector('[data-act=back], [data-act=resume]')?.click(); return true; }
   if (screens.current === 'title' && k === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) { enterLobby(); return true; }
   if (screens.current === 'levelup' || screens.current === 'select') {
+    if (screens.current === 'select') screens.stopAttract();
     if (!screens.armed() && !NAV_KEYS.has(k)) return true;
+    if (k === 'i' || k === 'pad-y') { screens.toggleInfo(); return true; }
     if (k === 'r' && screens.current === 'levelup') { const o = game.reroll(); if (o) screens.levelUp(game, o); return true; }
     if (k === 'x' && screens.current === 'levelup') { screens.toggleBanish(); return true; }
     if (k === 'q' && screens.current === 'levelup') { skipLevel(); return true; }
@@ -352,6 +363,7 @@ function frame(ts) {
       game.view = renderer.viewSize();
       if (opts.bot) botDrop();
       const mv = opts.bot ? botMove(game) : input.move();
+      hintTick(dt, mv);
       game.step(dt, mv);
       // After a run ends the band keeps playing; its note events are no longer attacks.
       // (While paused the sequencer is held and emits nothing, and structural events must survive.)
@@ -361,8 +373,12 @@ function frame(ts) {
     }
   }
 
+  // Card screens: the auditioned card's lane follows the audio. The pause sheet: the live step grid.
+  if (screens.current === 'levelup' || screens.current === 'select' || screens.current === 'pause') {
+    const now = clock.now() - (opts.sim ? 0 : audio.latency);
+    screens.tick(seq.sounding(now), seq, game, now);
+  }
   if (mode === 'run' && game.player) {
-    if (!opts.sim) tips();
     renderer.draw(game, dt);
     hud.update(game, clock.now() - (opts.sim ? 0 : audio.latency), seq);
   } else {

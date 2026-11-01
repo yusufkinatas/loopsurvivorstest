@@ -184,7 +184,7 @@ export function knockOffBeat(g, e, bar) {
   e.ai.blinkTo = null;
   e.ai.chargeWarn = null;
   e.ai.spiral = false;     // restarts on a downbeat once the boss is back
-  g.banner(`${e.def.name} lost the beat`, '', true);
+  g.hooks?.onBossCue?.('stagger', e);   // no words: the boss bar shakes and flashes, the boss wears a white ring
 }
 
 // White Noise's attack phase from its health. start: the phase it starts in (Gain 8 starts it in phase 2).
@@ -232,8 +232,8 @@ function bossOnBeat(g, e, ev) {
     case 'whitenoise': {
       const phase = whiteNoisePhase(e, g.mods.wnPhase);
       if (e.ai.phase !== phase) {
-        // A line for each change, none for the phase it starts in.
-        if (e.ai.phase && phase > 1) g.banner(phase === 2 ? 'White Noise is getting louder' : 'White Noise is clipping', '', true);
+        // Each change breaks the notch it passed on the boss bar (one static flash), none for the phase it starts in.
+        if (e.ai.phase && phase > 1) g.hooks?.onBossCue?.('phase', e, phase);
         e.ai.phase = phase;
       }
       if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, BALANCE.boss.noiseRadialDmg, ev.bar * 0.21 + ev.beat, '#ffffff');

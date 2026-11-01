@@ -491,8 +491,14 @@ export class Renderer {
     c.globalCompositeOperation = 'lighter';
     // A boss the Drop knocked off the beat (enemies.js knockOffBeat) glows dim and stops pulsing until its bar is heard.
     const heard = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
-    this.drawGlow(e.x, e.y, r * 2.6, e.color, heard && heard.bar < e.ai.offbeatUntil ? 0.12 : 0.35 + g.beatPulse * 0.25);
+    const staggered = heard && heard.bar < e.ai.offbeatUntil;
+    this.drawGlow(e.x, e.y, r * 2.6, e.color, staggered ? 0.12 : 0.35 + g.beatPulse * 0.25);
     c.globalCompositeOperation = 'source-over';
+    // ...and wears a white ring, so the stagger reads without a word.
+    if (staggered) {
+      c.strokeStyle = `rgba(255,255,255,${0.55 + 0.35 * Math.sin(t * 9) ** 2})`; c.lineWidth = 2.5;
+      circle(c, e.x, e.y, r * 1.4 + 6); c.stroke();
+    }
     // Bosses are hit constantly: keep the silhouette dark and flash only the outline.
     c.fillStyle = 'rgba(14,10,22,0.95)';
     c.strokeStyle = col;
@@ -697,6 +703,7 @@ export class Renderer {
       circle(c, p.x, p.y, rr + k * 2); c.stroke();
       i++;
     }
+    this._dropRing(c, g, p, r + 9 + i * 3.8);
     // Speaker body
     c.fillStyle = '#16121f';
     circle(c, p.x, p.y, r); c.fill();
@@ -715,6 +722,41 @@ export class Renderer {
     c.lineTo(p.x + Math.cos(a - 0.35) * (r + 1), p.y + Math.sin(a - 0.35) * (r + 1));
     c.closePath(); c.fill();
     c.globalAlpha = 1;
+  }
+
+  // The Drop meter: the outermost arc around the speaker, filling clockwise from 12 o'clock. White, or the
+  // section's hue through the build bar (gold is kept for remixes). Full, it closes and pulses on the beat,
+  // and the first time it fills in a run a key cap shows beside it (Space, or A on a pad; touch has a button).
+  _dropRing(c, g, p, rr) {
+    const frac = g.dropState ? 1 : clamp(g.dropCharge / (g.dropMax || 1), 0, 1);
+    const full = frac >= 1 && !g.dropState && !g.won;
+    if (g.time < (this._dropT ?? 0)) this._dropCap = 0;   // a new run
+    this._dropT = g.time;
+    if (full && !this._dropCap) this._dropCap = 1;
+    if (g.dropState && this._dropCap === 1) this._dropCap = 2;   // used once: the cap is not shown again this run
+    c.lineCap = 'round';
+    c.strokeStyle = 'rgba(244,239,255,0.08)'; c.lineWidth = 2;
+    circle(c, p.x, p.y, rr); c.stroke();
+    if (frac > 0.002) {
+      const pulse = full ? g.beatPulse : 0;
+      c.strokeStyle = g.dropState ? `hsla(${g.section?.hue ?? 260}, 85%, 72%, 0.95)` : full ? `rgba(255,255,255,${0.75 + 0.25 * pulse})` : 'rgba(244,239,255,0.6)';
+      c.lineWidth = full || g.dropState ? 2.6 + pulse * 2.2 : 2;
+      c.beginPath(); c.arc(p.x, p.y, rr + pulse * 2, -Math.PI / 2, -Math.PI / 2 + frac * TAU); c.stroke();
+    }
+    c.lineCap = 'butt';
+    if (!(full && this._dropCap === 1) || typeof document === 'undefined') return;
+    const dev = document.body.dataset.input;
+    if (dev === 'touch') return;
+    const x = p.x + rr * 0.78 + 16, y = p.y - rr * 0.78 - 10;
+    c.fillStyle = 'rgba(13,10,23,0.85)'; c.strokeStyle = `rgba(255,255,255,${0.7 + 0.3 * g.beatPulse})`; c.lineWidth = 1.5;
+    if (dev === 'pad') {
+      circle(c, x, y, 9); c.fill(); c.stroke();
+      c.fillStyle = '#ffffff'; c.font = '700 11px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('A', x, y + 0.5);
+    } else {
+      c.beginPath(); c.roundRect ? c.roundRect(x - 17, y - 8, 34, 16, 3) : c.rect(x - 17, y - 8, 34, 16); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(x - 9, y - 2); c.lineTo(x - 9, y + 2.5); c.lineTo(x + 9, y + 2.5); c.lineTo(x + 9, y - 2); c.stroke();
+    }
   }
 
   // The death beat: the channel rings break into arcs that fly off and fade, and the speaker splits into four
@@ -758,7 +800,29 @@ export class Renderer {
         c.fillStyle = it.glow > 0.3 ? '#ffffff' : grp.color;
         shape(c, grp.shape, it.x, it.y, sz, this.time * 2);
       }
+      if (grp.src?.remix) this._goldRims(c, grp.items, (it) => grp.size * 1.15 + 1.5);
     }
+  }
+
+  // Remixed attacks wear a thin gold rim around their core, so a remix reads from across the room. One path
+  // and one stroke per batch (bullets are the hottest loop): no glow sprite, no per-item state change.
+  _goldRims(c, items, radius, inView = null) {
+    let n = 0;
+    c.beginPath();
+    for (const it of items) {
+      if (inView && !inView(it.x, it.y, 20)) continue;
+      const rr = radius(it);
+      if (!(rr > 0)) continue;
+      c.moveTo(it.x + rr, it.y); c.arc(it.x, it.y, rr, 0, TAU);
+      n++;
+    }
+    if (!n) return;
+    const op = c.globalCompositeOperation;
+    c.globalCompositeOperation = 'source-over';
+    c.globalAlpha = 0.9; c.strokeStyle = '#ffd166'; c.lineWidth = 1.5;
+    c.stroke();
+    c.globalAlpha = 1;
+    c.globalCompositeOperation = op;
   }
 
   _bullets(c, g, inView) {
@@ -789,8 +853,10 @@ export class Renderer {
         shape(c, b.shape, b.x, b.y, b.r * 0.8, b.rot);
         if (b.r >= 6) { c.fillStyle = '#ffffff'; circle(c, b.x, b.y, b.r * 0.22); c.fill(); }
       }
+      if (b.src?.remix && fade > 0.3) (this._rimmed || (this._rimmed = [])).push(b);
     }
     c.globalAlpha = 1;
+    if (this._rimmed?.length) { this._goldRims(c, this._rimmed, (b) => b.r * 1.05 + 1); this._rimmed.length = 0; }
     c.globalCompositeOperation = 'lighter';
   }
 
@@ -802,7 +868,7 @@ export class Renderer {
       c.strokeStyle = rgba(r.color, a);
       c.lineWidth = r.width * (1 - k * 0.6);
       circle(c, r.x, r.y, r.r); c.stroke();
-      c.strokeStyle = rgba('#ffffff', a * 0.2);
+      c.strokeStyle = r.src?.remix ? rgba('#ffd166', a * 0.9) : rgba('#ffffff', a * 0.2);   // a remix's ring has a gold core
       c.lineWidth = 1.5;
       circle(c, r.x, r.y, r.r); c.stroke();
     }
@@ -823,7 +889,7 @@ export class Renderer {
       c.strokeStyle = rgba(b.color, 0.35 * k);
       c.lineWidth = b.width * 2.2 * k;
       c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
-      c.strokeStyle = rgba('#ffffff', 0.9 * k);
+      c.strokeStyle = b.src?.remix ? rgba('#ffd166', 0.95 * k) : rgba('#ffffff', 0.9 * k);   // a remix's beam has a gold core
       c.lineWidth = Math.max(1, b.width * 0.45 * k);
       c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
     }

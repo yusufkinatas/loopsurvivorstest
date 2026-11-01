@@ -21,7 +21,8 @@ function write(data) {
   try { window.localStorage.setItem(KEY, JSON.stringify(data)); return true; } catch (e) { return false; }
 }
 
-export const DEFAULT_SETTINGS = { volume: 0.8, damageNumbers: true, shake: true, flashes: true, chimes: true };
+// cardInfo: the info layer (I, pad Y or the (i) button) shows every card's details on the card screens.
+export const DEFAULT_SETTINGS = { volume: 0.8, damageNumbers: true, shake: true, flashes: true, chimes: true, cardInfo: false };
 
 export function loadSettings() {
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;

@@ -2,8 +2,8 @@
 // The device used last is kept on body[data-input] (key, mouse, touch or pad), so prompts can match it.
 
 // Gamepad buttons (W3C standard mapping) and the keys they send. LB and RB step the Gain on the
-// first-sound screen.
-const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 4: 'gain-down', 5: 'gain-up', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
+// first-sound screen. Y toggles the card info layer.
+const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 3: 'pad-y', 4: 'gain-down', 5: 'gain-up', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
 
 export class Input {
   constructor(canvas, stickEl, onKey) {
@@ -98,7 +98,7 @@ export class Input {
     document.body.dataset.input = d;
   }
 
-  // Edge-triggered gamepad buttons: A = drop / confirm, B = back, X = reroll, Start = pause, d-pad = menus.
+  // Edge-triggered gamepad buttons: A = drop / confirm, B = back, X = reroll, Y = card info, Start = pause, d-pad = menus.
   // Any button press, or a stick pushed past 0.5, makes the pad the current device.
   pollPad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];

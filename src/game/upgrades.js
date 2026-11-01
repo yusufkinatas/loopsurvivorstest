@@ -169,84 +169,110 @@ function statDiff(a, b) {
   return out.slice(0, 2).map((d) => d.text).join(' · ') || null;
 }
 
-// Everything the level-up card shows.
+// The style thresholds (2/4/6 sounds) from CHEMISTRY, read in either shape: { style: [{ n, text }] } or
+// { style: { rule, name, text, tiers: [{ n, text }] } }.
+export const chemTiers = (style) => { const c = CHEMISTRY[style]; return (Array.isArray(c) ? c : c?.tiers) || []; };
+const tierOf = (style, n) => chemTiers(style).filter((t) => n >= t.n).length;
+
+// How a card moves the style counts, as gems for the card's foot row: one entry per style whose count
+// changes, { style, n (count after), delta (+1 or -1), tier (+1 gained, -1 lost, 0) }, and { style: 'fusion' }
+// when the card turns Fusion on (2+ sounds in three different styles).
+function styleGems(g, add, remove) {
+  const before = g.loadout.styleCounts();
+  const after = { ...before };
+  if (add) after[add] = (after[add] || 0) + 1;
+  if (remove) after[remove] = (after[remove] || 0) - 1;
+  const gems = [];
+  for (const st of new Set([add, remove])) {
+    if (!st || after[st] === (before[st] || 0)) continue;
+    const t0 = tierOf(st, before[st] || 0), t1 = tierOf(st, after[st]);
+    gems.push({ style: st, n: after[st], delta: Math.sign(after[st] - (before[st] || 0)), tier: Math.sign(t1 - t0) });
+  }
+  const fused = (c) => Object.values(c).filter((n) => n >= 2).length >= 3;
+  if (fused(after) && !fused(before)) gems.push({ style: 'fusion', n: 0, delta: 0, tier: 1 });
+  return gems;
+}
+
+// A level's step lane: one cell per step, lit where the part plays, `isNew` where it plays and `prev` did not.
+function laneCells(pattern, steps, prev) {
+  const prevSteps = new Set(prev ? prev.map((n) => n.s) : []);
+  const cells = Array.from({ length: steps }, () => ({ on: false, isNew: false, v: 0 }));
+  for (const n of pattern || []) {
+    const c = cells[n.s];
+    if (!c) continue;
+    c.on = true;
+    c.v = Math.max(c.v, n.v ?? 1);
+    if (prev && !prevSteps.has(n.s)) c.isNew = true;
+  }
+  return cells;
+}
+
+const texts = (lines) => (lines || []).map((l) => (typeof l === 'string' ? l : l?.text)).filter(Boolean);
+
+// Everything a level-up card needs. The card itself draws only the glyph, title, pips, step lane and gems;
+// every sentence that explains the card is in `info` (shown by the info layer and read by screen readers).
+//   kind: new | up | swap | remix | pedal-new | pedal-up | fader | heal | hype | score
+//   glyph: an icon id (instrument, pedal or bonus); slot: { role } or { pedal: index } it plugs into.
+//   style: a STYLES id or null. from: the swapped-out instrument id. gems: see styleGems.
 export function describeOffer(g, o) {
+  const base = { kind: o.kind, style: null, from: null, level: o.level || 0, maxLevel: 0, cells: null, gems: [], slot: null, info: [] };
   if (o.def) {
     const def = o.def;
     const role = ROLE_INFO[def.role];
     const lv = def.levels[o.level - 1];
     const prev = o.kind === 'up' ? def.levels[o.level - 2] : null;
-    const prevSteps = new Set(prev ? prev.pattern.map((n) => n.s) : []);
     const steps = def.steps || 16;
-    const cells = Array.from({ length: steps }, () => ({ on: false, isNew: false, v: 0 }));
-    for (const n of lv.pattern) {
-      const c = cells[n.s];
-      c.on = true;
-      c.v = Math.max(c.v, n.v ?? 1);
-      if (prev && !prevSteps.has(n.s)) c.isNew = true;
-    }
-    let tag, chem = [];
-    if (o.kind === 'new') { tag = 'New sound'; chem = chemistryLine(g, def.style, { add: 1 }); }
-    else if (o.kind === 'up') { tag = `Level ${o.level - 1} → ${o.level}`; if (o.level === MAX_INSTRUMENT_LEVEL) chem = recipeLine(g, def); }
-    else if (o.kind === 'swap') {
-      tag = `Swap · replaces ${o.from.def.name}, keeps Lv ${o.level}`;
-      chem = o.from.def.style === def.style ? [] : chemistryLine(g, def.style, { add: 1, remove: o.from.def.style });
-      if (o.level === MAX_INSTRUMENT_LEVEL) chem = [...chem, ...recipeLine(g, def)];
-    } else {
-      // Remix: the same level 5 part (the pattern shown), a new attack, and its pedal opened up on the strip.
+    const out = { ...base, title: def.name, color: role.color, style: def.style, glyph: def.id, level: o.level, maxLevel: MAX_INSTRUMENT_LEVEL, slot: { role: def.role } };
+    if (o.kind === 'remix') {
+      // Remix: its own part where it has one (else the level 5 part), a new attack, and its pedal opened up on the strip.
       const rm = def.remix, pd = PEDAL_BY_ID[rm.pedal];
       return {
-        title: rm.name, eyebrow: `Remix · ${role.name}`, color: role.color, style: STYLES[def.style], tag: `${def.name} + ${pd.name}`,
-        level: o.level, maxLevel: MAX_INSTRUMENT_LEVEL, body: rm.text, detail: `You hear it: ${rm.sound || `${pd.name} opens up on your ${role.name} channel.`}`,
-        cells, chem: [], role: def.role, icon: def.role, remix: true,
+        ...out, title: rm.name,
+        cells: rm.pattern ? laneCells(rm.pattern, rm.steps || steps, null) : laneCells(lv.pattern, steps, null),
+        info: [rm.text, `You hear it: ${rm.sound || `${pd?.name || 'Its pedal'} opens up on your ${role.name} channel.`}`, `${def.name}${pd ? ` + ${pd.name}` : ''}`],
       };
     }
-    return {
-      title: def.name,
-      eyebrow: `${role.name} channel`,
-      color: role.color,
-      style: STYLES[def.style],
-      tag,
-      level: o.level,
-      maxLevel: MAX_INSTRUMENT_LEVEL,
-      body: o.kind === 'up' ? lv.text : def.blurb,
-      detail: o.kind === 'up' ? statDiff(prev.stats, lv.stats) : lv.text,
-      cells,
-      chem,
-      role: def.role,
-      icon: def.role,
-    };
+    out.cells = laneCells(lv.pattern, steps, prev?.pattern);
+    if (o.kind === 'new') {
+      out.gems = styleGems(g, def.style, null);
+      out.info = [def.blurb, lv.text, ...texts(chemistryLine(g, def.style, { add: 1 }))];
+    } else if (o.kind === 'up') {
+      out.info = [`Level ${o.level - 1} → ${o.level}`, lv.text, statDiff(prev.stats, lv.stats), ...(o.level === MAX_INSTRUMENT_LEVEL ? texts(recipeLine(g, def)) : [])];
+    } else {
+      out.from = o.from.def.id;
+      const restyle = o.from.def.style !== def.style;
+      out.gems = restyle ? styleGems(g, def.style, o.from.def.style) : [];
+      out.info = [`Swap · replaces ${o.from.def.name}, keeps Lv ${o.level}`, def.blurb, lv.text,
+        ...(restyle ? texts(chemistryLine(g, def.style, { add: 1, remove: o.from.def.style })) : []),
+        ...(o.level === MAX_INSTRUMENT_LEVEL ? texts(recipeLine(g, def)) : [])];
+    }
+    out.info = out.info.filter(Boolean);
+    return out;
   }
   if (o.pedal) {
     const pd = o.pedal;
     const st = pd.levels[o.level - 1];
+    const own = g.loadout.pedals.indexOf(o.own);
+    const free = g.loadout.pedalSlotsFree();
     return {
-      title: pd.name,
-      eyebrow: 'Effect pedal',
-      color: pd.color,
-      style: null,
-      tag: o.kind === 'pedal-new' ? `New pedal · ${g.loadout.pedalSlotsFree()} slot${g.loadout.pedalSlotsFree() === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`,
-      level: o.level,
-      maxLevel: MAX_PEDAL_LEVEL,
-      body: pd.text(st),
-      detail: pd.sound,
-      cells: null,
-      chem: o.kind === 'pedal-new' ? pedalRecipes(g, pd) : [],
-      icon: 'pedal',
+      ...base, title: pd.name, color: pd.color, glyph: pd.id, level: o.level, maxLevel: MAX_PEDAL_LEVEL,
+      slot: { pedal: o.kind === 'pedal-new' ? g.loadout.pedals.length : Math.max(0, own) },
+      info: [pd.text(st), pd.sound, o.kind === 'pedal-new' ? `New pedal · ${free} slot${free === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`,
+        ...(o.kind === 'pedal-new' ? texts(pedalRecipes(g, pd)) : [])],
     };
   }
   if (o.kind === 'fader') {
     const role = ROLE_INFO[o.role];
     return {
-      title: o.inst.remix ? o.inst.def.remix.name : o.inst.def.name, eyebrow: `Fader · ${role.name} channel`, color: role.color, style: null,
-      tag: `Push the fader · ${o.level - 1} → ${o.level}`, level: o.level, maxLevel: FADER.max,
-      body: `Every ${role.name} attack deals ${Math.round(o.level * FADER.step * 100)}% more damage.`, detail: null, cells: null, chem: [], icon: 'fader',
+      ...base, title: o.inst.remix ? o.inst.def.remix.name : o.inst.def.name, color: role.color, glyph: 'fader', level: o.level, maxLevel: FADER.max,
+      slot: { role: o.role },
+      info: [`Push the fader · ${o.level - 1} → ${o.level}`, `Every ${role.name} attack deals ${Math.round(o.level * FADER.step * 100)}% more damage.`],
     };
   }
   const extra = {
-    heal: { title: 'Breather', tag: 'Catch your breath', body: 'Restore 40% of your health.', color: '#ff6f8a', icon: 'heal' },
-    hype: { title: 'Crowd Surge', body: 'Fill the Drop meter instantly.', color: '#ffd166', icon: 'drop' },
-    score: { title: 'Royalties', body: '+500 score.', color: '#c7c2ff', icon: 'score' },
-  }[o.kind];
-  return { ...extra, eyebrow: 'Bonus', tag: extra.tag || 'Everything else is maxed', style: null, cells: null, chem: [], level: 0, maxLevel: 0 };
+    heal: { title: 'Breather', info: ['Catch your breath', 'Restore 40% of your health.'], color: '#ff6f8a', glyph: 'heal' },
+    hype: { title: 'Crowd Surge', info: ['Fill the Drop meter instantly.'], color: '#f3eeff', glyph: 'drop' },
+    score: { title: 'Royalties', info: ['+500 score.'], color: '#c7c2ff', glyph: 'score' },
+  }[o.kind] || { title: String(o.kind), info: [], color: '#f3eeff', glyph: 'speaker' };
+  return { ...base, ...extra, info: [...extra.info, 'Everything else is maxed'] };
 }
