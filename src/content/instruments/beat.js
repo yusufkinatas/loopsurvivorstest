@@ -94,16 +94,16 @@ const kick808 = {
   },
 
   // The downbeat becomes a long sub boom: a slow, wide shockwave that drags everything it passes in toward you,
-  // stuns it and wipes out every shot, and ducks it for the bar (it takes more from every hit, the way the band
-  // ducks under the kick), for the kicks that follow to throw back out. Every kick erases the shots it passes,
-  // so you can step into a bullet pattern on the beat.
+  // stuns it and ducks it for the bar (it takes more from every hit, the way the band ducks under the kick), for
+  // the kicks that follow to throw back out. The boom and every kick erase the enemy shots close around you, so
+  // you can step into a bullet pattern on the beat.
   remix: {
     id: 'sidechain808', name: 'Sidechain 808', pedal: 'compressor',
     text: 'The downbeat boom drags the crowd in and ducks it, and every kick erases enemy shots.',
     sound: 'a long sub boom on the downbeat, a ghost kick, and the whole band pumping on every kick.',
     // The clap comes first, so fills and rolls play claps.
     pattern: [S(4), S(12), S(15, 0.5), B(0), K(4), K(7, 0.6), K(8), K(10, 0.5), K(12), K(14, 0.7)],
-    stats: { radius: 280, shards: 12, shardDamage: 16, kickErase: 0.7, boomDamage: 72, boomReach: 2, boomPull: 260, boomStun: 0.6, duck: 0.25 },
+    stats: { damage: 35, radius: 280, shards: 12, shardDamage: 16, kickErase: 0.7, boomDamage: 40, boomReach: 1.8, boomPull: 260, boomStun: 0.6, boomErase: 0.5, duck: 0.25 },
     fire(g, note, st, inst) {
       if (note.k !== 'boom') { this.fire(g, note, st, inst); return; }
       const p = g.player, R = g.area(st.radius) * st.boomReach, until = g.time + BAR_SEC;
@@ -112,7 +112,7 @@ const kick808 = {
         e.vuln = st.duck; e.vulnUntil = until;
       }
       g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 24, r1: R, dur: 0.5,
-        damage: g.dmg(st.boomDamage) * note.v, kb: -st.boomPull, stun: st.boomStun, color: g.color('beat'), width: 18, erase: 1 });
+        damage: g.dmg(st.boomDamage) * note.v, kb: -st.boomPull, stun: st.boomStun, color: g.color('beat'), width: 18, erase: st.boomErase });
       g.shake = Math.max(g.shake, 6 * note.v);
     },
   },
@@ -301,7 +301,7 @@ const chipDrums = {
     sound: 'a chattering 16th snare ratchet closing every bar, and bit-flipped glitch blips.',
     // The snare comes first, so fills and rolls play snares (a fill is a ratchet too).
     pattern: [S(4), K(0), G(2, 0.7), K(6, 0.7), K(8), K(10, 0.8), G(11, 0.6), S(12, 0.6), S(13, 0.7), S(14, 0.85), S(15)],
-    stats: { damage: 14, ratchetCount: 3, glitchShare: 0.8, glitchMax: 12 },
+    stats: { damage: 14, ratchetCount: 3, glitchShare: 0.7, glitchMax: 4 },
     fire(g, note, st, inst) {
       if (note.k === 'glitch') {
         if (!glitchSplit(g, st, inst)) this.fire(g, note, st, inst);   // nothing in flight: a plain volley
