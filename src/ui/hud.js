@@ -166,7 +166,7 @@ export class Hud {
     const counts = g.loadout.styleCounts();
     this.chem.innerHTML = Object.keys(CHEMISTRY).map((st) => {
       const tier = chemistryTier(st, counts[st]);
-      const dots = CHEMISTRY[st].map((t, i) => `<i class="${i < tier ? 'on' : ''}"></i>`).join('');
+      const dots = CHEMISTRY[st].tiers.map((t, i) => `<i class="${i < tier ? 'on' : ''}"></i>`).join('');
       return `<div class="chem-row${tier ? ' active' : ''}" style="--s:${STYLES[st].color}"><span class="chem-name">${STYLES[st].name}</span><span class="chem-count">${counts[st]}</span><span class="chem-dots">${dots}</span></div>`;
     }).join('');
     this.genre.innerHTML = `<span class="genre-l">Your sound</span><span class="genre-v">${g.genre}</span>`;
