@@ -127,9 +127,10 @@ Runs only when audio is on (never in the headless sim). Schedule everything at t
   - `fm(ctx, out, t, { freq, ratio, index, indexDecay, a, d, s, r, dur, gain, pan })`
   - `pluck(ctx, out, t, { freq, decay, bright, dur, gain, pan, filter, drive })` (Karplus-Strong string)
   - `drive: k` (tone and pluck) runs the oscillators or the string through a `tanh(kx)/tanh(k)` soft clipper
-    before the note's gain, so `gain` is still the peak (about 1.5 warm, 3 crunchy, 6 fuzz). A tone's `sub`
-    stays clean. Distortion raises the RMS for the same peak: check the level and the centroid with
-    `check.mjs --role`, and keep the filter after the drive to tame the fizz. The curve is cached per `k`.
+    before the note's gain, so `gain` still sets the level (about 1.5 warm, 3 crunchy, 6 fuzz). A tone's `sub`
+    stays clean. Distortion raises the RMS (a driven tone about +2 to +3 dB, a driven pluck far more, since its
+    string no longer dies away), and a filter after it can ring a little over `gain`: check the level and the
+    centroid with `check.mjs --role`. The curve is cached per `k`.
   - `snare(ctx, out, t, opts)`, `hat(ctx, out, t, opts)`
   - `filter` is `{ type, freq, q, env, decay }` (starts at `freq * env`, falls to `freq` over `decay`)
     or `{ type, freq, to, time }` (sweeps from `freq` to `to`).

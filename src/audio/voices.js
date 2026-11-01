@@ -117,7 +117,7 @@ function makeFilter(ctx, t, filter) {
 // Options: freq, wave ('sawtooth'|'square'|'triangle'|'sine'), duty (pulse), unison, spread (cents), detune,
 // dur, a, d, s, r, gain, filter {type,freq,q,env,decay,to,time}, pitchEnv {from, time}, vibrato {rate, depth, delay},
 // sub (level of sine an octave below, kept clean), pan, drive (k > 0: the oscillators run through a tanh
-// soft clipper before the envelope, so `gain` stays the peak; about 1.5 warm, 3 crunchy, 6 fuzz).
+// soft clipper before the envelope, so `gain` still sets the level; about 1.5 warm, 3 crunchy, 6 fuzz).
 export function tone(ctx, out, t, o) {
   const {
     freq, wave = 'sawtooth', duty = 0, dur = 0.2, a = 0.004, d = 0.15, s = 0.6, r = 0.08, gain = 0.3,
@@ -281,7 +281,8 @@ function pluckBuffer(ctx, freq, decay, bright, dur) {
 }
 
 // Options: freq, decay (0.99..0.999), bright (0..1), dur, gain, pan, filter, drive (k > 0: the string runs
-// through a tanh soft clipper before its gain, so it crunches hardest on the attack and cleans up as it rings).
+// through a tanh soft clipper before its gain, so it crunches on the attack and sustains as it rings: much
+// louder on average than the clean string at the same gain).
 export function pluck(ctx, out, t, o) {
   const { freq, decay = 0.995, bright = 0.5, dur = 1.0, gain = 0.4, pan = 0, filter = null, len = 1.6, drive = 0 } = o;
   const { buf, rate } = pluckBuffer(ctx, freq, decay, bright, len);
