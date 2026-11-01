@@ -142,7 +142,7 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 @keyframes staticflash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
 /* The mixer: socket LEDs, six strips (glyph, activity meter, level pips; the style as a top edge) and the
-   pedalboard. Names are in tooltips and on the pause sheet. */
+   pedalboard. Names are in tooltips (for a mouse, below) and on the pause sheet. */
 .hud-bottom {
   position: absolute; left: 16px; right: 16px; bottom: calc(var(--safe-b) + 12px);
   display: flex; align-items: flex-end; justify-content: center; gap: 10px;
@@ -211,6 +211,11 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 .pedal-pips { display: flex; gap: 2px; }
 .pedal-pips i { width: 5px; height: 2px; background: rgba(255, 255, 255, 0.2); }
 .pedal-pips i.on { background: var(--c); }
+/* The HUD lets the pointer through to the canvas. A mouse hovering a strip or pedal gets its tooltip; touches
+   still reach the canvas (the stick), so this is off once the last input was touch. */
+@media (hover: hover) {
+  body:not([data-input=touch]) #hud :is(.strip, .pedal) { pointer-events: auto; }
+}
 
 #stick { position: fixed; left: 0; top: 0; width: 112px; height: 112px; border-radius: 50%; border: 2px solid rgba(243, 238, 255, 0.28); background: rgba(243, 238, 255, 0.04); pointer-events: none; z-index: 2; }
 #stick span { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(243, 238, 255, 0.34); }

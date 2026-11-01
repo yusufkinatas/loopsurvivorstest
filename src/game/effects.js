@@ -106,7 +106,7 @@ export class Effects {
 
   // Instant straight line. o: x, y, angle, length, width, damage, kb, color, pierce (max targets), onHit(enemy).
   beam(o) {
-    const g = this.g;
+    const g = this.g, src = g.src;   // the instrument firing it (a remix's beam draws a gold core)
     const L = o.length ?? 400, w = o.width ?? 8;
     const x2 = o.x + Math.cos(o.angle) * L, y2 = o.y + Math.sin(o.angle) * L;
     const mx = (o.x + x2) / 2, my = (o.y + y2) / 2;
@@ -123,7 +123,7 @@ export class Effects {
       g.hit(hits[i], o.damage, { kb: o.kb ?? 60, fx: o.x, fy: o.y, stun: o.stun, slow: o.slow });
       if (o.onHit && alive) o.onHit(hits[i]);
     }
-    this.beams.push({ x1: o.x, y1: o.y, x2, y2, width: w, color: o.color ?? '#fff', life: o.life ?? 0.16, age: 0 });
+    this.beams.push({ x1: o.x, y1: o.y, x2, y2, width: w, color: o.color ?? '#fff', life: o.life ?? 0.16, age: 0, src });
     return hits.length;
   }
 

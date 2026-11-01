@@ -4,6 +4,7 @@
 // bossOnBeat (src/game/enemies.js): change them together.
 
 import { whiteNoisePhase } from './enemies.js';
+import { BALANCE } from '../config.js';
 
 const NOISE = ['noise1', 'noise2', 'noise3'];
 
@@ -14,8 +15,8 @@ export function bossCue(e, bar, beat, wnPhase = 1) {
   switch (e.type) {
     case 'drone':        // beat 4 shows the charge lane, the dash comes on the downbeat
       return beat === 3 && bar % 4 === 0 ? 'swell' : null;
-    case 'clipper':      // aimed triples on beats 2 and 4 below 70%
-      return frac < 0.7 && (beat === 1 || beat === 3) ? 'bark' : null;
+    case 'clipper':      // aimed triples on beats 2 and 4 below BALANCE.boss.clipperTriple of its health
+      return frac < BALANCE.boss.clipperTriple && (beat === 1 || beat === 3) ? 'bark' : null;
     case 'glitchking':   // the blink target is set on the downbeat of even bars, the blink and its ring come on beat 3
       return bar % 2 === 0 && e.ai.blinkTo ? (beat === 1 ? 'glitch' : beat === 2 ? 'blink' : null) : null;
     case 'whitenoise':   // a bar of hiss from each downbeat, louder in each of its attack phases

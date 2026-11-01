@@ -280,8 +280,10 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ta
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
-  // Space and E are the Drop keys: on menus they must never press a focused button by accident.
-  if (screens.current && screens.current !== 'title' && (k === ' ' || k === 'e')) return true;
+  // Space and E are the Drop keys: on menus they must never press a focused button by accident. Space still
+  // toggles a focused checkbox (Settings).
+  const box = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'checkbox';
+  if (screens.current && screens.current !== 'title' && (k === 'e' || (k === ' ' && !box))) return true;
   // Escape and B leave banish mode. B is no other level-up action, so it never banishes or skips.
   if (screens.current === 'levelup' && screens.banishing && (k === 'Escape' || k === 'pad-b')) { screens.toggleBanish(false); return true; }
   // B is Back (or Resume) on every screen that has one. Escape too on the Discography.
