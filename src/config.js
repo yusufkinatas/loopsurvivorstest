@@ -77,20 +77,20 @@ export const BALANCE = {
   player: { maxHp: 120, dmgIn: 0.72, area: 0.8 },
   // The Noise's health: hp x (1 + lin*m + quad*m^2) x sec[section] for song minute m (bosses have their own line
   // under boss). sec: one section's toughness on top of the curve.
-  enemy: { hp: 1, lin: 0.3, quad: 0.1, sec: { chorus2: 1.25, bridge: 1.25, build: 1.2, drop: 1.25, finale: 1.2 } },
+  enemy: { hp: 1, lin: 0.3, quad: 0.1, sec: { chorus2: 1.25, bridge: 1.12, build: 1.08, drop: 1.12, finale: 1.2 } },
   // The horde (director.js): a floor of bodies near the view that refills every beat, so the screen never clears,
   // and a stream on top that piles up when the band cannot keep up.
   horde: {
     scale: 1,               // master dial on the floor, the stream and the set pieces' counts
     // Section -> [first, last] minimum bodies inside the view grown by `near` px, ramped across the section's bars
     // (the open-ended Finale ramps over `finaleBars`, then holds).
-    floor: { intro: [12, 24], verse1: [30, 56], chorus1: [70, 96], verse2: [70, 90], chorus2: [120, 155], bridge: [110, 140], build: [140, 200], drop: [170, 210], finale: [190, 240] },
+    floor: { intro: [12, 24], verse1: [30, 56], chorus1: [58, 82], verse2: [60, 80], chorus2: [120, 155], bridge: [100, 130], build: [125, 170], drop: [170, 210], finale: [190, 240] },
     finaleBars: 32, near: 100,
     // Missing bodies come back each beat: at most max(base, share x floor), times `grace` for `graceBars` after a
     // song impact downbeat and (afterDrop) after the player's Drop, so a clear reads as a clear.
     refill: { base: 6, share: 0.2, grace: 0.4, graceBars: 1, afterDrop: true },
     // Bodies per second on top of the floor (halved in quiet phrases), while the crowd near you is under cap x floor.
-    stream: { intro: 0.2, verse1: 0.5, chorus1: 1, verse2: 0.8, chorus2: 1.5, bridge: 1.2, build: 2.5, drop: 2, finale: 2.5 },
+    stream: { intro: 0.2, verse1: 0.5, chorus1: 1, verse2: 0.8, chorus2: 1.5, bridge: 1.2, build: 1.8, drop: 2, finale: 2.5 },
     cap: 1.25,
     // Spawns land edge[0..1] px past the view's edge. While you move faster than `moving` px/s, `ahead` of them come
     // from the side you are heading to, `aheadExtra` px further out (about 2 s of warning). A body `recycle` px
@@ -113,7 +113,7 @@ export const BALANCE = {
   waves: {
     intro:   { static: 1 },
     verse1:  { static: 0.62, buzz: 0.32, 'static:loud': 0.04, stomp: 0.02 },
-    chorus1: { static: 0.34, buzz: 0.28, hum: 0.14, 'static:loud': 0.16, 'buzz:loud': 0.06, stomp: 0.02 },
+    chorus1: { static: 0.4, buzz: 0.28, hum: 0.14, 'static:loud': 0.1, 'buzz:loud': 0.06, stomp: 0.02 },
     verse2:  { static: 0.2, 'static:loud': 0.21, buzz: 0.18, glitch: 0.16, hum: 0.14, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
     chorus2: { static: 0.12, 'static:loud': 0.26, buzz: 0.14, 'buzz:loud': 0.08, glitch: 0.1, hum: 0.1, 'hum:loud': 0.05, feedback: 0.1, 'static:heavy': 0.03, stomp: 0.03, screech: 0.02 },
     bridge:  { 'static:loud': 0.23, static: 0.08, 'static:heavy': 0.05, hum: 0.12, 'hum:loud': 0.05, feedback: 0.13, glitch: 0.12, buzz: 0.14, stomp: 0.03, screech: 0.02, snare: 0.03 },
