@@ -408,12 +408,14 @@ export class Effects {
 
   // A swapped-out instrument takes everything it owns with it: orbiters, mines, walls, tethers, followers and
   // the shield it raised.
+  // Sub-owners ('<id>:speaker', '<id>:wire') leave with their instrument too.
   clearOwner(ownerId) {
+    const mine = (o) => o === ownerId || String(o).startsWith(ownerId + ':');
     this.orbits.delete(ownerId);
     this.trails.delete(ownerId);
-    this.mines = this.mines.filter((m) => m.owner !== ownerId);
-    this.walls = this.walls.filter((w) => w.owner !== ownerId);
-    this.tethers = this.tethers.filter((t) => t.owner !== ownerId);
+    this.mines = this.mines.filter((m) => !mine(m.owner));
+    this.walls = this.walls.filter((w) => !mine(w.owner));
+    this.tethers = this.tethers.filter((t) => !mine(t.owner));
     if (this.g.shield?.src?.def?.id === ownerId) this.g.shield = null;
   }
 

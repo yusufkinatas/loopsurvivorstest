@@ -361,7 +361,8 @@ export class Hud {
       this.tapes.setAttribute('aria-label', `${n} Master Tape${n === 1 ? '' : 's'} waiting for a channel at level 5`);
       if (more) kick(this.tapes, 'pop');
     });
-    set('queued', seq.remixAt?.inst?.def.role || '', (role) => { for (const r of ROLES) this.strips[r].el.classList.toggle('queued', r === role); });
+    const queued = [seq.remixAt?.inst, ...(g.remixQueue || [])].filter(Boolean).map((i) => i.def.role).join(',');
+    set('queued', queued, (s) => { const roles = s ? s.split(',') : []; for (const r of ROLES) this.strips[r].el.classList.toggle('queued', roles.includes(r)); });
 
     if (this.bossEnemy) {
       const e = this.bossEnemy;

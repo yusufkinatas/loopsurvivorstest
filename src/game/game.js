@@ -127,6 +127,8 @@ export class Game {
     this.tapePick = false;       // two or more channels were ready: the remix cards open when play allows
     this.tapeOffers = false;     // the cards up are a tape's remix cards (no reroll, banish or skip)
     this._remixLanding = 0;      // remixes flipped by the sequencer whose downbeat has not been heard yet
+    this._remixHold = 0;         // card screens wait until this game time (a remix's ring landing)
+    this._remixBanner = null;    // the last remix name shown, re-shown after a card screen that covered it
     this.remixFlash = 0;
     this.remixR = BALANCE.remix.radius;
     this.cardScreens = 0;
@@ -384,6 +386,9 @@ export class Game {
     const b = this.bossInRange(p.x, p.y, K.radius);
     if (b) knockOffBeat(this, b, ev.bar);
     this.banner(def.remix.name, '', false, 'gold');
+    // Cards wait for the ring to land, and a card screen that opens over the gold name shows it again on resume.
+    this._remixHold = this.time + BALANCE.remix.dur;
+    this._remixBanner = { name: def.remix.name, t: this.time };
   }
 
   // A remixed instrument plays with its remix's stats, and its remix's fire/setup/update where it has them.
@@ -712,9 +717,15 @@ export class Game {
     if (s.bar % DROP.phrase !== 0) return -1;
     const heard = s.sounding(now);
     if (!heard || heard.bar !== s.bar - 1) return -1;
+    // The downbeat's own events (its beat, impact, boss attack) must not have run yet: _processEvents drains one
+    // frame ahead of what is heard, so judge against that horizon too.
+    if (this._downbeat === s.bar) return -1;
     const d = s.dropDownbeat(s.bar);
-    return d && d.time > now ? s.bar : -1;
+    return d && d.time > now && d.time > this._drainNow() ? s.bar : -1;
   }
+
+  // Audio time _processEvents drains up to (one frame ahead of what is heard, so attacks draw on time).
+  _drainNow() { return this.clock.now() - (this.opts.sim ? 0 : (this.audio?.latency || 0) - 1 / 60); }
 
   // Audio time of what is heard now (the output latency behind the audio clock; none in a sim).
   _heardNow() { return this.clock.now() - (this.opts.sim ? 0 : this.audio?.latency || 0); }
@@ -843,7 +854,7 @@ export class Game {
 
   _processEvents() {
     // Fire when the note is heard (output latency), one frame early since the attack is drawn next frame.
-    const now = this.clock.now() - (this.opts.sim ? 0 : (this.audio?.latency || 0) - 1 / 60);
+    const now = this._drainNow();
     const evs = this.seq.drain(now, this._evbuf);
     for (const ev of evs) {
       switch (ev.type) {
@@ -1216,7 +1227,7 @@ export class Game {
     // dropout is playing has landed and been heard. A tape's remix cards come before the level-ups.
     // Safety net: a remix counted as landing has its event waiting in the sequencer.
     if (this._remixLanding > 0 && !this.seq.events.some((ev) => ev.type === 'remix')) this._remixLanding = 0;
-    const building = this.dropState === 'building' || this.seq.dropState === 'building' || this._remixDue() || this._remixLanding > 0;
+    const building = this.dropState === 'building' || this.seq.dropState === 'building' || this._remixDue() || this._remixLanding > 0 || this.time < this._remixHold;
     const clear = this.state === 'playing' && !this.won && !building && this._stopLeft() <= 0;
     if (clear && this.tapePick) this.openTapePick();
     if (clear && this.state === 'playing' && this.pendingLevels > 0) this.openLevelUp();
@@ -1364,6 +1375,9 @@ export class Game {
     this.preview = null;
     if (this.audio?.ready) { this.audio.setPreviewRole(null); this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost()); this.audio.setMuffle(false); }
     this.hooks.onResume?.();
+    const rb = this._remixBanner;   // the gold banner runs 1.9 s: show it again if a card screen covered it
+    if (rb && this.time - rb.t < 1.9) this.banner(rb.name, '', false, 'gold');
+    this._remixBanner = null;
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no

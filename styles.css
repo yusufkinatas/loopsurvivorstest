@@ -215,6 +215,7 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
    still reach the canvas (the stick), so this is off once the last input was touch. */
 @media (hover: hover) {
   body:not([data-input=touch]) #hud :is(.strip, .pedal) { pointer-events: auto; }
+  #hud :is(.strip, .pedal) { touch-action: none; }
 }
 
 #stick { position: fixed; left: 0; top: 0; width: 112px; height: 112px; border-radius: 50%; border: 2px solid rgba(243, 238, 255, 0.28); background: rgba(243, 238, 255, 0.04); pointer-events: none; z-index: 2; }

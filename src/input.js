@@ -32,13 +32,17 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
 
     const R = 56;
-    canvas.addEventListener('pointerdown', (e) => {
+    const startStick = (e) => {
       if (e.pointerType === 'mouse') return;
       if (this.stick.active) return;
       this.stick = { active: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
       try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
       this._drawStick(R);
-    });
+    };
+    canvas.addEventListener('pointerdown', startStick);
+    // The mixer strips and pedals take mouse hover (for their names) on hover-capable screens, so a touch that
+    // lands on one still steers: the canvas captures the pointer and the rest of the gesture.
+    document.addEventListener('pointerdown', (e) => { if (e.target?.closest?.('#hud .strip, #hud .pedal')) startStick(e); });
     canvas.addEventListener('pointermove', (e) => {
       if (!this.stick.active || e.pointerId !== this.stick.id) return;
       let dx = e.clientX - this.stick.ox, dy = e.clientY - this.stick.oy;

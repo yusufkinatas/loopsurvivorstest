@@ -330,7 +330,9 @@ const chipArp = {
       const S = inst.state;
       if (g.lastHurtAt > (S.since ?? -Infinity)) { S.streak = 0; S.since = g.time; }   // a hit breaks the streak
       const mul = 1 + st.streakDmg * (S.streak || 0);
-      const home = (b, gg) => { if (b.paid) jackpotStreak(gg, inst, st); return false; };
+      // Only coins thrown since your last hit count: a hit breaks the streak, coins already in the air included.
+      const t0 = g.time;
+      const home = (b, gg) => { if (b.paid && gg.lastHurtAt < t0) jackpotStreak(gg, inst, st); return false; };
       if (note.k !== 'up') { coins(g, note, st, inst, mul, home); return; }
       // The one-up pays out: a ring of coins all around you, more the longer your streak.
       const p = g.player;
@@ -372,6 +374,7 @@ const paid = (b) => { b.paid = true; };
 const coinColor = (g, inst, st) => ((inst.state.streak || 0) >= st.streakCap / 2 ? '#ffd166' : g.color(inst));
 function jackpotStreak(g, inst, st) {
   const S = inst.state;
+  if (g.lastHurtAt > (S.since ?? -Infinity)) { S.streak = 0; S.since = g.time; }   // a hit since the last count
   if ((S.streak || 0) >= st.streakCap) return;
   S.streak = (S.streak || 0) + 1;
   if (S.streak % 5 === 0) g.fx.text(g.player.x, g.player.y - 34, `x${S.streak}`, '#ffd166', 13);
