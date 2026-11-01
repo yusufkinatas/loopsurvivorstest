@@ -3,7 +3,8 @@ import { rng } from './util.js';
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It plays roughly like a careful but ordinary human: a few times a second it tries a handful of
 // directions, looks a fraction of a second ahead, and takes the one that keeps it out of enemy shots
-// and bodies, stays a safe distance from bosses, and still drifts toward notes, hearts and vinyl.
+// and bodies, stays a safe distance from bosses and out of lit lanes and Snare marks, and still drifts toward
+// notes, hearts and vinyl.
 // Like a person it reacts late (REACT), only keeps track of the closest few shots (FOCUS), and
 // sticks with a decision for a moment (REPLAN), so dense bullet patterns still catch it.
 
@@ -61,6 +62,13 @@ function plan(g) {
     const near = e.boss ? 1e5 : (e.ai.chargeWarn || e.ai.charge > 0) ? 480 : 260;   // a lit lane reaches far
     if (d2 < near * near) foes.push(e);
     if (!e.boss && d2 < 220 * 220) crowd++;
+  }
+
+  // Snare marks that can land on it: it treats them like lit lanes and does not end a move inside one.
+  const marks = [];
+  for (const h of g.hazards || []) {
+    const dx = h.x - p.x, dy = h.y - p.y, reach = h.r + speed * HORIZON + 40;
+    if (dx * dx + dy * dy < reach * reach) marks.push(h);
   }
 
   // Something to walk toward when it is safe: hearts when hurt, vinyl, magnets, else the nearest notes.
@@ -162,6 +170,11 @@ function plan(g) {
         const room = de - e.r - p.r;
         if (room < 60) cost += (e.elite ? 1.2 : 0.3) * ((60 - room) / 60) ** 2;
       }
+    }
+
+    for (const h of marks) {
+      const dx = endX - h.x, dy = endY - h.y, R = h.r + p.r + 6;
+      if (dx * dx + dy * dy < R * R) cost += 8;
     }
 
     if (pack.length >= 25) {

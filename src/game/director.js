@@ -1,8 +1,9 @@
-// Spawns the Noise on the beat. Enemy mix and density follow the song's sections, and each chorus
-// opens with a boss on its first downbeat.
+// Spawns the Noise on the beat. Enemy mix and density follow the song's sections and its energy (BALANCE.energy),
+// quiet phrases thin the crowd but bring the ranged enemies and elites, and each chorus opens with a boss on its
+// first downbeat. Healing comes on the song's schedule: breather hearts in the calm sections, hearts on timed elites.
 
 import { TAU, rand, rng, pick } from '../util.js';
-import { WORLD } from '../config.js';
+import { WORLD, BEAT_SEC, BALANCE } from '../config.js';
 import { spawnEnemy, randomType } from './enemies.js';
 
 const MIX = {
@@ -16,27 +17,58 @@ const MIX = {
   drop:    { static: 0.24, buzz: 0.19, hum: 0.19, glitch: 0.1, screech: 0.1, feedback: 0.14, stomp: 0.04 },
   finale:  { static: 0.3, buzz: 0.22, hum: 0.18, screech: 0.14, feedback: 0.16 },
 };
+// The Snare joins the mixes where BALANCE puts it.
+for (const [id, w] of Object.entries(BALANCE.snare.mix)) if (MIX[id] && w > 0) MIX[id].snare = w;
+const RANGED = ['screech', 'snare'];
 
 export class Director {
   constructor(g) { this.g = g; this.reset(); }
 
   reset() {
     this.eliteTimer = 58;
-    this.vinyls = 0;         // timed elites' vinyl share (below 1 per elite at Gain 8)
+    this.hearts = 0;         // timed elites' heart share (below 1 per elite at Gain 8)
     this.lastFormationBar = -1;
+    this.lastImpactBar = -1;
+    this.lastBreatherBar = -1;
     this.ringBar = -1;       // the bar the Stomp ring lights its lanes on (enemiesOnBeat reads it)
+    this.quiet = false;      // the phrase playing now is a quiet one (the band plays thin)
   }
 
   get mix() { return MIX[this.g.section.id] || MIX.finale; }
 
+  // The section's energy at song position `pos`: a number, or [from, to] ramped across the section's bars.
+  energy(pos) {
+    const E = BALANCE.energy[this.g.section.id] ?? 1;
+    if (!Array.isArray(E)) return E;
+    const k = pos && pos.section.bars > 1 ? Math.min(1, pos.barInSection / (pos.section.bars - 1)) : 0;
+    return E[0] + (E[1] - E[0]) * k;
+  }
+
   // How many enemies should be around right now.
-  target() {
+  target(pos) {
     const t = this.g.time;
     const m = t / 60;
-    let n = 12 + t * 0.5 + m * m * 3.4;
-    if (this.g.section.id === 'build') n *= 1.25;
+    let n = (12 + t * 0.5 + m * m * 3.4) * this.energy(pos);
     if (this.g.boss) n *= this.g.boss.def.final ? 0.55 : 0.7;
     return Math.min(WORLD.maxEnemies, Math.floor(n * (this.g.opts.density ?? 1) * this.g.mods.density));
+  }
+
+  // In a quiet phrase the shooters come forward: ranged weights x BALANCE.quiet.ranged.
+  quietMix(mix) {
+    const out = { ...mix };
+    for (const k of RANGED) if (out[k]) out[k] *= BALANCE.quiet.ranged;
+    return out;
+  }
+
+  // A drop-in: one of the light types from the mix lands close to you after a one-beat ring. Never a tank or a
+  // Stomp, never inside BALANCE.dropIns.min px.
+  dropIn(mix) {
+    const g = this.g, p = g.player, D = BALANCE.dropIns;
+    const sub = {};
+    for (const k of D.types) if (mix[k]) sub[k] = mix[k];
+    if (!Object.keys(sub).length) return false;
+    const a = rand(0, TAU), d = rand(D.min, D.max);
+    return !!spawnEnemy(g, randomType(sub), p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, { telegraph: D.telegraph * BEAT_SEC });
   }
 
   spawnPoint(extra = 0) {
@@ -48,44 +80,62 @@ export class Director {
 
   onBeat(ev) {
     const g = this.g;
-    // While the drums sit out (the Bridge breakdown) the crowd thins and no formations arrive.
-    const resting = g.song.position(ev.bar).arr.rest.includes('beat');
-    const want = Math.floor(this.target() * (resting ? 0.6 : 1));
+    const pos = g.song.position(ev.bar);
+    // A quiet phrase (the song's arrangement says so; before it does, the drums sitting out): a thinner crowd,
+    // more shooters and elites, no drop-ins and no formations.
+    const quiet = this.quiet = !!(pos.arr.quiet ?? pos.arr.rest?.includes('beat') ?? false);
+    const want = Math.floor(this.target(pos) * (quiet ? BALANCE.quiet.crowd : 1));
     const alive = g.enemies.length;
     if (alive < want) {
       const n = Math.min(want - alive, Math.ceil(3 + want * 0.07));
-      const mix = this.mix;
+      const mix = quiet ? this.quietMix(this.mix) : this.mix;
+      const share = quiet ? 0 : BALANCE.dropIns.share[g.section.id] ?? 0;
       for (let i = 0; i < n; i++) {
+        if (share > 0 && rng() < share && this.dropIn(mix)) continue;
         const s = this.spawnPoint();
         spawnEnemy(g, randomType(mix), s.x, s.y);
       }
     }
-    if (!resting && ev.beat === 0 && ev.bar % 8 === 4 && g.time > 35 && ev.bar !== this.lastFormationBar) {
+    if (!quiet && ev.beat === 0 && ev.bar % 8 === 4 && g.time > 35 && ev.bar !== this.lastFormationBar) {
       this.lastFormationBar = ev.bar;
       this.formation();
+    }
+    // The bar before an arrangement impact a ring closes in, so the band's release lands on a crowd. The Build-Up
+    // has its own set piece (the Stomp ring) before The Drop.
+    if (BALANCE.formation.impactRing && ev.beat === 0 && !g.section.build && ev.bar !== this.lastImpactBar && g.song.position(ev.bar + 1).arr.impact) {
+      this.lastImpactBar = ev.bar;
+      this.formation('ring');
     }
     // Featured elites walk in on a crash in the quiet stretches between bosses, each with a vinyl: Verse II's bars
     // 80 and 96, and the Bridge's 152 (the drums come back after the breakdown) and 168 (after a phrase fill).
     const featured = g.section.id === 'verse2' ? 0 : g.section.id === 'bridge' ? 8 : -1;
     if (ev.beat === 0 && ev.bar % 16 === featured) this.spawnElite();
+    // Breathers: the calm sections put a heart near you on set bars.
+    const hb = BALANCE.hearts.breathers[g.section.id];
+    if (ev.beat === 0 && hb?.includes(pos.barInSection) && ev.bar !== this.lastBreatherBar) {
+      this.lastBreatherBar = ev.bar;
+      const a = rand(0, TAU), d = BALANCE.hearts.breatherDist;
+      g.dropHeart(g.player.x + Math.cos(a) * d, g.player.y + Math.sin(a) * d);
+    }
     // Set piece: on beat 3 of the Build-Up's last bar a ring of Stomps appears around you, lights its lanes on
     // beat 4 and slams in on the downbeat where the song drops (a Drop timed for that downbeat clears it).
     // Once only: a resume can replay beat 3.
     if (ev.beat === 2 && g.section.build && ev.bar !== this.ringBar && g.song.position(ev.bar).barsLeft === 1) this.stompRing(ev.bar);
   }
 
-  // Set pieces: an encircling ring, or a swarm charging from one side.
-  formation() {
+  // Set pieces: an encircling ring (it appears close, after a one-beat telegraph), or a swarm charging from one side.
+  formation(kind = null) {
     const g = this.g, p = g.player;
     const m = g.time / 60;
-    const kind = pick(m < 2 ? ['ring', 'swarm'] : ['ring', 'swarm', 'swarm', 'wall']);
+    kind ||= pick(m < 2 ? ['ring', 'swarm'] : ['ring', 'swarm', 'swarm', 'wall']);
     if (kind === 'ring') {
       const n = Math.min(40, Math.floor(14 + m * 4));
-      const d = Math.hypot(g.view.w, g.view.h) / 2 + 40;
+      const F = BALANCE.formation;
+      const d = F.ringDist;
       const type = m > 3.5 && rng() < 0.4 ? 'hum' : 'static';
       for (let i = 0; i < n; i++) {
         const a = (i / n) * TAU;
-        spawnEnemy(g, type, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, { hpMul: type === 'hum' ? 0.6 : 1 });
+        spawnEnemy(g, type, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, { hpMul: type === 'hum' ? 0.6 : 1, telegraph: F.telegraph * BEAT_SEC });
       }
     } else if (kind === 'swarm') {
       const n = Math.min(36, Math.floor(12 + m * 3.5));
@@ -114,11 +164,12 @@ export class Director {
     }
   }
 
-  // An elite from the section's mix: a big gold-outlined body that drops a vinyl (one level-up).
-  spawnElite(vinyl = true) {
+  // An elite from the section's mix: a big gold-outlined body that hunts you and drops a vinyl (one level-up)
+  // when featured, or a heart when it is one of the timed ones.
+  spawnElite(vinyl = true, heart = false) {
     const s = this.spawnPoint();
-    const types = Object.keys(this.mix).filter((k) => k !== 'buzz');
-    spawnEnemy(this.g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true, vinyl });
+    const types = Object.keys(this.mix).filter((k) => k !== 'buzz' && k !== 'snare');
+    spawnEnemy(this.g, types.length ? pick(types) : 'static', s.x, s.y, { elite: true, vinyl, heart });
   }
 
   onSection(ev) {
@@ -131,12 +182,13 @@ export class Director {
 
   update(dt) {
     const g = this.g;
-    this.eliteTimer -= dt * g.mods.elite;   // Gain 8: elites come more often
+    // Gain 8: elites come more often. Quiet phrases bring them sooner too.
+    this.eliteTimer -= dt * g.mods.elite * (this.quiet ? BALANCE.quiet.elite : 1);
     if (this.eliteTimer <= 0) {
       this.eliteTimer = Math.max(28, 52 - g.time / 25);
-      this.vinyls += 1 / g.mods.elite;   // the extra ones carry no vinyl, so they add fights, not level-ups
-      this.spawnElite(this.vinyls >= 1);
-      if (this.vinyls >= 1) this.vinyls--;
+      this.hearts += 1 / g.mods.elite;   // the extra ones carry no heart, so they add fights, not healing
+      this.spawnElite(false, this.hearts >= 1 && BALANCE.hearts.eliteHeart);
+      if (this.hearts >= 1) this.hearts--;
     }
     // Recycle stragglers left far behind so the density stays around the player.
     const p = g.player;

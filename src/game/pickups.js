@@ -1,7 +1,8 @@
 // Dropped notes (XP) and rare items. Collecting one rings a chime on the beat grid, in key (Sequencer.ping).
+// Notes left on the floor fade after 8 bars.
 
 import { rand, dist2, rng, swapRemove } from '../util.js';
-import { WORLD } from '../config.js';
+import { WORLD, BALANCE } from '../config.js';
 
 export const ITEM_INFO = {
   heal:   { color: '#ff6f8a', r: 9, label: 'Breather' },
@@ -43,6 +44,14 @@ export function updatePickups(g, dt) {
   for (let i = g.gems.length - 1; i >= 0; i--) {
     const gm = g.gems[i];
     gm.age += dt;
+    // A note left on the floor fades after BALANCE.notes.life (the renderer blinks it first). Pulled notes
+    // (a magnet, a silenced boss) always arrive.
+    if (gm.kind === 'xp' && !gm.pull && gm.age > BALANCE.notes.life) {
+      const L = g._led?.();
+      if (L) L.faded += gm.value;
+      swapRemove(g.gems, i);
+      continue;
+    }
     const d2 = dist2(gm.x, gm.y, p.x, p.y);
     if (!gm.pull && d2 < r2) gm.pull = true;
     if (gm.pull) {
