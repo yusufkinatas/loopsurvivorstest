@@ -1,8 +1,9 @@
 // BASS, Heavy: Drop-D Bass. A distorted saw chugging on the root with a clean sine underneath; palm-muted
-// notes (k: 'mute') close the filter and stop short. Every note punts the nearest enemy close to you: it
-// flies off like a bowling ball, aimed at whoever stands behind it, and hits everything it crashes into.
-// Bosses and elites are too heavy to punt and take a harder hit instead, and the downbeat turns to a boss
-// in range.
+// notes (k: 'mute') close the filter and stop short. Every note punts an enemy close to you, the closest one in
+// front of you first: it flies off like a bowling ball the way you are running (or straight away from you, if it
+// stood beside or behind you) and hits everything it crashes into. Charge into the crowd and it scatters ahead
+// of you. Bosses and elites are too heavy to punt and take a harder hit instead, and the downbeat turns to a
+// boss in range.
 
 import { STEP_SEC } from '../../../config.js';
 
@@ -27,11 +28,11 @@ export default {
   name: 'Drop-D Bass',
   role: 'bass',
   style: 'heavy',
-  blurb: 'A distorted chugging bass that punts close enemies into the crowd.',
+  blurb: 'A distorted chugging bass that punts the closest enemy in front of you the way you are running, into the crowd.',
   steps: 16,
   low: 28,
   levels: [
-    { text: 'Two heavy chugs a bar punt close enemies.',
+    { text: 'Two heavy chugs a bar punt the closest enemy in front of you the way you run.',
       pattern: CHUG_1,
       stats: { damage: 30, crash: 0.7, range: 150, speed: 620, punts: 1 } },
     { text: 'Muted chugs after each one.',
@@ -71,12 +72,16 @@ export default {
     const steps = note.dur / STEP_SEC;
     const dmg = g.dmg(st.damage) * note.v * Math.min(1.25, 0.65 + 0.15 * steps);
     const range = g.area(st.range);
-    // The closest enemies (the open chugs punt more of them), and on the downbeat a boss in range.
+    // The closest enemies in front of you first (the way you are running), then the closest anywhere; the open
+    // chugs punt more of them, and on the downbeat a boss in range takes the first.
     const boss = note.s === 0 && g.bossInRange(p.x, p.y, Math.max(range, 280));
     const n = Math.max(1, mute ? g.amount(1) : g.amount(st.punts));
-    const targets = g.nearestN(p.x, p.y, n + 4, range + 20).filter((e) => !e.launch).slice(0, n);   // not one already flying
+    const face = g.aim(), fx = Math.cos(face), fy = Math.sin(face);
+    const near = g.nearestN(p.x, p.y, n + 6, range + 20).filter((e) => !e.launch);   // not one already flying
+    const ahead = (e) => (e.x - p.x) * fx + (e.y - p.y) * fy > 0.35 * Math.hypot(e.x - p.x, e.y - p.y);
+    const targets = [...near.filter(ahead), ...near.filter((e) => !ahead(e))].slice(0, n);
     if (boss && !targets.includes(boss)) { targets.unshift(boss); targets.length = Math.min(targets.length, n); }
-    for (const e of targets) punt(g, e, dmg, st, mute, !!st.blast);
+    for (const e of targets) punt(g, e, dmg, st, mute, !!st.blast, ahead(e) ? face : null);
     g.shake = Math.max(g.shake, (mute ? 1 : 2) * note.v * (st.blast ? 1.3 : 1));
   },
 
@@ -84,15 +89,16 @@ export default {
     id: 'breakdown', name: 'Breakdown', pedal: 'wah',
     text: 'Punted enemies explode where they land, throwing the next ones.',
     pattern: BREAK,
-    stats: { range: 240, punts: 3, blast: 0.7, blastRadius: 95 },
+    stats: { damage: 44, range: 240, punts: 3, blast: 1, blastRadius: 100 },
   },
 };
 
-// Punt one enemy: send it flying away from you, aimed at the nearest enemy behind it so it bowls into
-// something, hitting all it crashes into. It takes the punt's own hit where it lands, so even a weak one
-// flies before it falls. Bosses and elites are too heavy to fly and take 1.5x the hit at once; one that
-// cannot fly (charging) takes the hit where it stands. Breakdown (remix, boom): it explodes where it lands.
-function punt(g, e, dmg, st, mute, boom) {
+// Punt one enemy: send it flying, hitting all it crashes into. One in front of you flies the way you face (`face`),
+// one beside or behind you flies straight away from you; either way it is turned onto the nearest enemy within 60
+// degrees of that line, so it bowls into something. It takes the punt's own hit where it lands, so even a weak one
+// flies before it falls. Bosses and elites are too heavy to fly and take 1.5x the hit at once; one that cannot fly
+// (charging) takes the hit where it stands. Breakdown (remix, boom): it explodes where it lands.
+function punt(g, e, dmg, st, mute, boom, face) {
   const p = g.player;
   const color = g.color('bass');
   if (e.boss || e.elite) {
@@ -100,7 +106,7 @@ function punt(g, e, dmg, st, mute, boom) {
     g.fx.flash(e.x, e.y, e.r * 1.8, color, 0.2, 0.3);
     return;
   }
-  let ang = Math.atan2(e.y - p.y, e.x - p.x);
+  let ang = face ?? Math.atan2(e.y - p.y, e.x - p.x);
   const behind = pinTarget(g, e, ang);
   if (behind) ang = Math.atan2(behind.y - e.y, behind.x - e.x);
   const speed = g.speed(st.speed) * (mute ? 0.8 : 1);
