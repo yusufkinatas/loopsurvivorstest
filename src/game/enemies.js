@@ -4,16 +4,20 @@
 import { TAU, rand, rng, pick, dist2 } from '../util.js';
 import { STEP_SEC, BEAT_SEC, BALANCE } from '../config.js';
 
+// Enemies are told apart by silhouette, never by hue: every body wears the same neutral greys (the renderer draws
+// them as solid dark bodies with a light outline), so no enemy shares a color with a channel. Everything hostile
+// that flies or marks the floor wears DANGER, a hot red-orange no channel uses.
+export const DANGER = '#ff5a24';
 export const ENEMY_TYPES = {
-  static:   { name: 'Static',   hp: 9,  speed: 64,  r: 11, dmg: 7,  xp: 1, shape: 'square',  color: '#d9d4ea', mass: 1 },
-  buzz:     { name: 'Buzz',     hp: 5,  speed: 116, r: 8,  dmg: 5,  xp: 1, shape: 'tri',     color: '#efe59a', mass: 0.6, wiggle: true },
-  hum:      { name: 'Hum',      hp: 58, speed: 40,  r: 21, dmg: 14, xp: 4, shape: 'hex',     color: '#aaa3c8', mass: 4 },
-  glitch:   { name: 'Glitch',   hp: 20, speed: 56,  r: 12, dmg: 9,  xp: 2, shape: 'glitch',  color: '#94f0ff', mass: 1, blink: true },
-  screech:  { name: 'Screech',  hp: 24, speed: 62,  r: 13, dmg: 6,  xp: 3, shape: 'diamond', color: '#ffa3b6', mass: 1, ranged: true },
-  feedback: { name: 'Feedback', hp: 34, speed: 50,  r: 16, dmg: 10, xp: 3, shape: 'ring',    color: '#ffd38c', mass: 2, splits: 'static' },
-  stomp:    { name: 'Stomp',    hp: 30, speed: 54,  r: 15, dmg: 12, xp: 2, shape: 'stomp',   color: '#ff8a5c', mass: 3, charger: true },
+  static:   { name: 'Static',   hp: 9,  speed: 64,  r: 11, dmg: 7,  xp: 1, shape: 'square',  color: '#d6d1e2', mass: 1 },
+  buzz:     { name: 'Buzz',     hp: 5,  speed: 116, r: 8,  dmg: 5,  xp: 1, shape: 'tri',     color: '#d6d1e2', mass: 0.6, wiggle: true },
+  hum:      { name: 'Hum',      hp: 58, speed: 40,  r: 21, dmg: 14, xp: 4, shape: 'hex',     color: '#c4bed3', mass: 4 },
+  glitch:   { name: 'Glitch',   hp: 20, speed: 56,  r: 12, dmg: 9,  xp: 2, shape: 'glitch',  color: '#d6d1e2', mass: 1, blink: true },
+  screech:  { name: 'Screech',  hp: 24, speed: 62,  r: 13, dmg: 6,  xp: 3, shape: 'diamond', color: '#d6d1e2', mass: 1, ranged: true },
+  feedback: { name: 'Feedback', hp: 34, speed: 50,  r: 16, dmg: 10, xp: 3, shape: 'ring',    color: '#c4bed3', mass: 2, splits: 'static' },
+  stomp:    { name: 'Stomp',    hp: 30, speed: 54,  r: 15, dmg: 12, xp: 2, shape: 'stomp',   color: '#c4bed3', mass: 3, charger: true },
   // A mortar: it keeps its distance, marks where you will be on beat 4 and lands there on the next backbeat.
-  snare:    { name: 'Snare',    hp: 22, speed: 48,  r: 12, dmg: 6,  xp: 3, shape: 'snare',   color: '#ff6b9a', mass: 1, mortar: true },
+  snare:    { name: 'Snare',    hp: 22, speed: 48,  r: 12, dmg: 6,  xp: 3, shape: 'snare',   color: '#d6d1e2', mass: 1, mortar: true },
 };
 
 // Stomp: a speaker cabinet that lights a lane on beat 4 and slams down it on the downbeat, for one beat at
@@ -22,6 +26,7 @@ const STOMP = { speed: 900, time: BEAT_SEC, min: 120, max: 520, lanes: 6 };
 // px a Screech keeps from you: it backs off inside the first and circles inside the second.
 const RANGED_KEEP = [200, 270];
 
+// A boss keeps its own color (its outline, its bar on the HUD); its shots stay in the danger family, a shade apart.
 export const BOSS_TYPES = {
   drone:      { name: 'The Drone',       hp: 1600,  speed: 40, r: 46, dmg: 18, xp: 80,  shape: 'drone',  color: '#ff9fe2', mass: 40, boss: true },
   clipper:    { name: 'The Clipper',     hp: 3600,  speed: 52, r: 42, dmg: 20, xp: 140, shape: 'clipper', color: '#ffb06a', mass: 40, boss: true },
@@ -62,7 +67,7 @@ export function spawnEnemy(g, type, x, y, opts = {}) {
 export function enemyShot(g, x, y, angle, speed = 160, dmg = 8, opts = {}) {
   if (g.shots.length > 500) return;
   speed *= g.mods.shotSpeed;
-  g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? '#ff4d6d', from: opts.from ?? null });
+  g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? DANGER, from: opts.from ?? null });
 }
 
 function radial(g, e, n, speed, dmg, offset = 0, color) {
@@ -90,8 +95,8 @@ function hazardsOnBeat(g, ev) {
     const L = g._led?.();
     if (L) L.marks++;
     if (g.onScreen(h)) {
-      g.fx.ring({ x: h.x, y: h.y, r0: h.r * 0.3, r1: h.r * 1.1, dur: 0.22, damage: 0, kb: 0, width: 5, color: '#ff6b9a' });
-      g.fx.particles(h.x, h.y, '#ff6b9a', 6, 160, 0.3, 2);
+      g.fx.ring({ x: h.x, y: h.y, r0: h.r * 0.3, r1: h.r * 1.1, dur: 0.22, damage: 0, kb: 0, width: 5, color: DANGER });
+      g.fx.particles(h.x, h.y, DANGER, 6, 160, 0.3, 2);
     }
     const rr = h.r + p.r - 4;
     if (dist2(h.x, h.y, p.x, p.y) < rr * rr) {
@@ -169,7 +174,7 @@ export function enemiesOnBeat(g, ev) {
     if (e.def.ranged && ev.beat === 2 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0) {
       const d2 = dist2(e.x, e.y, p.x, p.y);
       if (d2 < 480 * 480) {
-        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, BALANCE.screech.dmg * (1 + g.time / 60 * 0.06), { color: '#ff7a95', from: e });
+        enemyShot(g, e.x, e.y, Math.atan2(p.y - e.y, p.x - e.x), 190, BALANCE.screech.dmg * (1 + g.time / 60 * 0.06), { color: DANGER, from: e });
         e.ai.shootT = 0.2;
       }
     }
@@ -208,13 +213,13 @@ function bossOnBeat(g, e, ev) {
       // No lane, no dash: a Drop stagger or a pause can swallow beat 4.
       if (ev.beat === 3 && ev.bar % 4 === 0) e.ai.chargeWarn = { a: aim, t: BEAT_SEC };
       if (ev.beat === 0 && ev.bar % 4 === 1 && e.ai.chargeWarn) { e.ai.charge = 0.75; e.ai.chargeA = e.ai.chargeWarn.a; e.ai.chargeWarn = null; }
-      if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff9fe2');
+      if (ev.beat === 2 && frac < 0.8) radial(g, e, 10, 140, 18, ev.bar * 0.4, '#ff4f30');
       break;
     case 'clipper': {
       const n = BALANCE.boss.clipperRadial;
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, n, 160, 13, (ev.beat === 2 ? Math.PI / n : 0) + ev.bar * 0.13, '#ffb06a');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, n, 160, 13, (ev.beat === 2 ? Math.PI / n : 0) + ev.bar * 0.13, '#ff6a1e');
       if (ev.beat === 0 && ev.bar % 4 === 3) summonRing(g, e, 'static', 6, e.r + 36);
-      if (frac < BALANCE.boss.clipperTriple && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 13, { color: '#ffd08a', from: e });
+      if (frac < BALANCE.boss.clipperTriple && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 13, { color: '#ff7a2a', from: e });
       break;
     }
     case 'glitchking': {
@@ -226,10 +231,10 @@ function bossOnBeat(g, e, ev) {
       if (ev.beat === 2 && e.ai.blinkTo) {
         g.fx.particles(e.x, e.y, e.color, 18, 260, 0.5, 3);
         e.x = e.ai.blinkTo.x; e.y = e.ai.blinkTo.y; e.ai.blinkTo = null;
-        radial(g, e, 20, 150, BALANCE.boss.kingRadialDmg, rand(0, TAU), '#8ff3ff');
+        radial(g, e, 20, 150, BALANCE.boss.kingRadialDmg, rand(0, TAU), '#ff4a2a');
         summonRing(g, e, 'glitch', 4, e.r + 40);
       }
-      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, BALANCE.boss.kingTripleDmg, { color: '#b9f7ff', from: e });
+      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, BALANCE.boss.kingTripleDmg, { color: '#ff6630', from: e });
       break;
     }
     case 'whitenoise': {
@@ -239,7 +244,7 @@ function bossOnBeat(g, e, ev) {
         if (e.ai.phase && phase > 1) g.hooks?.onBossCue?.('phase', e, phase);
         e.ai.phase = phase;
       }
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, BALANCE.boss.noiseRadialDmg, ev.bar * 0.21 + ev.beat, '#ffffff');
+      if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, BALANCE.boss.noiseRadialDmg, ev.bar * 0.21 + ev.beat, DANGER);
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
       // Spiral arms on 8th notes: one set on the beat and one on the 8th after it. A stun holds them.
@@ -255,7 +260,7 @@ function bossOnBeat(g, e, ev) {
 function spiral(g, e) {
   e.ai.spiralA = (e.ai.spiralA || 0) + 0.42;
   const arms = e.ai.phase === 3 ? 4 : 3;
-  for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, BALANCE.boss.noiseSpiralDmg, { color: '#e6e6ff', r: 5, from: e });
+  for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, BALANCE.boss.noiseSpiralDmg, { color: '#ff7a3c', r: 5, from: e });
 }
 
 // Movement, separation and contact damage.
