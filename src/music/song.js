@@ -112,11 +112,11 @@ export const CHART = {
     ph('full', 0.93, 'perc:double*0.9 lead:inv arp:double'),
   ],
   // The Bridge: a real breakdown (no drums, the bass in half time under held chords), then one channel
-  // takes a solo over a heartbeat, then everything but the drums builds back, and the drums return on
-  // an impact.
+  // takes a solo over the bass and the pads, then everything but the drums builds back, and the drums return
+  // on an impact. The drums sit out for 24 bars, so their return is the Bridge's moment.
   bridge: [
     ph('quiet', 0.4, 'beat:out perc:out bass:half*1.8 chords:hold*1.8 lead:call*1.4 arp:lv1*1.2'),
-    ph('solo', 0.62, 'beat:lv1*1.2 perc:lv1*1.2 bass:lv1*1.4 chords:hold*1.5 lead:out arp:out'),
+    ph('solo', 0.66, 'beat:out perc:lv2*1.3 bass:lv1*2 chords:hold*2 lead:out arp:lv1'),
     ph('mid', 0.84, 'beat:out lead:low'),
     ph('full', 1.0, 'lead:inv', { impact: true }),
   ],
@@ -134,12 +134,12 @@ export const CHART = {
     ph('full', 0.95, 'lead:inv arp:answer*1.4'),
     ph('full', 1.02, 'perc:double*0.9 arp:double*0.9'),
   ],
-  // The Finale cycles: the full band in the new key, a breakdown, a solo over a half-time heartbeat, and
-  // the band rising back in on an impact. It rises and falls every 64 seconds until White Noise is silenced.
+  // The Finale cycles: the full band in the new key, a breakdown, a solo over the bass and the pads (the drums
+  // still out), and the band rising back in on an impact. It rises and falls every 64 seconds until White Noise is silenced.
   finale: [
     ph('full', 0.94, '', { impact: 'first' }),
     ph('quiet', 0.38, 'beat:out perc:lv1*1.3 bass:half*1.8 chords:hold*1.8 lead:call*1.3 arp:out'),
-    ph('solo', 0.62, 'beat:half*1.3 perc:lv1*1.3 bass:lv1*1.6 chords:hold*1.8 lead:out arp:out'),
+    ph('solo', 0.63, 'beat:out perc:lv2*1.4 bass:half*1.8 chords:hold*2 lead:out arp:out'),
     ph('full', 0.96, 'perc:double*0.9 lead:inv arp:double', { impact: true }),
   ],
 };
@@ -218,9 +218,10 @@ export class Song {
     let p = this.posCache.get(bar);
     if (!p) {
       p = this._position(bar);
-      // The last bar of a phrase breaks off on beat 3 when a breakdown follows (instead of the fill).
+      // The bar before a breakdown breaks off on beat 3 (instead of the fill). In the song that is a phrase's
+      // last bar; in a radio edit it can be an excerpt's.
       const a = p.arr;
-      if (a.pb === 7 && !a.roll && !p.section.end) {
+      if (!a.quiet && !a.roll && !p.section.end) {
         const n = this._position(bar + 1).arr;
         if (n.quiet && n.pb === 0) p.arr = { ...a, fill: false, brk: 8 };
       }

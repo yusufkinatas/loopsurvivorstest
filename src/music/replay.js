@@ -68,6 +68,7 @@ export function playSheet({ seq, audio, sheet, keyPc, onSection, onEnd }) {
   };
   seq.reset(new Song((((keyPc | 0) % 12) + 12) % 12, edit));
   seq.getInstruments = () => band;
+  seq.getFeatured = () => null;   // the edit's solos go to its own band (a remix, else the highest level)
   seq.onBar = onBar;
   if (takes.length) enter(0);
   seq.start(seq.clock.now() + 0.1);
