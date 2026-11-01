@@ -18,9 +18,7 @@ src/content/instruments/orchestra/index.js       export default [timpani, fields
 ```
 
 Each file default-exports one definition and imports only what it needs, so a sound is written (or
-replaced) without touching any other file. The twelve start as placeholders that clone the sound of the
-same channel (`placeholder.js`: Heavy plays like Synth, Orchestra like Live) with their own id, name,
-style and remix id and name; an author replaces the whole file. The registry (`index.js`) spreads both
+replaced) without touching any other file. The registry (`index.js`) spreads both
 arrays into `INSTRUMENTS`, validates every definition at load time, checks one sound per channel and
 style and unique instrument and remix ids, and logs problems with `console.error` (which fails the sims).
 
