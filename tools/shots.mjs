@@ -215,6 +215,32 @@ await page.evaluate(async () => {
   document.querySelectorAll('svg').forEach((s) => { s.style.width = '100%'; s.style.height = '100%'; s.style.display = 'block'; });
 });
 await snap('icons');
+
+// Every card frame: the five styles, a pedal, a remix and a bonus card, built from describeOffer's shape.
+// Until config.js has a style, the harness lends it a stand-in color.
+await page.evaluate(async () => {
+  const { STYLES, ROLE_INFO } = await import('/src/config.js');
+  STYLES.heavy ||= { name: 'Heavy', color: '#ff7a45' };
+  STYLES.orchestra ||= { name: 'Orchestra', color: '#e9d39b' };
+  const { cardHtml } = await import('/src/ui/screens.js');
+  const lane = (s) => Array.from({ length: 16 }, (_, i) => ({ on: s.includes(i), isNew: i === s[s.length - 1], v: 1 }));
+  const card = (kind, title, role, style, glyph, extra = {}) => ({ kind, title, color: ROLE_INFO[role]?.color || extra.color, style, glyph, from: null, level: 1, maxLevel: 5, cells: lane([0, 4, 8, 12]), gems: [], slot: { role }, info: ['Every sentence the card used to show lives here.'], ...extra });
+  const descs = [
+    card('new', '808 Kick', 'beat', 'synth', 'kick808', { gems: [{ style: 'synth', n: 2, delta: 1, tier: 1 }] }),
+    card('up', 'Upright Bass', 'bass', 'organic', 'upright', { level: 3, cells: lane([0, 3, 6, 10]) }),
+    card('swap', 'Square Lead', 'lead', 'chip', 'squarelead', { from: 'sawlead', level: 2, gems: [{ style: 'chip', n: 3, delta: 1, tier: 0 }, { style: 'synth', n: 1, delta: -1, tier: -1 }] }),
+    card('new', 'Double Kick', 'beat', 'heavy', 'doublekick', { gems: [{ style: 'heavy', n: 4, delta: 1, tier: 1 }, { style: 'fusion', n: 0, delta: 0, tier: 1 }] }),
+    card('new', 'French Horn', 'lead', 'orchestra', 'horn', { gems: [{ style: 'orchestra', n: 1, delta: 1, tier: 0 }] }),
+    { kind: 'pedal-new', title: 'Tape Delay', color: '#ffcf70', style: null, glyph: 'delay', from: null, level: 1, maxLevel: 3, cells: null, gems: [], slot: { pedal: 0 }, info: ['Notes repeat a dotted eighth later.'] },
+    card('remix', 'Canon', 'lead', 'organic', 'flute', { level: 5, cells: lane([0, 2, 5, 8, 10, 13]) }),
+    { kind: 'heal', title: 'Breather', color: '#ff6f8a', style: null, glyph: 'heal', from: null, level: 0, maxLevel: 0, cells: null, gems: [], slot: null, info: ['Restore 40% of your health.'] },
+  ];
+  document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="/styles.css">');
+  await new Promise((r) => setTimeout(r, 300));
+  document.body.innerHTML = `<div id="screens" style="position:static;overflow:visible;padding:24px"><div class="cards-wrap"><div class="cards" style="grid-template-columns:repeat(4,232px)">${descs.map((d, i) => cardHtml(d, i)).join('')}</div></div></div>`;
+});
+await wait(300);
+await snap('cards');
 console.log(JSON.stringify({ words: Object.fromEntries(Object.entries(words).map(([k, v]) => [k, `${v.n}: ${v.text.join(' | ')}`])), logs: logs.filter((l) => !/Failed to load resource/.test(l)).slice(0, 20) }, null, 2));
 await browser.close();
 server.close();
