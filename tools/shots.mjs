@@ -83,6 +83,11 @@ await page.evaluate(async () => {
 await wait(7000);
 await snap('4-play-full');
 words.hudFull = await wordsIn('#hud');
+// A mouse over a strip or a pedal reaches it, so its name tooltip shows.
+if (!mobile && !(await page.evaluate(() => [...document.querySelectorAll('#hud .strip, #hud .pedal')].every((el) => {
+  const r = el.getBoundingClientRect();
+  return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+})))) logs.push('hud: a mouse over a strip or pedal does not reach it (no tooltip)');
 // The Drop meter full: the closed ring around the speaker and, the first time in a run, its key cap.
 await page.evaluate(() => { const g = window.__LS.game; window.__LS.opts.bot = false; g.dropCharge = g.dropMax; });
 await wait(400);
