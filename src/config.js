@@ -24,10 +24,14 @@ export const ROLE_INFO = {
   arp:    { name: 'Sparkle', color: '#ff86d8', desc: 'Arpeggios and bells. Glittering extras.' },
 };
 
+// The five styles. Each one is a play rule (CHEMISTRY in src/game/loadout.js) and a set of six sounds.
+// The colors stay apart from each other, from the remix gold #ffd166 and from the channel colors.
 export const STYLES = {
-  synth:   { name: 'Synth', color: '#7ab0ff', blurb: 'Electronic' },
-  organic: { name: 'Live',  color: '#f0b884', blurb: 'Played by hand' },
-  chip:    { name: '8-Bit', color: '#c2f25e', blurb: 'Retro console' },
+  synth:     { name: 'Synth',     color: '#7ab0ff', blurb: 'Electronic' },
+  organic:   { name: 'Live',      color: '#f0b884', blurb: 'Played by hand' },
+  chip:      { name: '8-Bit',     color: '#c2f25e', blurb: 'Retro console' },
+  heavy:     { name: 'Heavy',     color: '#ff7020', blurb: 'Rock and metal' },
+  orchestra: { name: 'Orchestra', color: '#d4a6ff', blurb: 'Cinematic' },
 };
 
 // The mixer opens up with the song: channels available from each section on (Intro, Verse, Chorus, Verse II, Chorus II...).

@@ -2,7 +2,7 @@
 //   node tools/check.mjs                      # every instrument, every level, raw channel-input levels
 //   node tools/check.mjs --role bass           # one role
 //   node tools/check.mjs --mix kick808,upright,squarelead [--level 5]   # a band through the full mixing desk
-//   node tools/check.mjs --mixall              # one band per style, plus a mixed band, at level 5
+//   node tools/check.mjs --mixall              # one band per style (all five), plus two mixed bands, at level 5
 //   node tools/check.mjs --mixall --remix      # the same bands remixed: every pedal on, remix pedals at full on their strips
 //   node tools/check.mjs --audit               # whole-song note audit in Node, no browser (see auditSong)
 //   node tools/check.mjs --arrange             # the arrangement phrase by phrase in Node: who plays, notes a bar,
@@ -94,12 +94,17 @@ try {
     const { INSTRUMENTS } = await import('/src/content/instruments/index.js');
     if (mix) return [await m.checkMix(mix.split(','), opts)];
     if (mixall) {
-      const byStyle = (st) => ['beat', 'perc', 'bass', 'chords', 'lead', 'arp'].map((r) => INSTRUMENTS.find((d) => d.role === r && d.style === st)).filter(Boolean).map((d) => d.id);
-      const mixed = ['beat', 'perc', 'bass', 'chords', 'lead', 'arp'].map((r, i) => INSTRUMENTS.filter((d) => d.role === r)[i % 3]).filter(Boolean).map((d) => d.id);
+      // One pure band per style, then two mixed bands that walk the styles across the channels (channel i takes
+      // style i + shift), and the first mixed band again with every pedal at 3.
+      const { ROLES, STYLES } = await import('/src/config.js');
+      const styles = Object.keys(STYLES);
+      const pick = (r, st) => INSTRUMENTS.find((d) => d.role === r && d.style === st);
+      const byStyle = (st) => ROLES.map((r) => pick(r, st)).filter(Boolean).map((d) => d.id);
+      const mixed = (shift) => ROLES.map((r, i) => pick(r, styles[(i + shift) % styles.length])).filter(Boolean).map((d) => d.id);
       const out = [];
       const { level, remix, pedals } = opts;
-      for (const ids of [byStyle('synth'), byStyle('organic'), byStyle('chip'), mixed]) out.push(await m.checkMix(ids, { level, remix, pedals }));
-      out.push(await m.checkMix(mixed, { level, remix, pedals: { reverb: 3, delay: 3, overdrive: 3, compressor: 3, chorus: 3, wah: 3, bitcrusher: 3 } }));
+      for (const ids of [...styles.map(byStyle), mixed(0), mixed(2)]) out.push(await m.checkMix(ids, { level, remix, pedals }));
+      out.push(await m.checkMix(mixed(0), { level, remix, pedals: { reverb: 3, delay: 3, overdrive: 3, compressor: 3, chorus: 3, wah: 3, bitcrusher: 3 } }));
       return out;
     }
     return m.checkAll({ roles: role ? [role] : null });

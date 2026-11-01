@@ -9,7 +9,7 @@ import { describeOffer, banKey, chemTiers } from '../game/upgrades.js';
 import { CHEMISTRY } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
 import { songMapHtml, songFraction, SONG_BARS, heardBar, drawSeq, styleColor, styleName } from './hud.js';
-import { GOALS, RECORDS } from '../game/progress.js';
+import { GOALS, RECORDS, unlockLabel, unlocksOf } from '../game/progress.js';
 import { INSTRUMENTS, BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
@@ -132,7 +132,7 @@ function remixesHtml(meta) {
 
 function notesHtml(meta) {
   return `<ol class="notes">${GOALS.map((g) => `<li class="${meta.goals[g.id] ? 'done' : ''}"><i aria-hidden="true">${meta.goals[g.id] ? '✓' : ''}</i>
-    <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(BY_ID[g.unlock]?.name || g.unlock)}</small></li>`).join('')}</ol>`;
+    <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(unlockLabel(g))}</small></li>`).join('')}</ol>`;
 }
 
 // The style rules on the pause sheet, from CHEMISTRY in either shape (tier arrays, or { name, text, tiers }).
@@ -340,7 +340,7 @@ export class Screens {
         ${icon(def.id, def.role)}</button>`).join('');
     // Only sounds a liner-note goal opens as a first sound get a silhouette (a lock that never opens is a lie).
     const shown = new Set([...defs, ...chips].map((d) => d.id));
-    const locked = INSTRUMENTS.map((def) => [def, GOALS.find((g) => g.unlock === def.id)]).filter(([def, goal]) => goal && !shown.has(def.id))
+    const locked = INSTRUMENTS.map((def) => [def, GOALS.find((g) => unlocksOf(g).includes(def.id))]).filter(([def, goal]) => goal && !shown.has(def.id))
       .map(([def, goal]) => `<span class="chip locked" style="--c:${ROLE_INFO[def.role].color}" title="${esc(`${goal.name}: ${goal.text}`)}">${icon(def.id, def.role)}<i>${icon('lock')}</i></span>`).join('');
     const gain = meta ? `
       <div class="gain">
@@ -597,7 +597,7 @@ export class Screens {
     const lines = news?.saved ? [
       ...(news.record ? [`Record pressed: ${news.record.genre}, ${news.record.gold ? 'gold' : 'demo'}.`] : []),
       ...(news.gain ? [`Gain ${news.gain} unlocked: ${GAIN[news.gain - 1].name}.`] : []),
-      ...news.goals.map((g) => `New first sound: ${BY_ID[g.unlock]?.name || g.unlock}.`),
+      ...news.goals.map((g) => `New first sound: ${unlockLabel(g)}.`),
       ...news.remixes.map((id) => `New remix in your crate: ${BY_ID[id]?.remix?.name || id}.`),
     ] : [];
     const notes = !news ? '' : !news.saved ? '<p class="end-unsaved">Progress could not be saved on this device.</p>'

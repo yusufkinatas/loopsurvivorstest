@@ -1,7 +1,7 @@
 // The run. Owns the world, turns sequencer note events into attacks, and exposes the small API
 // that instrument fire() functions use (see docs/INSTRUMENTS.md).
 
-import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, BALANCE, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
+import { ROLES, ROLE_INFO, STYLES, STEP_SEC, BAR_SEC, ECHO_STEPS, PLAYER_BASE, DROP, BALANCE, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
@@ -11,13 +11,15 @@ import { Director } from './director.js';
 import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat } from './enemies.js';
 import { bossCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
-import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
+import { Loadout, computeStats, makeInst, genreName, isFusion, RULES } from './loadout.js';
 import { buildOffers, applyOffer as applyCard, banKey, deadScreen } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
 // Channels with a send into the tape delay: only these echo, so every echo attack is also heard.
 const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
+// A shield blocks at most this many hits, however many charges a sound gives it.
+const SHIELD_MAX = 3;
 
 // A card taken: the sims' ledger counts picks per section and what the Breather card healed.
 function applyOffer(g, o) {
@@ -94,6 +96,11 @@ export class Game {
     this.shots = [];
     this.gems = [];
     this.later = [];
+    // The play rules' live state (CHEMISTRY in loadout.js): the clean-beat combo, planted (stood within
+    // RULES.plant of where the last beat found you), phrase (0..1 through the 8-bar phrase), the last beat's
+    // spot and time, and broke (moved off that spot since). Tracked whatever the band, applied by its tiers.
+    this.rules = { combo: 0, planted: false, phrase: 0, lastBeatX: 0, lastBeatY: 0, beatAt: 0, broke: false };
+    this.shield = null;      // { n, until, src, onBreak }: blocks the next n hits until game time `until`
     this.fx.reset();
     this.director.reset();
     this.loadout = new Loadout();
@@ -131,7 +138,7 @@ export class Game {
     this.bossKills = [];         // boss types silenced, in order
     this.staggers = 0;           // Drops that knocked a boss off the beat
     // The career's goals read the band at its peak, not only at the end (src/game/progress.js).
-    this.peak = { synth: 0, organic: 0, chip: 0 };
+    this.peak = Object.fromEntries(Object.keys(STYLES).map((st) => [st, 0]));
     this.fullBand = this.fused = this.maxedAll = false;
     this.chanPulse = Object.fromEntries(ROLES.map((r) => [r, 0]));
     this.sectionIndex = 0;
@@ -281,7 +288,7 @@ export class Game {
     for (const st in counts) this.peak[st] = Math.max(this.peak[st], counts[st]);
     const full = this.loadout.filled() === ROLES.length;
     this.fullBand ||= full;
-    this.fused ||= this.genre === 'Fusion';
+    this.fused ||= isFusion(counts);
     this.maxedAll ||= full && this.loadout.instruments().every((i) => i.level >= MAX_INSTRUMENT_LEVEL);
     this.hooks.onLoadout?.();
   }
@@ -291,8 +298,9 @@ export class Game {
   // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards) x the
   // arrangement's weight for the note being fired (a thinner part hits harder, a solo hardest).
   dmg(base) { return base * this.stats.damage * this.dmgScale * this.noteW * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
-  area(r) { return r * this.stats.area; }
-  // Counts scale by a percentage (Chorus pedal, 8-Bit chemistry), so a one-shot weapon and a
+  // In the pocket (Live): a planted player's areas grow by the rule's stillArea.
+  area(r) { return r * (this.stats.area + (this.rules?.planted ? this.stats.rules.stillArea : 0)); }
+  // Counts scale by a percentage (the Chorus pedal), so a one-shot weapon and a
   // six-shot weapon gain the same share. Fractions round by chance per note, and deterministically
   // inside setup() so orbiter counts do not flicker.
   amount(n) {
@@ -386,6 +394,7 @@ export class Game {
     let crit = false;
     if (rng() < this.stats.crit) { dmg *= this.stats.critMult; crit = true; }
     if (e.vulnUntil > this.time) dmg *= 1 + e.vuln;   // marked by Lullaby: takes more from every source
+    if (this.stats.rules.on) dmg *= this.ruleMul(e);  // the band's play rules (echoes too)
     const src = o.src || this.src;
     if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
@@ -414,6 +423,21 @@ export class Game {
       this.fx.text(e.x, e.y - e.r - 4, String(Math.round(dmg)), crit ? '#ffe066' : '#ffffff', crit ? 14 : 10);
     }
     if (e.hp <= 0) this.kill(e, src);
+  }
+
+  // The damage multiplier from the band's play rules on a hit on `e` (1 with no rule on). Long throw and Mosh
+  // pit read where the enemy's body is (one distance per hit), Combo streak and Ride the swell the rule state.
+  ruleMul(e) {
+    const R = this.stats.rules, S = this.rules;
+    let m = 1;
+    if (R.far || R.near) {
+      const d2 = dist2(e.x, e.y, this.player.x, this.player.y);
+      if (R.far && d2 > (RULES.far + e.r) ** 2) m *= 1 + R.far;
+      if (R.near && d2 < (RULES.near + e.r) ** 2) m *= 1 + R.near;
+    }
+    if (R.combo) m *= 1 + R.combo * Math.min(1, S.combo / RULES.comboCap);
+    if (R.swell) m *= 1 + R.swell * (2 * S.phrase - 1);
+    return m;
   }
 
   kill(e, src) {
@@ -470,6 +494,7 @@ export class Game {
     if (this.state !== 'playing' || this.won) return;
     const god = this.opts.god;
     if (god ? this.time < (this._godUntil ?? -1) : p.iframes > 0) return;
+    if (!god && this.shield && this._blockHit(from)) return;   // a shield takes the hit
     const taken = Math.max(1, dmg * this.mods.dmgIn * BALANCE.player.dmgIn - this.stats.armor);
     const cause = kind || (!from ? 'shots' : from.boss ? 'boss' : 'contact');
     const by = (from || shotFrom)?.def.name;
@@ -480,6 +505,7 @@ export class Game {
     if (god) { this._godUntil = this.time + PLAYER_BASE.iframes; return; }
     p.hp -= taken;
     this.lastHurtAt = this.time;
+    this.rules.combo = 0;
     this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
     if (by) { this.damageBy[by] = (this.damageBy[by] || 0) + taken; this.lastHitBy = by; }
     p.iframes = PLAYER_BASE.iframes;
@@ -682,8 +708,107 @@ export class Game {
     this.beatPulse = 1;
     if (ev.beat === 0) this.barPulse = 1;
     if (this.won) return;   // White Noise is silenced: no more spawns, beats or shots, only the silence wave
+    this._rulesOnBeat(ev);
     enemiesOnBeat(this, ev);
     this.director.onBeat(ev);
+  }
+
+  // The play rules on each beat. Combo streak counts a beat with no hit since the last one. In the pocket:
+  // a beat that finds you where the last one did (never more than RULES.plant away in between) plants you,
+  // and a planted beat heals once you have not been hit for RULES.calm bars. Ride the swell: the phrase
+  // runs 0..1 from the bar after each 8-bar fill to the fill itself.
+  _rulesOnBeat(ev) {
+    const S = this.rules, R = this.stats.rules, p = this.player;
+    if (this.lastHurtAt < S.beatAt) S.combo = Math.min(RULES.comboCap, S.combo + 1);
+    S.planted = !S.broke;
+    S.broke = false;
+    S.lastBeatX = p.x; S.lastBeatY = p.y;
+    S.beatAt = this.time;
+    if (S.planted && R.stillHeal > 0 && this.time - this.lastHurtAt >= RULES.calm * BAR_SEC) this.heal(R.stillHeal);
+    const pos = this.song.position(ev.bar);
+    const b = pos.barInSection + (pos.section.from || 0);
+    S.phrase = ((b % RULES.phraseBars) * 4 + ev.beat) / (RULES.phraseBars * 4 - 1);
+  }
+
+  // ------------------------------------------------------------------ crowd control and defense (attack API)
+
+  // Pull every enemy within r toward (x, y): an impulse on its knockback, scaled by mass and never past the
+  // point. Bosses and charging enemies hold their ground. Returns how many moved.
+  pull(x, y, r, strength) {
+    let n = 0;
+    for (const e of this.inRadius(x, y, r)) {
+      if (e.boss || e.ai.charge > 0 || e.spawnT > 0) continue;
+      const dx = x - e.x, dy = y - e.y, d = Math.hypot(dx, dy);
+      if (d < 1) continue;
+      // An impulse k travels about k / 7 before it decays (updateEnemies), so cap it to stop short of the point.
+      const k = Math.min((strength * 3) / Math.max(0.5, e.mass), d * 6);
+      e.kbx += (dx / d) * k; e.kby += (dy / d) * k;
+      n++;
+    }
+    return n;
+  }
+
+  // Launch an enemy: it flies at `speed` px/s along `angle` for o.t seconds (default 0.35), deaf to its own
+  // steering and harmless to touch, and hits every other enemy it crashes into once for `dmg`. One generation
+  // only: what it hits is not launched. Bosses, charging enemies and enemies already in flight cannot be
+  // launched (returns false). o.onLand(e, g) runs where it stops. Damage is credited to the current g.src.
+  launch(e, angle, speed, dmg, o = {}) {
+    if (!e || e.dead || e.boss || e.ai.charge > 0 || e.launch) return false;
+    e.launch = { t: o.t ?? 0.35, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, dmg, src: this.src, hit: new Set([e]), max: o.max ?? 8, onLand: o.onLand ?? null };
+    e.kbx = e.kby = 0;
+    return true;
+  }
+
+  // One frame of a launched enemy's flight (updateEnemies). Returns true while it is in the air.
+  _flyLaunched(e, dt) {
+    const L = e.launch;
+    L.t -= dt;
+    e.x += L.vx * dt; e.y += L.vy * dt;
+    const drag = Math.pow(0.15, dt);
+    L.vx *= drag; L.vy *= drag;
+    const prev = this.src; this.src = L.src;
+    if (L.hit.size <= L.max) {
+      this.grid.query(e.x, e.y, e.r + 12, (o) => {
+        if (o.dead || L.hit.has(o) || o.spawnT > 0) return;
+        const rr = e.r + o.r + 4;
+        if (dist2(o.x, o.y, e.x, e.y) > rr * rr) return;
+        L.hit.add(o);
+        this.hit(o, L.dmg, { kb: 140, fx: e.x, fy: e.y });
+        this.fx.particles(o.x, o.y, this.color(L.src), 4, 160, 0.3, 2.5);
+        if (L.hit.size > L.max) return false;
+      });
+    }
+    if (L.t <= 0 || e.dead) {
+      e.launch = null;
+      if (L.onLand && !e.dead) { try { L.onLand(e, this); } catch (err) { this._report('launch.onLand', err); } }
+    }
+    this.src = prev;
+    return !!e.launch;
+  }
+
+  // A shield (this.shield = { n, until, src, onBreak }) blocks a hit: the player gets the usual iframes and the
+  // body that touched it is pushed off. When the last charge goes, onBreak(g, shield) runs with g.src = src.
+  _blockHit(from) {
+    const s = this.shield, p = this.player;
+    if (!(s.n > 0) || this.time > s.until) { this.shield = null; return false; }
+    s.n = Math.min(s.n, SHIELD_MAX) - 1;
+    p.iframes = PLAYER_BASE.iframes;
+    if (from && !from.boss && !(from.ai.charge > 0)) {
+      const dx = from.x - p.x, dy = from.y - p.y, d = Math.hypot(dx, dy) || 1;
+      from.kbx += (dx / d) * 320; from.kby += (dy / d) * 320;
+    }
+    const col = this.color(s.src);
+    this.fx.flash(p.x, p.y, p.r + 26, col, 0.25, 0.25);
+    this.fx.particles(p.x, p.y, col, 10, 220, 0.4, 2.5);
+    if (s.n <= 0) {
+      this.shield = null;
+      if (s.onBreak) {
+        const prev = this.src; this.src = s.src;
+        try { s.onBreak(this, s); } catch (e) { this._report('shield.onBreak', e); }
+        this.src = prev;
+      }
+    }
+    return true;
   }
 
   // How many mixer channels the song has opened so far.
@@ -824,6 +949,10 @@ export class Game {
     p.hurtT = Math.max(0, p.hurtT - dt);
     this._ledFrame(dt);
     if (this.stats.regen > 0) p.hp = Math.min(p.maxHp, p.hp + this.stats.regen * dt);
+    // In the pocket: stepping off the last beat's spot unplants you at once (one distance a frame).
+    const S = this.rules;
+    if (!S.broke && dist2(p.x, p.y, S.lastBeatX, S.lastBeatY) > RULES.plant * RULES.plant) { S.broke = true; S.planted = false; }
+    if (this.shield && this.time > this.shield.until) this.shield = null;
 
     // Spatial hash for this frame
     this.grid.clear();

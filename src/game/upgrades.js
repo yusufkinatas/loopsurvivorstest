@@ -5,7 +5,7 @@ import { ROLES, ROLE_INFO, STYLES, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, FADER 
 import { rng, weightedPick, shuffle } from '../util.js';
 import { INSTRUMENTS } from '../content/instruments/index.js';
 import { PEDALS, PEDAL_BY_ID } from '../content/pedals.js';
-import { CHEMISTRY, FUSION } from './loadout.js';
+import { CHEMISTRY, FUSION, isFusion } from './loadout.js';
 
 // A level 5 instrument can be remixed once its remix pedal is on the board, at any level.
 const remixReady = (L, inst) => !!(inst.def.remix && !inst.remix && inst.level >= MAX_INSTRUMENT_LEVEL && L.pedal(inst.def.remix.pedal));
@@ -18,9 +18,12 @@ function candidates(g) {
   for (const role of ROLES) {
     const cur = L.channels[role];
     const inRole = INSTRUMENTS.filter((d) => d.role === role);
+    // A channel's new and swap cards share the weight three styles gave them, however many styles there are,
+    // so more sounds never crowd out level and pedal cards.
+    const newW = 3 / inRole.length, swapW = 2 / Math.max(1, inRole.length - 1);
     if (!cur) {
       if (!room) continue;
-      const w = filled < 3 ? 1.1 : 0.8;
+      const w = (filled < 3 ? 1.1 : 0.8) * newW;
       for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w });
     } else {
       if (remixReady(L, cur)) out.push({ kind: 'remix', def: cur.def, role, inst: cur, level: MAX_INSTRUMENT_LEVEL, w: 3 });
@@ -29,7 +32,7 @@ function candidates(g) {
       // A swap keeps the channel's level: it changes the style, not the strength.
       for (const d of inRole) {
         if (d === cur.def) continue;
-        out.push({ kind: 'swap', def: d, role, from: cur, level: cur.level, w: 0.32 });
+        out.push({ kind: 'swap', def: d, role, from: cur, level: cur.level, w: 0.32 * swapW });
       }
     }
   }
@@ -103,28 +106,29 @@ export function applyOffer(g, o) {
   }
 }
 
-// How a card changes your style chemistry, as a short line (or null).
-function chemistryLine(g, style, delta) {
+// How a card changes the band's play rules, as short lines: a rule tier gained ("Heavy x2: Mosh pit, +20% up
+// close"), lost, or a step toward the next one. Each line carries its style and rule for the card's gems.
+export function chemistryLine(g, style, delta) {
   const c = g.loadout.styleCounts();
   const before = { ...c };
-  c[style] += delta.add || 0;
-  if (delta.remove) c[delta.remove] -= 1;
+  if (style in c) c[style] += delta.add || 0;
+  if (delta.remove in c) c[delta.remove] -= 1;
   const lines = [];
   for (const st of Object.keys(CHEMISTRY)) {
     if (c[st] === before[st]) continue;
-    const tiers = CHEMISTRY[st];
+    const { tiers, name, rule } = CHEMISTRY[st];
     const gained = tiers.filter((t) => c[st] >= t.n && before[st] < t.n);
     const lost = tiers.filter((t) => c[st] < t.n && before[st] >= t.n);
-    if (gained.length) lines.push({ good: true, text: `${STYLES[st].name} x${c[st]}: ${gained[gained.length - 1].text}` });
-    else if (lost.length) lines.push({ good: false, text: `Loses ${STYLES[st].name} x${before[st]} bonus` });
+    const base = { style: st, rule };
+    if (gained.length) lines.push({ ...base, good: true, text: `${STYLES[st].name} x${c[st]}: ${name}, ${gained[gained.length - 1].text}` });
+    else if (lost.length) lines.push({ ...base, good: false, text: `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
     else if (c[st] > before[st]) {
       const next = tiers.find((t) => t.n > c[st]);
-      lines.push({ good: null, text: next ? `${STYLES[st].name} ${c[st]}/${next.n} toward ${next.text.toLowerCase()}` : `${STYLES[st].name} x${c[st]}` });
+      const goal = next && (next === tiers[0] ? name : next.text);
+      lines.push({ ...base, good: null, text: next ? `${STYLES[st].name} ${c[st]}/${next.n} toward ${goal}` : `${STYLES[st].name} x${c[st]}` });
     }
   }
-  const fusedBefore = before.synth >= 2 && before.organic >= 2 && before.chip >= 2;
-  const fusedAfter = c.synth >= 2 && c.organic >= 2 && c.chip >= 2;
-  if (fusedAfter && !fusedBefore) lines.push({ good: true, text: FUSION.text });
+  if (isFusion(c) && !isFusion(before)) lines.push({ good: true, text: FUSION.text });
   return lines;
 }
 

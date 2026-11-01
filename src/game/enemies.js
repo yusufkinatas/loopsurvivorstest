@@ -274,6 +274,7 @@ export function updateEnemies(g, dt) {
     const kd = Math.pow(0.0009, dt);
     e.x += e.kbx * dt; e.y += e.kby * dt;
     e.kbx *= kd; e.kby *= kd;
+    if (e.launch && g._flyLaunched(e, dt)) continue;   // launched (g.launch): flying, not walking
 
     if (e.stun > 0) { e.stun -= dt; continue; }
     // A charge (the Drone, a Stomp) runs straight down its lane, deaf to knockback.
@@ -329,7 +330,7 @@ export function updateEnemies(g, dt) {
 
   // Contact damage.
   for (const e of g.enemies) {
-    if (e.dead || e.spawnT > 0) continue;
+    if (e.dead || e.spawnT > 0 || e.launch) continue;   // a launched enemy flying past does not hurt
     const rr = e.r + p.r - 3;
     if (dist2(e.x, e.y, p.x, p.y) < rr * rr) g.hurt(e.dmg, e);
   }

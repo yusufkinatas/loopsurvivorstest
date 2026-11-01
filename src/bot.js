@@ -1,4 +1,5 @@
 import { rng } from './util.js';
+import { RULES } from './game/loadout.js';
 
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It plays roughly like a careful but ordinary human: a few times a second it tries a handful of
@@ -14,6 +15,12 @@ const REACT = 0.3;      // reaction time: a decision takes effect this long afte
 const REPLAN = 0.2;     // how often it rethinks
 const FOCUS = 5;        // how many of the nearest shots it can watch at once
 const LAG = REACT + 0.08; // until the new heading actually moves the player
+// It also plays the band's style rules (g.stats.rules) the way a player would: close to the crowd for the Mosh
+// pit, at arm's length for Long throw, standing its ground for In the pocket and dodging harder for a Combo
+// streak. ?botrules=0 turns that off and leaves the plain kiting bot, to see how hard the rules are without it.
+const RULES_ON = (() => {
+  try { return String(window.LOOP_SURVIVORS_OPTS?.botrules ?? new URLSearchParams(window.location.search).get('botrules')) !== '0'; } catch (e) { return true; }
+})();
 
 // Closest approach of two points moving linearly, relative offset r0 and relative velocity w, over [0, T].
 function closest(rx, ry, wx, wy, T) {
@@ -42,6 +49,10 @@ function plan(g) {
   const p = g.player;
   const speed = g.stats.speed;
   const hurt = p.hp / p.maxHp;
+  // The style rules it plays (see RULES_ON). On a Combo streak it watches more shots and gives them a wider berth.
+  const rules = RULES_ON ? g.stats.rules : null;
+  const mosh = rules?.near > 0, kite = rules?.far > 0, plant = rules?.stillHeal > 0, careful = rules?.combo > 0;
+  const focus = careful ? FOCUS + 3 : FOCUS, berth = careful ? 30 : 14, missW = careful ? 2.2 : 1.2, shotW = careful ? 1.4 : 1;
 
   // What it is watching: the closest shots that can reach it within the horizon, enemies close enough to touch.
   let shots = [];
@@ -51,7 +62,7 @@ function plan(g) {
     const d2 = dx * dx + dy * dy;
     if (d2 < reach * reach) shots.push([d2, s]);
   }
-  if (shots.length > FOCUS) { shots.sort((a, b) => a[0] - b[0]); shots.length = FOCUS; }
+  if (shots.length > focus) { shots.sort((a, b) => a[0] - b[0]); shots.length = focus; }
   shots = shots.map((x) => x[1]);
   const foes = [];
   let crowd = 0;
@@ -109,6 +120,22 @@ function plan(g) {
     if (d < nearD) { nearD = d; nearE = e; }
   }
 
+  // The crowd the distance rules read: the nearest 60 enemies within 420 px.
+  let crowdNear = null, closeNow = 0;
+  if (mosh || kite || plant) {
+    const arr = [];
+    for (const e of g.enemies) {
+      if (e.dead || e.boss) continue;
+      const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy;
+      if (d2 < 420 * 420) arr.push([d2, e]);
+    }
+    if (arr.length > 60) { arr.sort((a, b) => a[0] - b[0]); arr.length = 60; }
+    crowdNear = arr.map((x) => x[1]);
+    for (const e of crowdNear) if (Math.hypot(e.x - p.x, e.y - p.y) - e.r < RULES.near) closeNow++;
+  }
+  // How close it walks in before it stops closing on the nearest enemy.
+  const approach = mosh ? 110 : kite ? 280 : 170;
+
   let best = null, bestScore = Infinity;
   const pvx = p.vx, pvy = p.vy;
   for (let k = 0; k <= DIRS; k++) {
@@ -129,9 +156,9 @@ function plan(g) {
         const sx = s.x + s.vx * LAG, sy = s.y + s.vy * LAG;
         [d2, t] = closest(mx - sx, my - sy, vx - s.vx, vy - s.vy, HORIZON - LAG);
         if (d2 < R * R) hitT = LAG + t;
-        else if (d2 < (R + 14) * (R + 14)) cost += 1.2;   // too close for comfort
+        else if (d2 < (R + berth) * (R + berth)) cost += missW;   // too close for comfort
       }
-      if (hitT >= 0) cost += 14 * (1.4 - hitT / HORIZON);
+      if (hitT >= 0) cost += 14 * shotW * (1.4 - hitT / HORIZON);
     }
 
     for (const e of foes) {
@@ -176,6 +203,19 @@ function plan(g) {
       const dx = endX - h.x, dy = endY - h.y, R = h.r + p.r + 6;
       if (dx * dx + dy * dy < R * R) cost += 8;
     }
+    // The style rules: Mosh pit wants bodies inside its reach, Long throw wants them outside its circle, and
+    // In the pocket stands still when nothing is close (shots and bodies still cost more than it pays).
+    if (crowdNear && (mosh || kite)) {
+      let inNear = 0, inFar = 0;
+      for (const e of crowdNear) {
+        const gap = Math.hypot(e.x - endX, e.y - endY) - e.r;
+        if (gap < RULES.near) inNear++;
+        if (gap < RULES.far) inFar++;
+      }
+      if (mosh) cost -= 0.1 * Math.min(inNear, 10);
+      if (kite) cost += 0.08 * Math.min(inFar, 12);
+    }
+    if (plant && k === DIRS && closeNow === 0) cost -= 0.9;
 
     if (pack.length >= 25) {
       // Count who would be within the Drop's trigger range from where this heading leads.
@@ -189,16 +229,16 @@ function plan(g) {
       const d0 = Math.hypot(goal.x - p.x, goal.y - p.y);
       const d1 = Math.hypot(goal.x - endX, goal.y - endY);
       cost -= goalW * 1.6 * (d0 - d1) / (speed * HORIZON);
-    } else if (nearE && nearD > 170) {
+    } else if (nearE && nearD > approach) {
       const d1 = Math.hypot(nearE.x - endX, nearE.y - endY);
-      cost -= 0.5 * (nearD - d1) / (speed * HORIZON);
+      cost -= (mosh ? 0.8 : 0.5) * (nearD - d1) / (speed * HORIZON);
     } else if (!nearE) {
       // Drift in a lazy circle so the bot does not stand still.
       const a = g.time * 0.35;
       cost -= 0.3 * (ux * Math.cos(a) + uy * Math.sin(a));
     }
-    // Keep moving: standing still in a crowd is how you get cornered.
-    if (k === DIRS && crowd > 6) cost += 0.4;
+    // Keep moving: standing still in a crowd is how you get cornered (unless planting with nothing close).
+    if (k === DIRS && crowd > 6 && !(plant && closeNow === 0)) cost += 0.4;
     // A little inertia so the bot does not jitter between equal choices.
     const vl = Math.hypot(pvx, pvy);
     if (vl > 1 && k !== DIRS) cost -= 0.35 * (ux * pvx + uy * pvy) / vl;
