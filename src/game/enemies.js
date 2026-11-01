@@ -124,7 +124,8 @@ export function enemiesOnBeat(g, ev) {
   for (const e of g.enemies) {
     if (e.dead || e.spawnT > 0) continue;
     if (e.boss) { bossOnBeat(g, e, ev); continue; }
-    if (e.def.blink && ev.beat % 2 === 0 && e.stun <= 0) {
+    // A Glitch blinks on beats 1 and 3, never while its lane is lit or it dashes down it (a hunting elite).
+    if (e.def.blink && !e.ai.chargeWarn && !(e.ai.charge > 0) && ev.beat % 2 === 0 && e.stun <= 0) {
       const d = Math.sqrt(dist2(e.x, e.y, p.x, p.y));
       if (d > 140 && rng() < 0.7) {
         const hop = Math.min(85, d - 90);
@@ -150,14 +151,16 @@ export function enemiesOnBeat(g, ev) {
       }
     }
     // Snare: on beat 4 of every other bar it marks where you will be in a second; the mark lands on the next
-    // bar's backbeat (beat 2). Only on screen and in range, and at most S.cap marks live at once.
-    if (e.def.mortar && ev.beat === 3 && (ev.bar + e.id) % 2 === 0 && e.stun <= 0 && (g.hazards ||= []).length < S.cap) {
+    // bar's backbeat (beat 2). Only on screen and in range, and at most S.cap marks live at once. One mark a bar:
+    // a resume can replay beat 4.
+    if (e.def.mortar && ev.beat === 3 && (ev.bar + e.id) % 2 === 0 && e.ai.markBar !== ev.bar && e.stun <= 0 && (g.hazards ||= []).length < S.cap) {
       const dx = p.x - e.x, dy = p.y - e.y;
       if (dx * dx + dy * dy < S.range * S.range && Math.abs(dx) < g.view.w / 2 && Math.abs(dy) < g.view.h / 2) {
         let lx = p.vx * S.lead, ly = p.vy * S.lead;
         const ll = Math.hypot(lx, ly);
         if (ll > S.leadCap) { lx *= S.leadCap / ll; ly *= S.leadCap / ll; }
         g.hazards.push({ x: p.x + lx, y: p.y + ly, r: S.r, bar: ev.bar + 1, beat: 1, dmg: S.dmg * (1 + g.time / 60 * S.dmgPerMin), from: e, t0: g.time, dur: 2 * BEAT_SEC });
+        e.ai.markBar = ev.bar;
         e.ai.shootT = 0.25;
       }
     }

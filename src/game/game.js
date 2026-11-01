@@ -90,6 +90,8 @@ export class Game {
     this.ledger = [];        // per section, for balance sims (_led)
     this.hazards = [];       // Snare marks waiting for their beat (enemies.js)
     this.lastHurtAt = -Infinity;
+    this._godUntil = -1;     // god mode (?god=1): the ledger's own i-frames
+    this._downbeat = -1;     // the last bar whose downbeat ran (onBeat)
     this.perfectDrops = 0;   // Drops that landed on a phrase downbeat
     this.perfectFlash = 0;
     this.dropR = DROP.radius;
@@ -136,7 +138,8 @@ export class Game {
     this.drops = 0;
     this.songImpacts = 0;        // the song's own impacts that hit (songImpact)
     this.impactAt = -Infinity;   // game time of the last one (the arena flashes back)
-    this.solos = 0;              // solo phrases featured so far (remixes take turns)
+    this.solos = 0;              // solo phrases featured so far
+    this.soloN = {};             // instrument id -> solo phrases it took (remixes take turns)
     this._dropBar = -1;          // the bar the player's last Drop landed on
     this.bonusScore = 0;
     this.beatPulse = 0;
@@ -701,11 +704,28 @@ export class Game {
     return !s.hold && !s.pendingStop && !s.dropState && !this._remixDue() && (s.bar + 1) % DROP.phrase === 0;
   }
 
+  // The fill is judged by ear: the sequencer schedules lookahead plus output latency ahead of what is heard, so
+  // a press on the fill's last hits can come once the phrase downbeat is already scheduled. The Drop still lands
+  // on that downbeat while it is not heard yet and is free (Sequencer.dropDownbeat). Returns that bar, else -1.
+  _lateFill() {
+    const s = this.seq, now = this._heardNow();
+    if (s.bar % DROP.phrase !== 0) return -1;
+    const heard = s.sounding(now);
+    if (!heard || heard.bar !== s.bar - 1) return -1;
+    const d = s.dropDownbeat(s.bar);
+    return d && d.time > now ? s.bar : -1;
+  }
+
+  // Audio time of what is heard now (the output latency behind the audio clock; none in a sim).
+  _heardNow() { return this.clock.now() - (this.opts.sim ? 0 : this.audio?.latency || 0); }
+
   // The bar a Drop pressed now would land on. A perfect drop lands on a phrase downbeat (dropPerfectNow), so the
-  // HUD and the autopilot can read the window.
+  // HUD and the autopilot can read the window. The same rules as requestDrop.
   dropLandsOn() {
     const s = this.seq;
-    return this._fillBuild() ? s.bar + 1 : s.bar + 2 + (s.pendingStop || this._remixDue() ? 1 : 0);
+    if (this._fillBuild()) return s.bar + 1;
+    const late = this._lateFill();
+    return late >= 0 ? late : s.bar + 2 + (s.pendingStop || this._remixDue() ? 1 : 0);
   }
   dropPerfectNow() { return this.dropLandsOn() % DROP.phrase === 0; }
 
@@ -718,12 +738,15 @@ export class Game {
     if (this.dropState && !this.seq.dropState && !this.seq.events.some((ev) => ev.type === 'drop')) this.dropState = null;
     if (this.state !== 'playing' || this.won || this.dropCharge < this.dropMax || this.dropState) return false;
     const fill = this._fillBuild();
-    if (!this.seq.requestDrop()) return false;
+    const late = fill ? -1 : this._lateFill();
+    // A late press lands on the downbeat already scheduled (its 'drop' event is queued, nothing is left to build).
+    if (late >= 0 ? !this.seq.landDropAt(late) : !this.seq.requestDrop()) return false;
     this.dropCharge = 0;
     this.dropState = 'queued';
     this.hooks.onDrop?.('queued');
-    if (fill) {
-      this.seq.dropState = this.dropState = 'building';
+    if (fill || late >= 0) {
+      if (fill) this.seq.dropState = 'building';
+      this.dropState = 'building';
       this.hooks.onDrop?.('building');
     }
     return true;
@@ -800,15 +823,17 @@ export class Game {
     this.hooks.onImpact?.(bar);
   }
 
-  // Who takes a solo phrase (the sequencer asks on its first bar): a remix, the one with the most damage
-  // first and the remixes taking turns across solos; else the highest level (ties: the most damage). It
-  // hits about 1.8x its full part, held to 1.4x while the final boss plays.
+  // Who takes a solo phrase (the sequencer asks on its first bar): a remix, the remixes taking turns across
+  // solos (the one that has soloed least, ties: the most damage, so a new remix gets the next one); else the
+  // highest level (ties: the most damage). It hits about 1.8x its full part, held to 1.4x while the final boss plays.
   featured() {
     const band = this.loadout?.instruments() || [];
     if (!band.length) return null;
-    const remixed = band.filter((i) => i.remix).sort((a, b) => b.dmg - a.dmg);
-    const inst = remixed.length ? remixed[this.solos % remixed.length]
+    const n = (i) => this.soloN[i.def.id] || 0;
+    const remixed = band.filter((i) => i.remix).sort((a, b) => n(a) - n(b) || b.dmg - a.dmg);
+    const inst = remixed.length ? remixed[0]
       : band.reduce((a, b) => (b.level > a.level || (b.level === a.level && b.dmg > a.dmg) ? b : a));
+    if (inst.remix) this.soloN[inst.def.id] = n(inst) + 1;
     this.solos++;
     const finalBoss = this.boss && !this.boss.dead && this.boss.def?.final;
     return { inst, gain: finalBoss ? 1.4 : 1.8 };
@@ -851,6 +876,12 @@ export class Game {
   }
 
   onBeat(ev) {
+    // A bar's downbeat runs once, so its set pieces and attacks never repeat (a pause keeps a queued one for
+    // the first frame after resume).
+    if (ev.beat === 0) {
+      if (ev.bar === this._downbeat) return;
+      this._downbeat = ev.bar;
+    }
     this.beatPulse = 1;
     if (ev.beat === 0) this.barPulse = 1;
     if (this.won) return;   // White Noise is silenced: no more spawns, beats or shots, only the silence wave
@@ -1317,9 +1348,11 @@ export class Game {
   _pause(state) {
     this.state = state;
     this.seq.hold = true;
-    // Drop queued notes and beats, but keep song-structure events (section, build, drop): losing one would
-    // skip a boss, keep a channel shut or leave the Drop stuck. They play out on the first frame after resume.
-    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && ev.type !== 'beat');
+    // Drop queued notes and beats, but keep song-structure events (section, build, drop, impact, remix) and
+    // downbeats: losing one would skip a boss, keep a channel shut, leave the Drop stuck or lose a bar's set
+    // pieces (a breather heart, a featured elite's vinyl, an impact ring). The held bar plays on from where the
+    // vamp is, never from its downbeat again, so they play out once, on the first frame after resume.
+    this.seq.events = this.seq.events.filter((ev) => ev.type !== 'note' && (ev.type !== 'beat' || ev.beat === 0));
     if (this.audio?.ready) this.audio.setMuffle(true);
   }
 

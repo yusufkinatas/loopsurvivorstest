@@ -4,7 +4,7 @@
 // joins, a style's strips flash when its chemistry tier rises, the genre stamps once when it changes.
 // The Drop meter is a ring around the speaker (renderer.js); touch gets a thumb button while it is full.
 
-import { ROLES, ROLE_INFO, STYLES, PEDAL_SLOTS, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, STEP_SEC } from '../config.js';
+import { ROLES, ROLE_INFO, STYLES, PEDAL_SLOTS, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, STEP_SEC, BALANCE } from '../config.js';
 import { rgba } from '../util.js';
 import { icon } from './icons.js';
 import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
@@ -16,6 +16,16 @@ export const styleColor = (st) => STYLES[st]?.color || '#a89fc8';
 export const styleName = (st) => STYLES[st]?.name || st || '';
 // Restart a one-shot CSS animation class.
 const kick = (node, cls) => { if (!node) return; node.classList.remove(cls); void node.offsetWidth; node.classList.add(cls); };
+
+// Textures that play fewer of a part's notes (Sequencer TRANSFORMS), and lvN below the channel's own level (a
+// remix's own pattern plays lvN as 'sparse'). A solo is never thin.
+const THIN = new Set(['sparse', 'hold', 'half', 'call', 'answer']);
+function thinTex(x, inst) {
+  if (!x || x.solo) return false;
+  if (THIN.has(x.tf)) return true;
+  const lv = /^lv(\d)$/.exec(x.tf);
+  return !!lv && !!inst && (inst.remix || inst.level > Number(lv[1]));
+}
 
 // The song map draws the open-ended Finale as 24 bars.
 const MAP_BARS = SECTIONS.map((s) => (s.bars === Infinity ? 24 : s.bars));
@@ -210,7 +220,7 @@ export class Hud {
     this.boss.querySelector('.bossbar-name').textContent = e.def.name;
     this.boss.style.setProperty('--c', e.def.color);
     // Notches where the boss changes its attack pattern. White Noise's break as it passes them.
-    const marks = { drone: [0.8], clipper: [0.7], glitchking: [], whitenoise: [0.66, 0.33].slice(wnPhase - 1) }[e.type] || [];
+    const marks = { drone: [0.8], clipper: [BALANCE.boss.clipperTriple], glitchking: [], whitenoise: [0.66, 0.33].slice(wnPhase - 1) }[e.type] || [];
     this.boss.querySelector('.bossbar-track').innerHTML = '<div class="bossbar-chip"></div><div class="bossbar-fill"></div>' + marks.map((m) => `<i class="bossbar-notch" data-at="${m}" style="left:${m * 100}%"></i>`).join('');
     this.bossClock.hidden = !e.clock;
     this._clock = null;
@@ -330,12 +340,12 @@ export class Hud {
     set('head', cur ? cur.bar * 16 + cur.sib : 0, (v) => { this.songHead.style.left = `${songFraction(v / 16) * 100}%`; });
     set('done', g.sectionIndex, (v) => { this.songSegs.forEach((s, i) => s.classList.toggle('done', i < v)); });
 
-    // Strips: the meter follows each channel's hits; a channel resting in this bar dims.
+    // Strips: the meter follows each channel's hits; a channel resting in this bar dims, one playing a thinned
+    // texture of its part dims a little.
     for (const role of ROLES) {
       const s = this.strips[role];
       s.meter.style.transform = `scaleY(${Math.min(1, g.chanPulse[role] || 0)})`;
-      const w = cur?.tex?.[role]?.w;
-      set(`rest:${role}`, cur?.rest?.includes(role) ? 2 : typeof w === 'number' && w < 0.5 ? 1 : 0, (v) => { s.el.classList.toggle('rest', v === 2); s.el.classList.toggle('soft', v === 1); });
+      set(`rest:${role}`, cur?.rest?.includes(role) ? 2 : thinTex(cur?.tex?.[role], g.loadout.channels[role]) ? 1 : 0, (v) => { s.el.classList.toggle('rest', v === 2); s.el.classList.toggle('soft', v === 1); });
     }
 
     set('drop', g.dropCharge >= g.dropMax && !g.dropState && !g.won && g.state === 'playing', (v) => this.root.classList.toggle('drop-ready', v));

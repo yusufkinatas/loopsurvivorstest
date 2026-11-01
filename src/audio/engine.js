@@ -276,8 +276,8 @@ export class AudioEngine {
   //   playing  channels sounding this bar, band: channels in the band. A thinner bar is lifted only part of
   //            the way back (half the full band's correction, in dB), so a breakdown really is quieter.
   //   level    the phrase's own level (quiet phrases 0.8)
-  //   tone     [from, to] Hz: the band's lowpass over this bar (a quiet phrase opening up), null: wide open
-  //            (snaps open, as on an impact), undefined: leave it
+  //   tone     [from, to, end?] Hz: the band's lowpass from t to `end` (default: the bar's end; a quiet phrase
+  //            opening up), null: wide open (snaps open, as on an impact), undefined: leave it
   //   solo     the featured role: its strip comes up ~2.5 dB and its reverb and delay sends by half
   arrange(t, { playing, band, level = 1, tone, solo = null }) {
     if (!this.ctx) return;
@@ -286,7 +286,9 @@ export class AudioEngine {
     this.mixGain.gain.setTargetAtTime(Math.sqrt(full * activeLevel(playing)) * level, t, 0.06);
     if (tone !== undefined) {
       const f = this.tone.frequency;
-      if (tone) { f.setValueAtTime(tone[0], t); f.exponentialRampToValueAtTime(tone[1], t + BAR_SEC - 0.005); }
+      // A ramp still pending from an earlier song (a quiet phrase on the end screen) must not run into this one.
+      f.cancelScheduledValues(t);
+      if (tone) { f.setValueAtTime(tone[0], t); f.exponentialRampToValueAtTime(tone[1], tone[2] ?? t + BAR_SEC - 0.005); }
       else f.setValueAtTime(TONE_OPEN, t);
     }
     for (const role of ROLES) {

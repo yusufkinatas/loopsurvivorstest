@@ -177,6 +177,10 @@ export class Sequencer {
     this.remixAt = null;
     this.onRemix = null;       // (inst, bar) as the flip is scheduled: the game sets the remix up at once
     this.onRemixLost = null;   // (inst) a queued remix whose channel left the band before it landed
+    this.remixLanded = -1;     // the bar the latest remix landed on (its impact is that downbeat's one hit)
+    this.dropLanded = -1;      // the bar the player's latest Drop landed on
+    this._impactBar = -1;      // the bar whose downbeat had an impact (the desk opens up for that bar)
+    this._vamped = false;      // a held downbeat set the desk to the vamp: the first step the song moves again resets it
     this._w = 1;
   }
 
@@ -190,6 +194,44 @@ export class Sequencer {
   requestDrop() {
     if (this.dropState) return false;
     this.dropState = 'queued';
+    return true;
+  }
+
+  // The downbeat of `bar` (its step log entry) when the player's Drop can still land on it although it is
+  // already scheduled: it is the bar being scheduled, the song moves, no Drop or stop is queued, and that
+  // downbeat is free of a stop bar and of a remix (its landing, or its dropout bar starting there). Else null.
+  // For a press on a fill's last hits, heard after the sequencer has moved on (see Game._lateFill).
+  dropDownbeat(bar) {
+    if (this.hold || bar !== this.bar || this.dropState || this.pendingStop || this.lastStop?.bar === bar || this.dropLanded === bar || this.remixLanded === bar || this.remixAt?.out) return null;
+    for (let i = this.stepLog.length - 1; i >= 0; i--) {
+      const s = this.stepLog[i];
+      if (s.bar === bar && s.sib === 0) return s.rest ? s : null;   // the vamp's downbeats carry no arrangement
+    }
+    return null;
+  }
+
+  // Land the player's Drop on that scheduled downbeat after all: its 'drop' event goes in where a Drop's own
+  // would have been (after the section's), and the Drop is the downbeat's one hit: it takes the song's impact
+  // event there (that impact already sounds), or it plays its own impact (as soon as the audio clock allows),
+  // and the desk opens up for the bar as on any impact. Returns false when the downbeat is not free.
+  landDropAt(bar) {
+    const d = this.dropDownbeat(bar);
+    if (!d) return false;
+    const t = d.time;
+    const ev = this.events = this.events.filter((e) => !(e.type === 'impact' && e.bar === bar));
+    let i = 0;
+    while (i < ev.length && (ev[i].time < t || (ev[i].time === t && ev[i].type === 'section'))) i++;
+    ev.splice(i, 0, { type: 'drop', time: t, bar });
+    this.dropLanded = bar;
+    if (!d.impact) {
+      d.impact = true;
+      this._impactBar = bar;
+      const A = this._audioOn() ? this.audio : null;
+      if (A) {
+        A.impact(Math.max(t, A.now()), this.pos.chord.rootPc);
+        if (this.pos.arr.quiet) this._bar(A, t, this.pos.arr, this.getInstruments(), true);
+      }
+    }
     return true;
   }
 
@@ -246,6 +288,7 @@ export class Sequencer {
     }
     R.inst.remix = true;
     this.remixAt = null;
+    this.remixLanded = this.bar;
     this.events.push({ type: 'remix', time: t, inst: R.inst, bar: this.bar });
     try { this.onRemix?.(R.inst, this.bar); } catch (e) { this._report('onRemix', e); }
     return 'in';
@@ -325,6 +368,7 @@ export class Sequencer {
         } else {
           impactAt = t;
           dropped = true;
+          this.dropLanded = this.bar;
           this.events.push({ type: 'drop', time: t, bar: this.bar });
           this.dropState = null;
         }
@@ -357,7 +401,15 @@ export class Sequencer {
     const chord = stopped && this.lastStop.home ? this.song.chord(0, pos.section.lift) : pos.chord;
     // One hit per downbeat: an impact (it has its own crash) over stop-time over a plain crash.
     if (A && impactAt === null) { if (landed) A.silenced(t, chord.rootPc); else if (crash) A.crash(t, crash); }
-    if (sib === 0) this._bar(A, t, arr, band, impactAt !== null);
+    if (sib === 0) {
+      this._bar(A, t, arr, band, impactAt !== null);
+      this._vamped = this.hold;
+    } else if (this._vamped && !this.hold) {
+      // The song moves again mid-bar after a held downbeat set the desk to the vamp: this bar's own
+      // arrangement comes back from this step (its quiet lowpass ramping on to the bar's end).
+      this._vamped = false;
+      this._bar(A, t, arr, band, this._impactBar === this.bar, sib);
+    }
 
     if (emit && sib % 4 === 0) {
       this.events.push({ type: 'beat', time: t, beat: sib / 4, bar: this.bar, sib });
@@ -379,7 +431,8 @@ export class Sequencer {
 
   // Each downbeat: the band's textures for this bar (for the playhead display), and the desk follows the
   // phrase on the audio clock (level, the quiet phrase's lowpass, the featured strip). The vamp is plain.
-  _bar(A, t, arr, band, impact) {
+  // sib > 0: the same from step sib of the bar on (the song moving again after a held downbeat).
+  _bar(A, t, arr, band, impact, sib = 0) {
     const rest = [], tex = {};
     let playing = 0;
     for (const inst of band) {
@@ -389,11 +442,12 @@ export class Sequencer {
     }
     this.barRest = rest;
     this.barTex = tex;
+    if (arr) this._impactBar = impact ? this.bar : -1;
     if (!A?.arrange) return;
     const quiet = !!arr?.quiet && !impact;
     A.arrange(t, {
       playing, band: band.length, level: arr ? DESK_LEVEL[arr.cls] ?? 1 : 1,
-      tone: quiet ? [toneAt(arr.pb), toneAt(arr.pb + 1)] : null,
+      tone: quiet ? [toneAt(arr.pb + sib / STEPS_PER_BAR), toneAt(arr.pb + 1), t + (STEPS_PER_BAR - sib) * STEP_SEC - 0.005] : null,
       solo: arr?.solo ? this.featured?.role ?? null : null,
     });
   }
@@ -446,11 +500,12 @@ export class Sequencer {
   // The notes inst plays on step sib of bar, as the band hears them (the raw pattern notes: s, v, k, ct/sc/
   // chord, o, d): the arrangement's texture, fills, rolls, breaks and stops while the song moves, the plain
   // loop in the vamp or for an auditioned card. For step grids (the pause sheet, cards).
-  notesFor(inst, bar = this.bar, sib = 0) {
+  // bar: the bar the step is heard in (the loop bar while held, as _play reads it).
+  notesFor(inst, bar = this.hold ? this.loopBar : this.bar, sib = 0) {
     if (!this.song || !inst?.def) return NONE;
     const plain = this.hold || inst === this.preview?.inst;
     const arr = plain ? null : this.song.position(bar).arr;
-    return this._notes(inst, arr, plain ? this.loopBar : bar, sib, this.getInstruments().length, false) || NONE;
+    return this._notes(inst, arr, bar, sib, this.getInstruments().length, false) || NONE;
   }
 
   // The notes inst plays on a step, and their damage weight in this._w. Precedence, highest first: a stop's
