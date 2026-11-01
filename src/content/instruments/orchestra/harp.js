@@ -54,7 +54,7 @@ function frameOf(g, note, st, inst) {
   if (st.cross) {
     // Another crowd, turned 90 degrees so its strings run toward you; with none, your wake: where you were about
     // half a beat ago, the strings across the way you are going.
-    const o = otherCrowd(g, st.reach * 1.4, cx, cy, st.len * 0.45);
+    const o = otherCrowd(g, st.reach, cx, cy, st.len * 0.45);
     const moving = Math.hypot(p.vx, p.vy) > 30;
     const way = moving ? Math.atan2(p.vy, p.vx) : g.aim();
     const back = moving ? st.wake : 0;
@@ -102,19 +102,19 @@ export default {
   levels: [
     { text: 'Each sweep lays a harp on the crowd to pluck.',
       pattern: [...UP, ...DOWN],
-      stats: { damage: 27, width: 14, len: 260, gap: 30, reach: 340 } },
+      stats: { damage: 27, width: 13, len: 200, gap: 24, reach: 300 } },
     { text: 'Quick notes fill the rise. A bigger harp.',
       pattern: [...UP, ...DOWN, ...RISE],
-      stats: { damage: 28, width: 15, len: 280, gap: 31, reach: 350 } },
+      stats: { damage: 28, width: 14, len: 212, gap: 25, reach: 308 } },
     { text: 'Quick notes fill the fall.',
       pattern: [...UP, ...DOWN, ...RISE, ...FALL],
-      stats: { damage: 30, width: 16, len: 300, gap: 32, reach: 360 } },
+      stats: { damage: 30, width: 15, len: 224, gap: 26, reach: 316 } },
     { text: 'Pickup notes lead into each sweep.',
       pattern: [...UP, ...DOWN, ...RISE, ...FALL, ...PICKUP],
-      stats: { damage: 32, width: 17, len: 330, gap: 34, reach: 370 } },
+      stats: { damage: 34, width: 16, len: 238, gap: 28, reach: 324 } },
     { text: 'Turns at the top and bottom: every step plucks.',
       pattern: [...UP, ...DOWN, ...RISE, ...FALL, ...PICKUP, ...TURN],
-      stats: { damage: 34, width: 18, len: 360, gap: 36, reach: 380, slow: 0.15 } },
+      stats: { damage: 38, width: 17, len: 250, gap: 30, reach: 330, slow: 0.15 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -147,8 +147,8 @@ export default {
     // over across the bar like wind through the strings.
     pattern: [N(0, 0, 0.85), N(1, 2, 0.65), N(2, 4, 0.75), N(3, 1, 0.8), N(4, 3, 0.65), N(5, 5, 0.75), N(6, 4, 0.85), N(7, 2, 0.65),
       N(8, 0, 0.9), N(9, 5, 0.8), N(10, 3, 0.65), N(11, 1, 0.7), N(12, 2, 0.8), N(13, 4, 0.65), N(14, 5, 0.75), N(15, 3, 0.55)],
-    stats: { cross: 1, ring: 0.6, wake: 90, len: 460, gap: 42, width: 20, reach: 520 },
-    // Wider strings reaching farther crowds. Each note plucks its string on both frames of its gust (see frameOf),
+    stats: { cross: 1.1, ring: 0.75, wake: 80, len: 280, gap: 32, width: 18, reach: 350 },
+    // Wider strings. Each note plucks its string on both frames of its gust (see frameOf),
     // and three steps later both strings ring again. Echoes pluck once and do not ring.
     fire(g, note, st, inst) {
       const fr = frameOf(g, note, st, inst);
