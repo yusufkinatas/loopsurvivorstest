@@ -1,7 +1,7 @@
 // The run. Owns the world, turns sequencer note events into attacks, and exposes the small API
 // that instrument fire() functions use (see docs/INSTRUMENTS.md).
 
-import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
+import { ROLES, ROLE_INFO, STEP_SEC, ECHO_STEPS, PLAYER_BASE, DROP, BALANCE, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
@@ -12,12 +12,20 @@ import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat, BOSS_TYPES } fr
 import { bossCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
-import { buildOffers, applyOffer, banKey, deadScreen } from './upgrades.js';
+import { buildOffers, applyOffer as applyCard, banKey, deadScreen } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
 // Channels with a send into the tape delay: only these echo, so every echo attack is also heard.
 const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
+
+// A card taken: the sims' ledger counts picks per section and what the Breather card healed.
+function applyOffer(g, o) {
+  const L = g._led(), hp = g.player.hp;
+  L.picks++;
+  applyCard(g, o);
+  if (o.kind === 'heal') L.heal.card += g.player.hp - hp;
+}
 
 export class Game {
   constructor({ audio, clock, seq, opts = {}, settings = {}, hooks = {} }) {
@@ -70,8 +78,14 @@ export class Game {
     };
     this.enemies = [];
     this.nextId = 1;         // enemy ids pace Stomps and Screeches, so each run counts from 1
-    this.damageTaken = { contact: 0, shots: 0, boss: 0 };
+    this.damageTaken = { contact: 0, shots: 0, boss: 0, mark: 0 };
     this.damageBy = {};      // enemy name -> damage taken from it (bodies and shots)
+    this.ledger = [];        // per section, for balance sims (_led)
+    this.hazards = [];       // Snare marks waiting for their beat (enemies.js)
+    this.lastHurtAt = -Infinity;
+    this.perfectDrops = 0;   // Drops that landed on a phrase downbeat
+    this.perfectFlash = 0;
+    this.dropR = DROP.radius;
     this.lastHitBy = null;
     this.bossLog = [];       // { type, spawn, end, how: 'silenced' | 'faded' } in game seconds
     this.shots = [];
@@ -145,7 +159,40 @@ export class Game {
     this.banner(this.section.name, `${this.key.name} · ${Math.round(60 / (STEP_SEC * 4))} BPM`);
   }
 
-  xpFor(level) { return Math.round(Math.min(200, 5 + level * 0.34 + level * level * 0.44) * this.mods.xp); }
+  // A level costs more the higher you are, up to a cap: about 30 card screens a run, so a band cannot max out.
+  xpFor(level) {
+    const X = BALANCE.xp;
+    return Math.round(Math.min(X.cap, X.base + level * X.lin + level * level * X.quad) * this.mods.xp);
+  }
+
+  // ------------------------------------------------------------------ ledger (balance sims)
+
+  // This section's entry: what happened in it, for tools/sim.mjs --summary.
+  _led() {
+    const i = this.sectionIndex ?? 0;
+    return (this.ledger ||= [])[i] ||= {
+      sec: this.section?.id, t0: this.time, lv0: this.level, levels: 0, picks: 0,
+      dmg: { contact: 0, shots: 0, boss: 0, mark: 0 }, by: {}, hits: 0,
+      heal: { regen: 0, inst: 0, drop: 0, card: 0 }, hearts: 0, heartsTaken: 0,
+      minHp: 1, kills: 0, nd: 0, killDist: 0, near120: 0, alive: 0, frames: 0,
+      drops: 0, perfect: 0, marks: 0, markHits: 0, faded: 0,
+    };
+  }
+
+  // Once a frame, before regen: lowest health, crowd size and regen healing.
+  _ledFrame(dt) {
+    const L = this._led(), p = this.player;
+    if (this.stats.regen > 0) L.heal.regen += Math.min(p.maxHp - p.hp, this.stats.regen * dt);
+    L.minHp = Math.min(L.minHp, p.hp / p.maxHp);
+    L.alive += this.enemies.length;
+    L.frames++;
+  }
+
+  // A heart on the floor (a breather, a timed elite, a silenced boss).
+  dropHeart(x, y) {
+    dropItem(this, x, y, 'heal');
+    this._led().hearts++;
+  }
 
   // ------------------------------------------------------------------ loadout
 
@@ -254,6 +301,7 @@ export class Game {
     if (!(n > 0) || p.hp >= p.maxHp) return 0;
     const amt = Math.min(p.maxHp - p.hp, n * this.dmgScale);
     p.hp += amt;
+    this._led().heal.inst += amt;
     return amt;
   }
   speed(v) { return v * this.stats.projSpeed; }
@@ -366,6 +414,13 @@ export class Game {
     e.dead = true;
     this.kills++;
     if (src) src.kills++;
+    const L = this._led();
+    L.kills++;
+    if (!e.boss) {
+      const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
+      L.nd++; L.killDist += d;
+      if (d < 120) L.near120++;
+    }
     // A kill pops in the color of the hit that landed it. Off-screen kills skip the pop, so a Drop's far
     // kills leave the particle budget to the ones you can see.
     if (e.boss || this.onScreen(e)) {
@@ -377,12 +432,11 @@ export class Game {
       if (e.boss) { for (let i = 0; i < 12; i++) dropGem(this, e.x + rand(-50, 50), e.y + rand(-50, 50), Math.ceil(e.xp / 12)); }
       else dropGem(this, e.x, e.y, e.xp);
     }
+    // Hearts come on the song's schedule (BALANCE.hearts), never from ordinary kills: featured elites drop a
+    // vinyl, timed elites a heart, and now and then an ordinary kill leaves a magnet.
     if (e.vinyl) dropItem(this, e.x, e.y, 'vinyl');
-    else if (!e.boss && !e.elite) {
-      const r = rng();
-      if (r < 0.005) dropItem(this, e.x, e.y, 'heal');
-      else if (r < 0.0065) dropItem(this, e.x, e.y, 'magnet');
-    }
+    else if (e.heart) this.dropHeart(e.x, e.y);
+    else if (!e.boss && !e.elite && rng() < BALANCE.hearts.killMagnet) dropItem(this, e.x, e.y, 'magnet');
     if (e.def.splits && !e.elite && !this.won) {   // nothing new spawns once White Noise is silenced
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * TAU + rand(0, 1);
@@ -402,14 +456,24 @@ export class Game {
   // ------------------------------------------------------------------ player
 
   // from: the enemy body that touched the player (null for a shot). shotFrom: the enemy that fired the shot.
-  hurt(dmg, from, shotFrom) {
+  // kind: the cause when it is neither (a Snare's 'mark'). With god=1 nothing is taken, but the ledger still
+  // records what would have been (with the usual invulnerability window), so one run maps the whole threat curve.
+  hurt(dmg, from, shotFrom, kind) {
     const p = this.player;
-    if (this.state !== 'playing' || this.won || p.iframes > 0 || this.opts.god) return;
+    if (this.state !== 'playing' || this.won) return;
+    const god = this.opts.god;
+    if (god ? this.time < (this._godUntil ?? -1) : p.iframes > 0) return;
     const taken = Math.max(1, dmg * this.mods.dmgIn - this.stats.armor);
-    p.hp -= taken;
-    const cause = !from ? 'shots' : from.boss ? 'boss' : 'contact';
-    this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
+    const cause = kind || (!from ? 'shots' : from.boss ? 'boss' : 'contact');
     const by = (from || shotFrom)?.def.name;
+    const L = this._led();
+    L.dmg[cause] = (L.dmg[cause] || 0) + taken;
+    L.hits++;
+    if (by) L.by[by] = (L.by[by] || 0) + taken;
+    if (god) { this._godUntil = this.time + PLAYER_BASE.iframes; return; }
+    p.hp -= taken;
+    this.lastHurtAt = this.time;
+    this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
     if (by) { this.damageBy[by] = (this.damageBy[by] || 0) + taken; this.lastHitBy = by; }
     p.iframes = PLAYER_BASE.iframes;
     p.hurtT = 0.3;
@@ -433,14 +497,19 @@ export class Game {
         this.level++;
         this.xpNeed = this.xpFor(this.level);
         if (!this.opts.solo) this.pendingLevels++;
+        this._led().levels++;
       }
     } else if (gm.kind === 'heal') {
-      this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player.maxHp * 0.3);
+      const L = this._led(), hp = this.player.hp;
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player.maxHp * BALANCE.hearts.heal);
+      L.heal.drop += this.player.hp - hp;
+      L.heartsTaken++;
       this.fx.text(this.player.x, this.player.y - 26, 'Breather!', '#ff8fa3', 14);
     } else if (gm.kind === 'magnet') {
       magnetAll(this);
     } else if (gm.kind === 'vinyl') {
       if (!this.opts.solo) this.pendingLevels++;
+      this._led().levels++;
       this.fx.text(this.player.x, this.player.y - 26, 'Vinyl!', '#ffd166', 14);
     }
     this._ping(gm.kind === 'xp' ? 'note' : 'run');
@@ -451,44 +520,77 @@ export class Game {
 
   // ------------------------------------------------------------------ the Drop
 
+  // A press during a phrase's fill bar (bar % 8 === 7, nothing else waiting on the next downbeat) lets the fill
+  // be the build: the Drop lands on the phrase downbeat. Otherwise it builds through the next bar.
+  _fillBuild() {
+    const s = this.seq;
+    return !s.hold && !s.pendingStop && !s.dropState && (s.bar + 1) % DROP.phrase === 0;
+  }
+
+  // The bar a Drop pressed now would land on. A perfect drop lands on a phrase downbeat (dropPerfectNow), so the
+  // HUD and the autopilot can read the window.
+  dropLandsOn() {
+    const s = this.seq;
+    return this._fillBuild() ? s.bar + 1 : s.bar + 2 + (s.pendingStop ? 1 : 0);
+  }
+  dropPerfectNow() { return this.dropLandsOn() % DROP.phrase === 0; }
+
   requestDrop() {
     // Safety net: if the game still thinks a Drop is building but the sequencer has none pending, clear it.
     if (this.dropState && !this.seq.dropState && !this.seq.events.some((ev) => ev.type === 'drop')) this.dropState = null;
     if (this.state !== 'playing' || this.won || this.dropCharge < this.dropMax || this.dropState) return false;
+    const fill = this._fillBuild();
     if (!this.seq.requestDrop()) return false;
     this.dropCharge = 0;
     this.dropState = 'queued';
     this.hooks.onDrop?.('queued');
+    if (fill) {
+      this.seq.dropState = this.dropState = 'building';
+      this.hooks.onDrop?.('building');
+    }
     return true;
   }
 
-  // The Drop lands on the downbeat of `bar`.
+  // The Drop lands on the downbeat of `bar`: a blast around you (BALANCE.drop) that erases the shots and Snare
+  // marks inside it. A perfect drop (on a phrase downbeat) hits harder and wider and knocks a boss in it off
+  // the beat.
   doDrop(bar) {
-    const p = this.player;
+    const p = this.player, D = DROP;
+    const perfect = bar % D.phrase === 0;
     this.dropState = null;
     this.drops++;
+    const L = this._led();
+    L.drops++;
+    if (perfect) { L.perfect++; this.perfectDrops++; }
     this.dropFlash = 1;
-    this.shake = Math.max(this.shake, 16);
-    const dmg = DROP.damage * (1 + this.level * 0.08) * this.stats.damage;
+    this.perfectFlash = perfect ? 1 : 0;
+    this.shake = Math.max(this.shake, perfect ? 18 : 13);
+    const R = this.dropR = D.radius * (perfect ? D.perfectRadius : 1);
+    const dmg = D.damage * (1 + this.level * D.perLevel) * this.stats.damage * (perfect ? D.perfectDmg : 1);
     const prev = this.src; this.src = null;
     // Kills color by distance as a spectrum of your band: Beat nearest, Sparkle outermost.
     const band = ROLES.filter((r) => this.loadout.channels[r]).map((r) => ROLE_INFO[r].color);
-    const colorAt = (e) => band[Math.min(band.length - 1, Math.floor(Math.hypot(e.x - p.x, e.y - p.y) / (720 / band.length)))];
+    const colorAt = (e) => band[Math.min(band.length - 1, Math.floor(Math.hypot(e.x - p.x, e.y - p.y) / (R / band.length)))];
     // A boss can arrive on the same downbeat as the Drop: index this frame's spawns before the query.
     this.grid.clear();
     for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
-    for (const e of this.inRadius(p.x, p.y, DROP.radius)) {
-      this.hit(e, e.boss ? dmg * 2.5 : dmg, { kb: 260, fx: p.x, fy: p.y, stun: 0.6, color: colorAt(e) });
-      if (e.boss && !e.dead) knockOffBeat(this, e, bar);
+    for (const e of this.inRadius(p.x, p.y, R)) {
+      this.hit(e, e.boss ? dmg * D.boss : dmg, { kb: D.kb, fx: p.x, fy: p.y, stun: D.stun, color: colorAt(e) });
+      if (perfect && e.boss && !e.dead) knockOffBeat(this, e, bar);
     }
     this.src = prev;
-    this.shots.length = 0;
-    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
+    this.fx._erase(p.x, p.y, R);
+    this.hazards = this.hazards.filter((h) => dist2(h.x, h.y, p.x, p.y) > R * R);
+    this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: R, dur: 0.6, damage: 0, kb: 0, width: 14, color: '#ffffff' });
     // One ring per channel in its color. The outer channels run faster, so the rings spread into the same order
     // as the kill spectrum (Sparkle outermost). Cosmetic.
-    band.forEach((color, i) => this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: DROP.radius, dur: 0.42 + 0.06 * (band.length - 1 - i), damage: 0, kb: 0, width: 8, color }));
-    magnetAll(this);
-    this.hooks.onDrop?.('done');
+    band.forEach((color, i) => this.fx.ring({ x: p.x, y: p.y, follow: true, r0: 20, r1: R, dur: 0.42 + 0.06 * (band.length - 1 - i), damage: 0, kb: 0, width: 8, color }));
+    // A perfect drop: a gold ring that lingers at the edge of the blast, and a second one a 16th later.
+    if (perfect) {
+      this.fx.ring({ x: p.x, y: p.y, follow: true, r0: R * 0.9, r1: R * 1.04, dur: 0.5, damage: 0, kb: 0, width: 10, color: '#ffd166' });
+      this.later.push({ at: this.time + STEP_SEC, fn: () => this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 30, r1: R, dur: 0.5, damage: 0, kb: 0, width: 6, color: '#ffd166' }) });
+    }
+    this.hooks.onDrop?.('done', perfect);
   }
 
   // ------------------------------------------------------------------ events
@@ -597,6 +699,8 @@ export class Game {
     } else {
       this.banner(`${e.def.name} is silenced`, '', true);
       magnetAll(this);
+      // A heart where it fell: silencing a boss inside its chorus is how a fight pays you back.
+      if (BALANCE.hearts.bossHeart) this.dropHeart(e.x, e.y);
       // The boss implodes, then bursts outward in its color (cosmetic).
       this.fx.ring({ x: e.x, y: e.y, r0: e.r * 3.2, r1: 6, dur: 0.22, damage: 0, kb: 0, width: 12, color: e.color });
       this.later.push({ at: this.time + 2 * STEP_SEC, fn: () => this.fx.ring({ x: e.x, y: e.y, r0: 10, r1: 640, dur: 0.7, damage: 0, kb: 0, width: 16, color: e.color }) });
@@ -665,6 +769,7 @@ export class Game {
     if (ml > 0.2) { p.faceX = mx / ml; p.faceY = my / ml; }
     p.iframes = Math.max(0, p.iframes - dt);
     p.hurtT = Math.max(0, p.hurtT - dt);
+    this._ledFrame(dt);
     if (this.stats.regen > 0) p.hp = Math.min(p.maxHp, p.hp + this.stats.regen * dt);
 
     // Spatial hash for this frame
@@ -701,6 +806,7 @@ export class Game {
     this.shake *= Math.exp(-dt * 10);
     this.hurtFlash *= Math.exp(-dt * 5);
     this.dropFlash *= Math.exp(-dt * 2.5);
+    this.perfectFlash *= Math.exp(-dt * 2);
     for (const r of ROLES) this.chanPulse[r] *= Math.exp(-dt * 9);
     if (this.sectionBanner) this.sectionBanner.t += dt;
 
@@ -912,7 +1018,7 @@ export class Game {
       remixes: this.remixed.map((id) => ({ id, name: BY_ID[id].name, remix: BY_ID[id].remix.name })),
       sheet: [...this.sheet, snap], keyPc: this.key.pc,
       // What the career's goals read (src/game/progress.js).
-      drops: this.drops, sectionIndex: this.sectionIndex, bossKills: this.bossKills, staggers: this.staggers, peak: this.peak,
+      drops: this.drops, perfectDrops: this.perfectDrops, sectionIndex: this.sectionIndex, bossKills: this.bossKills, staggers: this.staggers, peak: this.peak,
       fullBand: this.fullBand, fused: this.fused, maxedAll: this.maxedAll, band: snap.band, pedalLv: snap.pedals,
     };
   }

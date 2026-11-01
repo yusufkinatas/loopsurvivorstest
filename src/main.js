@@ -370,13 +370,22 @@ function frame(ts) {
   }
 }
 
-// Autopilot uses the Drop when the meter is full and a crowd (or a boss) is close, or once it has sat full a while.
+// Autopilot uses the Drop like a sensible player: when it is swamped, or hurt with things close, right away;
+// when crowded or with a boss close, it waits for a press that lands on a phrase downbeat (a perfect drop). A
+// boss showing up is no reason on its own, and a meter that has sat full a long while goes on the next phrase.
 let dropFullSince = null;
 function botDrop() {
   if (game.state !== 'playing' || game.dropCharge < game.dropMax || game.dropState) { dropFullSince = null; return; }
   if (dropFullSince === null || dropFullSince > game.time) dropFullSince = game.time;
   const p = game.player;
-  if (game.boss || game.inRadius(p.x, p.y, 320).length >= 12 || game.time - dropFullSince > 10) game.requestDrop();
+  const near = game.inRadius(p.x, p.y, 300).length;
+  let shots = 0;
+  for (const s of game.shots) if ((s.x - p.x) ** 2 + (s.y - p.y) ** 2 < 260 * 260) shots++;
+  const low = p.hp / p.maxHp < 0.4;
+  const b = game.boss && !game.boss.dead ? game.boss : null;
+  const bossClose = b && Math.hypot(b.x - p.x, b.y - p.y) < 380;
+  if ((low && (near >= 8 || shots >= 6)) || near >= 32) { game.requestDrop(); return; }
+  if (game.dropPerfectNow() && (near >= 14 || bossClose || low || game.time - dropFullSince > 40)) game.requestDrop();
 }
 
 function pulseFromSeq() {
@@ -440,7 +449,7 @@ window.__LS = {
   metrics() {
     return {
       state: game.state, time: game.time, level: game.level, kills: game.kills, score: game.player ? game.score() : 0,
-      damageTaken: game.damageTaken, drops: game.drops, bossesAlive: game.boss ? game.boss.type : null,
+      damageTaken: game.damageTaken, drops: game.drops, perfectDrops: game.perfectDrops, bossesAlive: game.boss ? game.boss.type : null,
       damageBy: game.damageBy, lastHitBy: game.lastHitBy, bossLog: game.bossLog,
       // What the career's goals read.
       bossKills: game.bossKills, staggers: game.staggers, peak: game.peak, fullBand: game.fullBand, fused: game.fused, maxedAll: game.maxedAll,
@@ -453,6 +462,9 @@ window.__LS = {
       retired: (game.retired || []).map((i) => ({ id: i.def.id, level: i.level, dmg: Math.round(i.dmg) })),
       pedals: game.loadout ? game.loadout.pedals.map((p) => ({ id: p.def.id, level: p.level })) : [],
       samples,
+      // Per section: damage by cause and by enemy, healing by source, lowest health, levels, picks, kills and how
+      // close they died, the crowd, hearts, Drops and Snare marks (Game._led; tools/sim.mjs --summary prints it).
+      ledger: game.ledger || [], maxHp: game.player?.maxHp,
     };
   },
 };
