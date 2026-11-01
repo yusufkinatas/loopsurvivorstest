@@ -137,6 +137,16 @@ await wait(500);
 await press('[data-act=howto]');
 await wait(500);
 await snap('9-howto');
+// Settings: the keyboard turns a checkbox on with Space (a phone taps it).
+await press('[data-act=back]');
+await wait(400);
+await press('[data-act=settings]');
+await wait(400);
+if (mobile) await press('label:has(#set-info)');
+else { await page.focus('#set-info'); await page.keyboard.press('Space'); }
+await wait(200);
+if (!(await page.evaluate(() => document.querySelector('#set-info')?.checked))) logs.push('settings: Card details did not turn on');
+await snap('9s-settings');
 
 // The career: a seeded save with records (gold, demo, a Gain tag, a hidden track), remixes, most goals and
 // Gain 1-3 open. Then a short run that earns two first sounds, for the liner notes and the Listen line.
@@ -180,19 +190,21 @@ await press('[data-act=listen]');
 await wait(1200);
 await snap('c6-end');
 
-// A remix: the card (a level 5 sound with its pedal on the board), then play with the gold rims on its attacks.
+// A remix: a Master Tape banked with two channels at level 5 opens the remix cards (each a level 5 sound with its
+// pedal on the board). The pick lands on the song's next free line, then play shows the gold rims on its attacks.
 page = await newPage(null);
-await page.goto(`${url}/index.html?bot=1&seed=7&give=flute:5,kick808:3,upright:3&pedals=delay:2`);
+await page.goto(`${url}/index.html?bot=1&seed=7&tapes=1&give=flute:5,kick808:5,upright:3&pedals=delay:2`);
 await wait(900);
 await press('[data-act=play]');
 await wait(700);
 await press('.card[data-i="0"]');
-await wait(2500);
-await page.evaluate(() => { const g = window.__LS.game; g.pendingLevels = 1; });
-await wait(700);
+await page.waitForFunction(() => window.__LS.game.tapeOffers && window.__LS.game.state === 'levelup', null, { timeout: 15000 }).catch(() => logs.push('remix: no remix cards opened'));
+await page.evaluate(() => { window.__LS.game.opts.solo = true; });   // no level-ups while the remix lands
+await wait(900);
 await snap('r1-remix-card');
-await page.evaluate(() => { const g = window.__LS.game; const i = g.offers.findIndex((o) => o.kind === 'remix'); g.choose(i >= 0 ? i : 0); });
-await wait(5000);
+await page.evaluate(() => { const g = window.__LS.game; const i = g.offers.findIndex((o) => o.inst?.def.id === 'flute'); g.choose(i >= 0 ? i : 0); });
+await page.waitForFunction(() => window.__LS.game.remixLog.length > 0, null, { timeout: 30000 }).catch(() => logs.push('remix: the remix never landed'));
+await wait(3000);
 await snap('r2-remix-play');
 words.hudRemix = await wordsIn('#hud');
 
