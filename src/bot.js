@@ -48,6 +48,10 @@ function plan(g) {
   const p = g.player;
   const speed = g.stats.speed;
   const hurt = p.hp / p.maxHp;
+  // The style rules it plays (see RULES_ON). On a Combo streak it watches more shots and gives them a wider berth.
+  const rules = RULES_ON ? g.stats.rules : null;
+  const mosh = rules?.near > 0, kite = rules?.far > 0, plant = rules?.stillHeal > 0, careful = rules?.combo > 0;
+  const focus = careful ? FOCUS + 3 : FOCUS, berth = careful ? 30 : 14, missW = careful ? 2.2 : 1.2, shotW = careful ? 1.4 : 1;
 
   // What it is watching: the closest shots that can reach it within the horizon, enemies close enough to touch.
   let shots = [];
@@ -57,7 +61,7 @@ function plan(g) {
     const d2 = dx * dx + dy * dy;
     if (d2 < reach * reach) shots.push([d2, s]);
   }
-  if (shots.length > FOCUS) { shots.sort((a, b) => a[0] - b[0]); shots.length = FOCUS; }
+  if (shots.length > focus) { shots.sort((a, b) => a[0] - b[0]); shots.length = focus; }
   shots = shots.map((x) => x[1]);
   const foes = [];
   let crowd = 0;
@@ -108,10 +112,7 @@ function plan(g) {
     if (d < nearD) { nearD = d; nearE = e; }
   }
 
-  // The style rules it plays (see RULES_ON), and the crowd they read: the nearest 60 enemies within 420 px.
-  const rules = RULES_ON ? g.stats.rules : null;
-  const mosh = rules?.near > 0, kite = rules?.far > 0, plant = rules?.stillHeal > 0, careful = rules?.combo > 0;
-  const shotW = careful ? 1.6 : 1;
+  // The crowd the distance rules read: the nearest 60 enemies within 420 px.
   let crowdNear = null, closeNow = 0;
   if (mosh || kite || plant) {
     const arr = [];
@@ -147,7 +148,7 @@ function plan(g) {
         const sx = s.x + s.vx * LAG, sy = s.y + s.vy * LAG;
         [d2, t] = closest(mx - sx, my - sy, vx - s.vx, vy - s.vy, HORIZON - LAG);
         if (d2 < R * R) hitT = LAG + t;
-        else if (d2 < (R + 14) * (R + 14)) cost += 1.2 * shotW;   // too close for comfort
+        else if (d2 < (R + berth) * (R + berth)) cost += missW;   // too close for comfort
       }
       if (hitT >= 0) cost += 14 * shotW * (1.4 - hitT / HORIZON);
     }
