@@ -2,7 +2,7 @@
 // Enemies move to the beat too. They surge on every beat, and some act on specific beats.
 
 import { TAU, rand, rng, pick, dist2 } from '../util.js';
-import { STEP_SEC, BEAT_SEC, BALANCE } from '../config.js';
+import { STEP_SEC, BEAT_SEC, BALANCE, WORLD } from '../config.js';
 
 // Enemies are told apart by silhouette, never by hue: every body wears the same neutral greys (the renderer draws
 // them as solid dark bodies with a light outline), so no enemy shares a color with a channel. Everything hostile
@@ -36,24 +36,30 @@ export const BOSS_TYPES = {
 
 // opts.telegraph: seconds the enemy takes to arrive (it cannot move, attack or touch you meanwhile, and the
 // renderer draws its arrival for spawnDur). Default 0.35 s.
+// A variant (BALANCE.variants, folded in by the director) comes through opts: hpMul, scale, speedMul, dmgMul, xpMul,
+// massMul and variant ('loud' | 'heavy': the same silhouette, tougher). opts.set tags a set piece's bodies ('ring',
+// 'wall', 'swarm') for the ledger. Nothing but a boss spawns past WORLD.maxEnemies (returns null).
 export function spawnEnemy(g, type, x, y, opts = {}) {
   const def = ENEMY_TYPES[type] || BOSS_TYPES[type];
   if (!def) return null;
+  if (!def.boss && g.enemies.length >= WORLD.maxEnemies) return null;
   const minutes = g.time / 60;
   const elite = !!opts.elite;
-  const B = BALANCE.boss;
-  const hpMul = def.boss ? (1 + minutes * B.hpPerMin) * (B.hp?.[type] ?? 1) * g.mods.bossHp : BALANCE.enemy.hp * (1 + minutes * BALANCE.enemy.lin + minutes * minutes * BALANCE.enemy.quad) * (elite ? BALANCE.elites.hp : 1) * (opts.hpMul ?? 1) * g.mods.hp;
+  const B = BALANCE.boss, E = BALANCE.enemy;
+  const hpMul = def.boss ? (1 + minutes * B.hpPerMin) * (B.hp?.[type] ?? 1) * g.mods.bossHp
+    : E.hp * (1 + minutes * E.lin + minutes * minutes * E.quad) * (E.sec?.[g.section?.id] ?? 1) * (elite ? BALANCE.elites.hp : 1) * (opts.hpMul ?? 1) * g.mods.hp;
   const arrive = opts.telegraph ?? 0.35;
   const e = {
     id: g.nextId++, type, def, x, y, vx: 0, vy: 0,
     r: def.r * (elite ? 1.55 : 1) * (opts.scale ?? 1),
     hp: def.hp * hpMul, maxHp: def.hp * hpMul,
-    speed: def.speed * (1 + minutes * 0.05) * (elite ? BALANCE.elites.speed : 1) * rand(0.92, 1.08),
-    dmg: def.dmg * (1 + minutes * 0.1) * (elite ? 1.5 : 1),
+    speed: def.speed * (1 + minutes * 0.05) * (elite ? BALANCE.elites.speed : 1) * (opts.speedMul ?? 1) * rand(0.92, 1.08),
+    dmg: def.dmg * (1 + minutes * 0.1) * (elite ? 1.5 : 1) * (opts.dmgMul ?? 1),
     // Notes are worth less as the song fills up, so levels and the Drop keep a steady pace while the crowd grows
-    // (and Gain's bigger crowd shares the same notes).
-    xp: def.boss ? def.xp : def.xp * (elite ? 10 : 1) / (1 + (minutes / 2.5) ** 2) / g.mods.density,
-    mass: def.mass * (elite ? 5 : 1),
+    // (and Gain's bigger crowd shares the same notes). Tough variants pay more.
+    xp: def.boss ? def.xp : def.xp * (elite ? 10 : 1) * (opts.xpMul ?? 1) * (BALANCE.horde?.xp ?? 1) / (1 + (minutes / 2.5) ** 2) / g.mods.density,
+    mass: def.mass * (elite ? 5 : 1) * (opts.massMul ?? 1),
+    variant: opts.variant || null, set: opts.set || null,
     elite, vinyl: elite && opts.vinyl !== false, heart: elite && !!opts.heart, boss: !!def.boss, color: def.color, shape: def.shape,
     kbx: 0, kby: 0, stun: 0, slow: 0, slowT: 0, flash: 0, dead: false,
     age: 0, phase: rand(0, TAU), ai: {}, spawnT: arrive, spawnDur: arrive,
@@ -70,14 +76,20 @@ export function enemyShot(g, x, y, angle, speed = 160, dmg = 8, opts = {}) {
   g.shots.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: opts.r ?? 6, dmg, life: opts.life ?? 5, age: 0, color: opts.color ?? DANGER, from: opts.from ?? null });
 }
 
+// A boss's ring of shots: n x BALANCE.boss.radial of them (fewer bullets, more bodies).
 function radial(g, e, n, speed, dmg, offset = 0, color) {
+  n = Math.max(1, Math.round(n * (BALANCE.boss.radial ?? 1)));
   for (let i = 0; i < n; i++) enemyShot(g, e.x, e.y, offset + (i / n) * TAU, speed, dmg, { color, from: e });
 }
 
+// A boss calls n x BALANCE.boss.summon bodies around itself. They arrive after a summonTelegraph-beat ring, since
+// the boss is often next to you, and never past WORLD.maxEnemies.
 function summonRing(g, e, type, n, dist) {
+  const B = BALANCE.boss;
+  n = Math.round(n * (B.summon ?? 1));
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + rand(0, 0.3);
-    spawnEnemy(g, type, e.x + Math.cos(a) * dist, e.y + Math.sin(a) * dist, { hpMul: 0.6 });
+    if (!spawnEnemy(g, type, e.x + Math.cos(a) * dist, e.y + Math.sin(a) * dist, { hpMul: 0.6, telegraph: (B.summonTelegraph ?? 0.7) * BEAT_SEC })) break;
   }
 }
 
@@ -217,7 +229,7 @@ function bossOnBeat(g, e, ev) {
       break;
     case 'clipper': {
       const n = BALANCE.boss.clipperRadial;
-      if (ev.beat === 0 || ev.beat === 2) radial(g, e, n, 160, 13, (ev.beat === 2 ? Math.PI / n : 0) + ev.bar * 0.13, '#ff6a1e');
+      if ((BALANCE.boss.clipperRadialBeats ?? [0, 2]).includes(ev.beat)) radial(g, e, n, 160, 13, (ev.beat === 2 ? Math.PI / n : 0) + ev.bar * 0.13, '#ff6a1e');
       if (ev.beat === 0 && ev.bar % 4 === 3) summonRing(g, e, 'static', 6, e.r + 36);
       if (frac < BALANCE.boss.clipperTriple && (ev.beat === 1 || ev.beat === 3)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.22, 200, 13, { color: '#ff7a2a', from: e });
       break;
@@ -234,7 +246,7 @@ function bossOnBeat(g, e, ev) {
         radial(g, e, 20, 150, BALANCE.boss.kingRadialDmg, rand(0, TAU), '#ff4a2a');
         summonRing(g, e, 'glitch', 4, e.r + 40);
       }
-      if (ev.beat === 1 || ev.beat === 3) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, BALANCE.boss.kingTripleDmg, { color: '#ff6630', from: e });
+      if ((BALANCE.boss.kingTripleBeats ?? [1, 3]).includes(ev.beat) && frac <= (BALANCE.boss.kingTripleBelow ?? 1)) for (let k = -1; k <= 1; k++) enemyShot(g, e.x, e.y, aim + k * 0.18, 210, BALANCE.boss.kingTripleDmg, { color: '#ff6630', from: e });
       break;
     }
     case 'whitenoise': {
@@ -247,10 +259,10 @@ function bossOnBeat(g, e, ev) {
       if (ev.beat === 0 || ev.beat === 2) radial(g, e, phase === 3 ? 22 : 18, 140 + phase * 10, BALANCE.boss.noiseRadialDmg, ev.bar * 0.21 + ev.beat, DANGER);
       if (ev.beat === 0 && ev.bar % 2 === 0) summonRing(g, e, phase === 3 ? 'hum' : 'static', phase === 3 ? 4 : 8, e.r + 50);
       if (phase >= 2 && ev.beat === 0) e.ai.spiral = true;
-      // Spiral arms on 8th notes: one set on the beat and one on the 8th after it. A stun holds them.
+      // Spiral arms on the beat (and on the 8th after it with BALANCE.boss.noiseSpiral8th). A stun holds them.
       if (e.ai.spiral && e.stun <= 0) {
         spiral(g, e);
-        g.later.push({ at: g.time + 2 * STEP_SEC, fn: () => { if (!e.dead && e.ai.spiral && e.stun <= 0) spiral(g, e); } });
+        if (BALANCE.boss.noiseSpiral8th ?? true) g.later.push({ at: g.time + 2 * STEP_SEC, fn: () => { if (!e.dead && e.ai.spiral && e.stun <= 0) spiral(g, e); } });
       }
       break;
     }
@@ -259,7 +271,7 @@ function bossOnBeat(g, e, ev) {
 
 function spiral(g, e) {
   e.ai.spiralA = (e.ai.spiralA || 0) + 0.42;
-  const arms = e.ai.phase === 3 ? 4 : 3;
+  const arms = (BALANCE.boss.noiseSpiralArms ?? [3, 4])[e.ai.phase === 3 ? 1 : 0];
   for (let k = 0; k < arms; k++) enemyShot(g, e.x, e.y, e.ai.spiralA + (k / arms) * TAU, 135, BALANCE.boss.noiseSpiralDmg, { color: '#ff7a3c', r: 5, from: e });
 }
 
@@ -301,7 +313,12 @@ export function updateEnemies(g, dt) {
     const d = Math.hypot(dx, dy) || 1;
     let sp = e.speed * (1 - e.slow) * (e.boss ? 1 : e.def.wiggle ? 1 : hop);
     let ux = dx / d, uy = dy / d;
-    if (e.def.ranged || e.def.mortar) {
+    // A set piece's body marches straight (a wall sweeping across, a swarm crossing) until ai.march.until, then
+    // hunts you like the rest.
+    const M = e.ai.march;
+    if (M && g.time >= M.until) e.ai.march = null;
+    if (e.ai.march) { ux = M.ux; uy = M.uy; }
+    else if (e.def.ranged || e.def.mortar) {
       // Shooters keep their distance: back off when too close, circle inside the band, close in from beyond it.
       const [near, far] = e.def.mortar ? BALANCE.snare.keep : RANGED_KEEP;
       if (d < near) { ux = -ux; uy = -uy; }
@@ -336,11 +353,47 @@ export function updateEnemies(g, dt) {
     if (n) { e.x += px * 90 * dt; e.y += py * 90 * dt; }
   }
 
-  // Contact damage.
+  // Contact damage, and bodies that block. A body that hits you while it charges (a Stomp, a hunting elite, the
+  // Drone) is a 'dash', not the horde's contact.
+  const C = BALANCE.contact;
+  const L = g._led?.() ?? null;
+  const bz = g.boss;
+  const rbz = bz && !bz.dead && !(bz.spawnT > 0) ? bz.r + p.r + C.bossGap : 0;
+  // While you touch a boss the crowd gives way, so a boss and a crowd cannot pin you between them.
+  // (The shove left you at its edge last frame, so touching counts a few px out.)
+  const yieldP = C.yieldToBoss && rbz > 0 && dist2(bz.x, bz.y, p.x, p.y) < (rbz + 4) * (rbz + 4);
   for (const e of g.enemies) {
     if (e.dead || e.spawnT > 0 || e.launch) continue;   // a launched enemy flying past does not hurt
     const rr = e.r + p.r - 3;
-    if (dist2(e.x, e.y, p.x, p.y) < rr * rr) g.hurt(e.dmg, e);
+    const d2 = dist2(e.x, e.y, p.x, p.y);
+    const charging = e.ai.charge > 0;
+    if (d2 < rr * rr) {
+      const kx = e.kbx, ky = e.kby;
+      const cause = charging ? 'dash' : e.boss ? 'boss' : 'contact';
+      const before = L ? L.dmg[cause] || 0 : 0;
+      g.hurt(e.boss ? e.dmg * C.boss : e.dmg, e, null, charging ? 'dash' : undefined);
+      // The hit pushes the body back C.kb (game.hurt pushes 260).
+      if (C.kb !== 260) { const k = C.kb / 260; e.kbx = kx + (e.kbx - kx) * k; e.kby = ky + (e.kby - ky) * k; }
+      // The ledger counts what a set piece's bodies dealt.
+      if (L && e.set) { const got = (L.dmg[cause] || 0) - before; if (got > 0) (L.setDmg ||= {})[e.set] = (L.setDmg[e.set] || 0) + got; }
+    }
+    // An overlapping body pushes you out by its share of the mass (a heavy one holds you) and stays inside contact
+    // range, so it keeps hurting.
+    if (C.block > 0 && !e.boss && !charging) {
+      const rb = e.r + p.r - C.inset;
+      if (d2 < rb * rb && d2 > 0.01) {
+        const d = Math.sqrt(d2), o = (rb - d) * C.block, ux = (p.x - e.x) / d, uy = (p.y - e.y) / d;
+        const w = yieldP ? 0 : e.mass / (e.mass + C.playerMass);
+        p.x += ux * o * w; p.y += uy * o * w;
+        e.x -= ux * o * (1 - w); e.y -= uy * o * (1 - w);
+      }
+    }
+  }
+  // A boss shoves you clear of its body after the crowd has pushed, so a crowd can never hold you inside one.
+  if (C.bossShove) for (const e of g.enemies) {
+    if (!e.boss || e.dead || e.spawnT > 0) continue;
+    const rb = e.r + p.r + C.bossGap, dx = p.x - e.x, dy = p.y - e.y, d2 = dx * dx + dy * dy;
+    if (d2 < rb * rb && d2 > 0.01) { const d = Math.sqrt(d2); p.x = e.x + (dx / d) * rb; p.y = e.y + (dy / d) * rb; }
   }
 
   // Enemy shots.
