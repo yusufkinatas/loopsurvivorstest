@@ -5,8 +5,9 @@
 // a hue; threats (Screech, Snare, Stomp, hunting elites) carry one danger-red eye, elites a gold outline. DANGER = hot
 // red-orange: every enemy shot, Snare mark, lane and arrival ring, drawn last (on top of everything) and never with
 // 'lighter'; a shot has a white-hot core, a dark rim and a size floor. MINE = channel colors: the player's attacks are
-// drawn under the enemies, in normal blending, faded by a load budget (fxAlpha) when the screen is busy. PICKUPS are
-// small and quiet: cream notes, pink-white hearts, gold tapes.
+// drawn under the enemies, in normal blending, faded by a load budget (fxAlpha) when the screen is busy, each in its
+// instrument's look (src/render/looks.js: the style decides the form, the channel the hue, the sound its signature).
+// PICKUPS are small and quiet: cream notes, pink-white hearts, gold tapes.
 
 import { TAU, clamp, lerp, rgba, hexToRgb } from '../util.js';
 import { BEAT_SEC, BALANCE } from '../config.js';
@@ -14,6 +15,7 @@ import { ROLE_INFO, ROLES, STYLES } from '../config.js';
 import { ITEM_INFO } from '../game/pickups.js';
 import { DANGER } from '../game/enemies.js';
 import { CHEMISTRY, RULES } from '../game/loadout.js';
+import * as looks from './looks.js';
 
 // rule -> the color of the style it belongs to, for the floor tells.
 const RULE_COLOR = Object.fromEntries(Object.entries(CHEMISTRY).map(([st, c]) => [c.rule, STYLES[st].color]));
@@ -508,122 +510,54 @@ export class Renderer {
     }
   }
 
+  // MINE: the band's attacks. Each function below draws one archetype in its instrument's look (src/render/looks.js:
+  // the style's grammar and the sound's own signature), in normal blending, every alpha inside the load budget.
   _mines(c, g, inView) {
-    for (const m of g.fx.mines) {
-      if (!inView(m.x, m.y, m.r)) continue;
-      const k = Math.min(1, m.age * 6);
-      const pulse = 0.6 + 0.4 * g.beatPulse;
-      c.strokeStyle = rgba(m.color, 0.18 * k);
-      c.lineWidth = 1;
-      c.setLineDash([4, 6]);
-      circle(c, m.x, m.y, m.r * k); c.stroke();
-      c.setLineDash([]);
-      c.globalCompositeOperation = 'lighter';
-      this.drawGlow(m.x, m.y, m.size * 3.5 * pulse * (1 + (m.glow || 0)), m.color, 0.7);
-      c.globalCompositeOperation = 'source-over';
-      // A persistent mine spins, and rings out from its center when it is rung.
-      if (m.glow > 0.02) {
-        c.strokeStyle = rgba(m.color, 0.6 * m.glow);
-        c.lineWidth = 2;
-        circle(c, m.x, m.y, m.r * (1 - 0.5 * m.glow)); c.stroke();
-      }
-      c.fillStyle = m.color;
-      c.save(); c.translate(m.x, m.y); c.rotate(Math.PI / 4 + m.age * (m.persist ? 4 : 1));
-      c.fillRect(-m.size * 0.6 * k, -m.size * 0.6 * k, m.size * 1.2 * k, m.size * 1.2 * k);
-      c.restore();
-    }
+    looks.begin(c, this);
+    for (const m of g.fx.mines) if (inView(m.x, m.y, m.r)) looks.mine(m);
+    looks.end();
   }
 
-  // Cones: a wedge flash that snaps out and fades.
   _cones(c, g, inView) {
-    for (const k of g.fx.cones) {
-      if (!inView(k.x, k.y, k.r)) continue;
-      const t = k.age / k.life, a = 1 - t, r = k.r * (0.75 + 0.25 * Math.min(1, t * 4));
-      c.beginPath(); c.moveTo(k.x, k.y); c.arc(k.x, k.y, r, k.angle - k.half, k.angle + k.half); c.closePath();
-      c.fillStyle = rgba(k.color, 0.2 * a); c.fill();
-      c.strokeStyle = rgba(k.color, 0.85 * a); c.lineWidth = 3;
-      c.beginPath(); c.arc(k.x, k.y, r, k.angle - k.half, k.angle + k.half); c.stroke();
-    }
+    looks.begin(c, this);
+    for (const k of g.fx.cones) if (inView(k.x, k.y, k.r)) looks.cone(k);
+    looks.end();
   }
 
-  // Walls: a bright arc with a white core, fading in and out.
   _walls(c, g, inView) {
-    c.lineCap = 'round';
-    for (const w of g.fx.walls) {
-      if (!inView(w.x, w.y, w.r + 20)) continue;
-      const a = Math.min(1, w.t / 0.08) * Math.min(1, (w.dur - w.t) / 0.15);
-      c.strokeStyle = rgba(w.color, 0.7 * a);
-      c.lineWidth = w.width;
-      c.beginPath(); c.arc(w.x, w.y, w.r, w.angle - w.half, w.angle + w.half); c.stroke();
-      c.strokeStyle = rgba('#ffffff', 0.45 * a);
-      c.lineWidth = Math.max(1.5, w.width * 0.3);
-      c.stroke();
-    }
+    looks.begin(c, this);
+    for (const w of g.fx.walls) if (inView(w.x, w.y, w.r + 20)) looks.wall(w);
+    looks.end();
   }
 
-  // Tethers: a crackling line from you to each hooked enemy, brighter when it strikes.
   _tethers(c, g) {
-    const p = g.player;
-    for (const t of g.fx.tethers) {
-      const e = t.e;
-      if (e.dead) continue;
-      c.strokeStyle = rgba(t.color, 0.3 + 0.55 * t.glow);
-      c.lineWidth = 1.5 + 1.5 * t.glow;
-      c.beginPath(); c.moveTo(p.x, p.y);
-      for (let s = 1; s <= 4; s++) {
-        const k = s / 4, j = s < 4 ? 10 : 0;
-        c.lineTo(p.x + (e.x - p.x) * k + (Math.random() - 0.5) * j, p.y + (e.y - p.y) * k + (Math.random() - 0.5) * j);
-      }
-      c.stroke();
-    }
+    looks.begin(c, this);
+    for (const t of g.fx.tethers) if (!t.e.dead) looks.tether(t, g.player);
+    looks.end();
   }
 
-  // Followers: drawn like orbiters, marching on your path.
   _followers(c, g) {
-    for (const grp of g.fx.trails.values()) {
-      for (const it of grp.items) {
-        const sz = grp.size * (1 + it.glow * 0.6);
-        this.drawGlow(it.x, it.y, sz * 3 + it.glow * 12, grp.color, 0.5 + it.glow * 0.5);
-        c.fillStyle = it.glow > 0.3 ? '#ffffff' : grp.color;
-        shape(c, grp.shape, it.x, it.y, sz, this.time * 2);
-      }
-    }
+    looks.begin(c, this);
+    for (const grp of g.fx.trails.values()) looks.followers(grp, g.player);
+    looks.end();
   }
 
-  // A shield: a bubble around the speaker in its channel color, one arc per hit it can still take.
+  // A shield: a bubble around the speaker in its channel color, one arc per hit it can still take, blinking out.
   _shield(c, g) {
     const s = g.shield;
     if (!s || !(s.n > 0)) return;
-    const p = g.player, col = g.color(s.src), left = s.until - g.time;
-    const a = left < 0.5 ? 0.4 + 0.6 * (Math.sin(this.time * 30) * 0.5 + 0.5) : 1;
-    const rr = p.r + 24, n = Math.min(3, Math.ceil(s.n)), gap = n > 1 ? 0.35 : 0;
-    c.fillStyle = rgba(col, 0.07 * a);
-    circle(c, p.x, p.y, rr); c.fill();
-    c.strokeStyle = rgba(col, 0.75 * a);
-    c.lineWidth = 3;
-    for (let i = 0; i < n; i++) {
-      const a0 = -Math.PI / 2 + (i / n) * TAU + gap / 2;
-      c.beginPath(); c.arc(p.x, p.y, rr, a0, a0 + TAU / n - gap); c.stroke();
-    }
+    const left = s.until - g.time;
+    looks.begin(c, this);
+    looks.shield(s, g.player, g.color(s.src), left < 0.5 ? 0.4 + 0.6 * (Math.sin(this.time * 30) * 0.5 + 0.5) : 1);
+    looks.end();
+    c.globalAlpha = 1;
   }
 
+  // Strikes: what is about to land (falling blocks, stars, bow strokes, shells...). Falling ones come from above.
   _strikes(c, g, inView) {
-    for (const s of g.fx.strikes) {
-      if (!inView(s.x, s.y, s.r)) continue;
-      const k = clamp(s.t / s.delay, 0, 1);
-      c.strokeStyle = rgba(s.color, 0.25 + 0.5 * k);
-      c.lineWidth = 2;
-      circle(c, s.x, s.y, s.r * (1.4 - 0.4 * k)); c.stroke();
-      c.fillStyle = rgba(s.color, 0.08 + 0.12 * k);
-      circle(c, s.x, s.y, s.r * k); c.fill();
-      if (s.style === 'drop' || s.style === 'star') {
-        const fall = (1 - k) * 260;
-        c.globalCompositeOperation = 'lighter';
-        this.drawGlow(s.x, s.y - fall, 14, s.color, 0.9);
-        if (s.style === 'star') { c.fillStyle = s.color; star(c, s.x, s.y - fall, 7, 5); c.fill(); }
-        c.globalCompositeOperation = 'source-over';
-      }
-    }
+    looks.begin(c, this);
+    for (const s of g.fx.strikes) if (inView(s.x, s.y, s.r + 220)) looks.strike(s);
+    looks.end();
   }
 
   // Sorts the enemies in view into reused lists for _enemies and _bosses: the bodies by silhouette, then the ones
@@ -1100,129 +1034,49 @@ export class Renderer {
   }
 
   _orbits(c, g) {
-    for (const grp of g.fx.orbits.values()) {
-      for (const it of grp.items) {
-        const sz = grp.size * (1 + it.glow * 0.6);
-        this.drawGlow(it.x, it.y, sz * 3 + it.glow * 12, grp.color, 0.55 + it.glow * 0.45);
-        c.fillStyle = it.glow > 0.3 ? '#ffffff' : grp.color;
-        shape(c, grp.shape, it.x, it.y, sz, this.time * 2);
-      }
-      if (grp.src?.remix) this._goldRims(c, grp.items, (it) => grp.size * 1.15 + 1.5);
-    }
+    looks.begin(c, this);
+    for (const grp of g.fx.orbits.values()) looks.orbit(grp, g.player);
+    looks.end();
   }
 
-  // Remixed attacks wear a thin gold rim around their core, so a remix reads from across the room. One path
-  // and one stroke per batch (bullets are the hottest loop): no glow sprite, no per-item state change.
+  // Remixed attacks wear a thin gold rim around their core, so a remix reads from across the room (looks.goldRims:
+  // one path and one stroke per batch).
   _goldRims(c, items, radius, inView = null) {
-    let n = 0;
-    c.beginPath();
-    for (const it of items) {
-      if (inView && !inView(it.x, it.y, 20)) continue;
-      const rr = radius(it);
-      if (!(rr > 0)) continue;
-      c.moveTo(it.x + rr, it.y); c.arc(it.x, it.y, rr, 0, TAU);
-      n++;
-    }
-    if (!n) return;
-    const op = c.globalCompositeOperation;
-    c.globalCompositeOperation = 'source-over';
-    c.globalAlpha = 0.9; c.strokeStyle = '#ffd166'; c.lineWidth = 1.5;
-    c.stroke();
-    c.globalAlpha = 1;
-    c.globalCompositeOperation = op;
+    looks.begin(c, this);
+    looks.goldRims(items, radius, false, inView);
+    looks.end();
   }
 
+  // Shots, batched by look and color (looks.bullets).
   _bullets(c, g, inView) {
-    // Glows (additive) first, then cores in their channel tint (normal blend, so crowds don't sum to white).
-    const fades = this._fades || (this._fades = []);
-    fades.length = 0;
-    for (const b of g.fx.bullets) {
-      const end = b.maxAge ?? b.life;
-      let fade = b.age > end - 0.15 ? Math.max(0, (end - b.age) / 0.15) : 1;
-      fade *= clamp(b.age / 0.08, 0.15, 1);   // grow in, so shots leaving the player don't bury it
-      fades.push(fade);
-      if (!inView(b.x, b.y, 20)) continue;
-      this.drawGlow(b.x, b.y, b.r * 3, b.color, 0.5 * fade);
-    }
-    c.globalCompositeOperation = 'source-over';
-    let k = 0;
-    for (const b of g.fx.bullets) {
-      const fade = fades[k++];
-      if (!inView(b.x, b.y, 20) || fade <= 0) continue;
-      c.globalAlpha = fade;
-      c.fillStyle = this.tint(b.color);
-      if (b.shape === 'shard') {
-        const a = Math.atan2(b.vy, b.vx);
-        c.save(); c.translate(b.x, b.y); c.rotate(a);
-        c.beginPath(); c.moveTo(b.r * 1.8, 0); c.lineTo(-b.r * 1.2, b.r * 0.55); c.lineTo(-b.r * 1.2, -b.r * 0.55); c.closePath(); c.fill();
-        c.restore();
-      } else {
-        shape(c, b.shape, b.x, b.y, b.r * 0.8, b.rot);
-        if (b.r >= 6) { c.fillStyle = '#ffffff'; circle(c, b.x, b.y, b.r * 0.22); c.fill(); }
-      }
-      if (b.src?.remix && fade > 0.3) (this._rimmed || (this._rimmed = [])).push(b);
-    }
-    c.globalAlpha = 1;
-    if (this._rimmed?.length) { this._goldRims(c, this._rimmed, (b) => b.r * 1.05 + 1); this._rimmed.length = 0; }
-    c.globalCompositeOperation = 'lighter';
+    looks.begin(c, this);
+    looks.bullets(g.fx.bullets, inView);
+    looks.end();
   }
 
+  // Shockwaves, then the flashes of instant hits, landings and kills.
   _rings(c, g, inView) {
-    for (const r of g.fx.rings) {
-      if (!inView(r.x, r.y, r.r)) continue;
-      const k = clamp(r.t / r.dur, 0, 1);
-      const a = (1 - k) * 0.9 + 0.05;
-      c.strokeStyle = rgba(r.color, a);
-      c.lineWidth = r.width * (1 - k * 0.6);
-      circle(c, r.x, r.y, r.r); c.stroke();
-      c.strokeStyle = r.src?.remix ? rgba('#ffd166', a * 0.9) : rgba('#ffffff', a * 0.2);   // a remix's ring has a gold core
-      c.lineWidth = 1.5;
-      circle(c, r.x, r.y, r.r); c.stroke();
-    }
-    for (const f of g.fx.flashes) {
-      if (!inView(f.x, f.y, f.r)) continue;
-      const k = f.age / f.life;
-      if (f.fill > 0) { c.fillStyle = rgba(f.color, f.fill * (1 - k)); circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.fill(); }
-      c.strokeStyle = rgba(f.color, 0.8 * (1 - k));
-      c.lineWidth = 2.5 * (1 - k) + 0.5;
-      circle(c, f.x, f.y, f.r * (0.7 + 0.3 * k)); c.stroke();
-    }
+    looks.begin(c, this);
+    for (const r of g.fx.rings) if (inView(r.x, r.y, r.r)) looks.ring(r);
+    for (const f of g.fx.flashes) if (inView(f.x, f.y, f.r)) looks.area(f);
+    looks.end();
   }
 
+  // Lines (lances, lasers, strings, wires) and chain zaps.
   _beams(c, g) {
-    for (const b of g.fx.beams) {
-      const k = 1 - b.age / b.life;
-      c.lineCap = 'round';
-      c.strokeStyle = rgba(b.color, 0.35 * k);
-      c.lineWidth = b.width * 2.2 * k;
-      c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
-      c.strokeStyle = b.src?.remix ? rgba('#ffd166', 0.95 * k) : rgba('#ffffff', 0.9 * k);   // a remix's beam has a gold core
-      c.lineWidth = Math.max(1, b.width * 0.45 * k);
-      c.beginPath(); c.moveTo(b.x1, b.y1); c.lineTo(b.x2, b.y2); c.stroke();
-    }
-    for (const z of g.fx.zaps) {
-      const k = 1 - z.age / z.life;
-      c.strokeStyle = rgba(z.color, 0.9 * k);
-      c.lineWidth = z.width;
-      c.beginPath();
-      for (let i = 0; i < z.pts.length - 1; i++) {
-        const [x1, y1] = z.pts[i], [x2, y2] = z.pts[i + 1];
-        c.moveTo(x1, y1);
-        const segs = 4;
-        for (let s = 1; s <= segs; s++) {
-          const tt = s / segs;
-          const jx = s < segs ? (Math.random() - 0.5) * 16 : 0, jy = s < segs ? (Math.random() - 0.5) * 16 : 0;
-          c.lineTo(x1 + (x2 - x1) * tt + jx, y1 + (y2 - y1) * tt + jy);
-        }
-      }
-      c.stroke();
-      for (let i = 1; i < z.pts.length; i++) this.drawGlow(z.pts[i][0], z.pts[i][1], 16, z.color, 0.7 * k);
-    }
+    looks.begin(c, this);
+    for (const b of g.fx.beams) looks.beam(b);
+    for (const z of g.fx.zaps) looks.zap(z);
+    looks.end();
   }
 
   // Sparks (kill pops and the like) inside the load budget: on a busy screen half of them (always the same half: the
   // key is each spark's own random size) and smaller. One fillStyle per run of a color, the fade in globalAlpha.
+  // Bodies the band sent flying first: each wears its launcher's wake (looks.launches).
   _particles(c, g, inView) {
+    looks.begin(c, this);
+    looks.launches(g.enemies, inView);
+    looks.end();
     const fa = c.globalAlpha, thin = this.load > 0.45, shrink = 1 - 0.35 * this.load;
     let col = null;
     for (const q of g.fx.parts) {

@@ -100,7 +100,9 @@ export class Effects {
       g.hit(e, o.damage, { kb: o.kb ?? 80, fx: o.x, fy: o.y, stun: o.stun, slow: o.slow, src: o.src });
       n++;
     }
-    this.flash(o.x, o.y, o.r, o.color ?? '#fff', o.flashLife ?? 0.22, o.fill ?? 0.18);
+    const f = this.flash(o.x, o.y, o.r, o.color ?? '#fff', o.flashLife ?? 0.22, o.fill ?? 0.18);
+    f.kind = o.kind ?? null;   // for the renderer: what made the flash (a strike landing, a mine, an orbiter...)
+    f.mark = o.mark ?? null;
     return n;
   }
 
@@ -144,7 +146,7 @@ export class Effects {
       dmg *= o.falloff ?? 0.85;
       cur = g.nearest(cur.x, cur.y, o.chainRange ?? 140, hitSet);
     }
-    if (pts.length > 1) this.zaps.push({ pts, color: o.color ?? '#fff', life: o.life ?? 0.18, age: 0, width: o.width ?? 2.5 });
+    if (pts.length > 1) this.zaps.push({ pts, color: o.color ?? '#fff', life: o.life ?? 0.18, age: 0, width: o.width ?? 2.5, src: g.src });
     return pts.length - 1;
   }
 
@@ -188,7 +190,7 @@ export class Effects {
       if (m.owner !== owner || !m.persist || m.age < 0.05) continue;
       this.g.src = m.src;
       m.glow = 1;
-      n += this.pulse({ x: m.x, y: m.y, r: o.r ?? m.r, damage: (o.damage ?? m.damage) * (o.scale ?? 1), kb: o.kb ?? m.kb, stun: o.stun ?? m.stun, slow: o.slow ?? m.slow, color: m.color, flashLife: 0.18, fill: 0.12 });
+      n += this.pulse({ x: m.x, y: m.y, r: o.r ?? m.r, damage: (o.damage ?? m.damage) * (o.scale ?? 1), kb: o.kb ?? m.kb, stun: o.stun ?? m.stun, slow: o.slow ?? m.slow, color: m.color, flashLife: 0.18, fill: 0.12, kind: 'mine', mark: m });
     }
     this.g.src = prev;
     return n;
@@ -203,7 +205,7 @@ export class Effects {
     const boom = (i) => {
       const m = this.mines[i];
       this.g.src = m.src;
-      this.pulse({ x: m.x, y: m.y, r: m.r, damage: m.damage * scale, kb: m.kb, stun: m.stun, slow: m.slow, color: m.color, fill: 0.3 });
+      this.pulse({ x: m.x, y: m.y, r: m.r, damage: m.damage * scale, kb: m.kb, stun: m.stun, slow: m.slow, color: m.color, fill: 0.3, kind: 'mine', mark: m });
       this.particles(m.x, m.y, m.color, 10, 220, 0.4, 3);
       this.mines.splice(i, 1);
       blasts.push(m);
@@ -265,7 +267,7 @@ export class Effects {
     grp.items.forEach((it, i) => {
       if (idx !== undefined && idx !== i) return;
       it.glow = 1;
-      n += this.pulse({ x: it.x, y: it.y, r: p.r ?? 30, damage: p.damage ?? 8, kb: p.kb ?? 90, stun: p.stun, slow: p.slow, color: p.color ?? grp.color, flashLife: 0.16, fill: 0.22 });
+      n += this.pulse({ x: it.x, y: it.y, r: p.r ?? 30, damage: p.damage ?? 8, kb: p.kb ?? 90, stun: p.stun, slow: p.slow, color: p.color ?? grp.color, flashLife: 0.16, fill: 0.22, kind: 'orbit' });
     });
     this.g.src = prev;
     return n;
@@ -287,7 +289,7 @@ export class Effects {
       n++;
     }
     if (this.cones.length >= MAX_CONES) this.cones.shift();
-    this.cones.push({ x: o.x, y: o.y, angle: o.angle, half, r: o.r, color: o.color ?? '#fff', life: o.life ?? 0.2, age: 0 });
+    this.cones.push({ x: o.x, y: o.y, angle: o.angle, half, r: o.r, color: o.color ?? '#fff', life: o.life ?? 0.2, age: 0, src: g.src });
     return n;
   }
 
@@ -344,7 +346,7 @@ export class Effects {
       g.src = t.src;
       t.glow = 1;
       g.hit(t.e, o.damage ?? 8, { kb: o.kb ?? 0, fx: p.x, fy: p.y, stun: o.stun, slow: o.slow });
-      this.zaps.push({ pts: [[p.x, p.y], [t.e.x, t.e.y]], color: o.color ?? t.color, life: 0.12, age: 0, width: 2 });
+      this.zaps.push({ pts: [[p.x, p.y], [t.e.x, t.e.y]], color: o.color ?? t.color, life: 0.12, age: 0, width: 2, src: t.src });
       n++;
     }
     g.src = prev;
@@ -400,7 +402,7 @@ export class Effects {
     grp.items.forEach((it, i) => {
       if (s.index !== undefined && s.index !== i) return;
       it.glow = 1;
-      n += this.pulse({ x: it.x, y: it.y, r: s.r ?? 28, damage: s.damage ?? 8, kb: s.kb ?? 60, stun: s.stun, slow: s.slow, color: s.color ?? grp.color, flashLife: 0.16, fill: 0.22 });
+      n += this.pulse({ x: it.x, y: it.y, r: s.r ?? 28, damage: s.damage ?? 8, kb: s.kb ?? 60, stun: s.stun, slow: s.slow, color: s.color ?? grp.color, flashLife: 0.16, fill: 0.22, kind: 'follower' });
     });
     this.g.src = prev;
     return n;
@@ -433,9 +435,12 @@ export class Effects {
   // ---------------------------------------------------------------- cosmetics
   // Cosmetics use Math.random, never the seeded rng, so juice can change without changing a seeded run.
 
+  // A flash records the instrument that made it (src), so the renderer draws it in that sound's look.
   flash(x, y, r, color, life = 0.22, fill = 0.18) {
-    this.flashes.push({ x, y, r, color, life, age: 0, fill });
+    const f = { x, y, r, color, life, age: 0, fill, src: this.g.src, kind: null, mark: null };
+    this.flashes.push(f);
     if (this.flashes.length > 160) this.flashes.shift();
+    return f;
   }
 
   particles(x, y, color, n = 6, speed = 160, life = 0.45, size = 2.5) {
@@ -554,7 +559,7 @@ export class Effects {
       if (s.target && !s.target.dead && s.t < s.delay * 0.7) { s.x = s.target.x; s.y = s.target.y; }
       if (s.t >= s.delay) {
         const prev = g.src; g.src = s.src;
-        this.pulse({ x: s.x, y: s.y, r: s.r, damage: s.damage, kb: s.kb, stun: s.stun, slow: s.slow, color: s.color, fill: 0.28 });
+        this.pulse({ x: s.x, y: s.y, r: s.r, damage: s.damage, kb: s.kb, stun: s.stun, slow: s.slow, color: s.color, fill: 0.28, kind: 'strike', mark: s });
         this.particles(s.x, s.y, s.color, 8, 200, 0.4, 3);
         if (s.onLand) s.onLand(s, g);
         g.src = prev;
