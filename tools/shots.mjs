@@ -148,7 +148,7 @@ page = await newPage({
   best: { score: 182340, time: 512, kills: 13000, level: 40, won: true, section: 'Finale', bar: 260, genre: 'Neon Synthwave', gain: 3 },
   meta: {
     v: 1, runs: 12, wins: 3, kills: 48210, secs: 5520, goals, gainMax: 3, gainSel: 2,
-    records: { 'Neon Synthwave': rec(182340, 'C minor', 0, 1, 3), Synthwave: rec(120400, 'A minor', 9, 0, 0), 'Live band': rec(154000, 'E minor', 4, 1, 0), Synthpop: rec(70000, 'D minor', 2, 0, 0) },
+    records: { 'Neon Synthwave': rec(182340, 'C minor', 0, 1, 3), Synthwave: rec(120400, 'A minor', 9, 0, 0), 'Live band': rec(154000, 'E minor', 4, 1, 0), 'Synth solo': rec(70000, 'D minor', 2, 0, 0) },
     remixes: { sawlead: 1, kick808: 1, musicbox: 1, flute: 1, chipchords: 1 },
   },
 });

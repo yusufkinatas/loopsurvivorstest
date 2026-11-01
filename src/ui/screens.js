@@ -99,7 +99,7 @@ function songEndHtml(sum, isBest, prev) {
   return out.length ? `<div class="end-song">${out.join('')}</div>` : '';
 }
 
-// The 13 sleeves (gold ring for a finished song, dashed for a demo, a G tag for its Gain, dimmed with a hint
+// The 30 sleeves (gold ring for a finished song, dashed for a demo, a G tag for its Gain, dimmed with a hint
 // until pressed), then any other genre pressed, as hidden tracks.
 function recordsHtml(meta) {
   const sleeve = (genre, rec, hint) => (rec

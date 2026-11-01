@@ -43,7 +43,7 @@ export const GOALS = [
   { id: 'crate',    name: 'Crate digger',  text: 'Find 6 different remixes.',                   unlock: 'subbass',    test: (s, m) => Object.keys(m.remixes).length >= 6 },
 ];
 
-// The 26 genres a six-channel band can end as (genreName in loadout.js), with a hint for an empty sleeve.
+// The 30 genres a six-channel band can end as (genreName in loadout.js), with a hint for an empty sleeve.
 // Any other genre still presses, as a hidden track (a Finale run with fewer than six channels).
 export const RECORDS = [
   { genre: 'Synthwave',         hint: '3 or 4 Synth sounds' },
@@ -72,6 +72,11 @@ export const RECORDS = [
   { genre: 'Chamber pop',       hint: '3 Orchestra, 3 Live' },
   { genre: 'Boss theme',        hint: '3 Orchestra, 3 8-Bit' },
   { genre: 'Fusion',            hint: '2 each of 3 styles' },
+  // Two of one style and one of each of the other four: the 2-sound name of the style with two.
+  { genre: 'Synthpop',          hint: '2 Synth, 1 of each other style' },
+  { genre: 'Acoustic duo',      hint: '2 Live, 1 of each other style' },
+  { genre: 'Garage rock',       hint: '2 Heavy, 1 of each other style' },
+  { genre: 'Duet',              hint: '2 Orchestra, 1 of each other style' },
 ];
 
 const FINALE = SECTIONS.findIndex((s) => s.id === 'finale');

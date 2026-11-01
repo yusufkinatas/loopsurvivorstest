@@ -55,9 +55,10 @@ for (const id of ['heavy4', 'orch4']) {
 }
 assert.equal(unlockLabel(GOALS[0]), 'Taiko Drums');
 
-// The 26 records: unique, and every one is a genre some six-channel band ends as (any mix of the five styles).
-assert.equal(RECORDS.length, 26);
-assert.equal(new Set(RECORDS.map((r) => r.genre)).size, 26);
+// The 30 records: unique, every one is a genre some six-channel band ends as (any mix of the five styles), and
+// every genre a six-channel band can end as has its sleeve.
+assert.equal(RECORDS.length, 30);
+assert.equal(new Set(RECORDS.map((r) => r.genre)).size, 30);
 const styles = Object.keys(STYLES);
 const fullBands = [];
 const fill = (i, left, c) => {
@@ -68,6 +69,7 @@ fill(0, 6, {});
 assert.equal(fullBands.length, 210);
 const genres = new Set(fullBands.map((c) => genreName({ styleCounts: () => c })));
 for (const r of RECORDS) assert.ok(genres.has(r.genre), `no band presses ${r.genre}`);
+for (const g of genres) assert.ok(RECORDS.some((r) => r.genre === g), `${g} has no sleeve`);
 const counts = (o) => ({ ...Object.fromEntries(styles.map((s) => [s, 0])), ...o });
 const named = (o) => genreName({ styleCounts: () => counts(o) });
 assert.equal(named({}), 'Silence');
