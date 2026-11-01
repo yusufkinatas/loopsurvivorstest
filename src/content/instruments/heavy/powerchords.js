@@ -168,19 +168,19 @@ export default {
   levels: [
     { text: 'Two ringing chords a bar. Each slams, then stands as a wall.',
       pattern: [...R(0, 6), ...R(8, 6)],
-      stats: { damage: 22, slam: 7, kb: 170, slamKb: 110, push: 60, r: 90, span: 2.1, soak: 4, reach: 380 } },
+      stats: { damage: 22, slam: 7, kb: 170, slamKb: 110, push: 60, r: 90, span: 2.1, soak: 4, reach: 280 } },
     { text: 'A chug before each chord slams the wall.',
       pattern: [...R(0, 6), ...M(6, 0.75), ...R(8, 6), ...M(14, 0.75)],
-      stats: { damage: 23, slam: 9, kb: 170, slamKb: 110, push: 62, r: 92, span: 2.15, soak: 5, reach: 380 } },
+      stats: { damage: 23, slam: 9, kb: 170, slamKb: 110, push: 62, r: 92, span: 2.15, soak: 5, reach: 285 } },
     { text: 'Chugging eighths keep the wall up all bar.',
       pattern: [...R(0, 4), ...M(4), ...M(6, 0.75), ...R(8, 4), ...M(12), ...M(14, 0.75)],
-      stats: { damage: 24, slam: 12, kb: 175, slamKb: 115, push: 66, r: 95, span: 2.2, soak: 6, reach: 390 } },
+      stats: { damage: 24, slam: 12, kb: 175, slamKb: 115, push: 66, r: 95, span: 2.2, soak: 6, reach: 290 } },
     { text: 'A galloping chug. Wider walls soak more shots.',
       pattern: [...R(0, 4), ...M(4), ...M(6, 0.75), ...M(7, 0.6), ...R(8, 4), ...M(12), ...M(14, 0.75), ...M(15, 0.6)],
-      stats: { damage: 26, slam: 14, kb: 180, slamKb: 120, push: 70, r: 98, span: 2.35, soak: 7, reach: 400 } },
+      stats: { damage: 26, slam: 14, kb: 180, slamKb: 120, push: 70, r: 98, span: 2.35, soak: 7, reach: 295 } },
     { text: 'A pushed chord. Slams stun what they hit.',
       pattern: [...R(0, 4), ...M(4), ...M(6, 0.75), ...M(7, 0.6), ...R(8, 2), ...R(10, 2, 0.85), ...M(12), ...M(14, 0.75), ...M(15, 0.6)],
-      stats: { damage: 30, slam: 18, kb: 185, slamKb: 120, push: 75, r: 100, span: 2.45, soak: 8, reach: 420, stun: 0.25 } },
+      stats: { damage: 30, slam: 18, kb: 185, slamKb: 120, push: 75, r: 100, span: 2.45, soak: 8, reach: 300, stun: 0.25 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -217,7 +217,7 @@ export default {
     // The call: three stabs climbing the chord in dotted eighths. The response: a galloping chug answer.
     pattern: [...UP(0, [0, 2, 3], 3), ...UP(3, [2, 3, 5], 3, 0.9), ...UP(6, [3, 5, 6], 2, 0.95),
       ...M(8), ...M(9, 0.6), ...M(10, 0.8), ...M(12), ...M(13, 0.6), ...M(14, 0.8), ...M(15, 0.7)],
-    stats: { damage: 40, slam: 38, march: 52, rMax: 500, push: 70, widen: 2.1, soak: 14, reflect: 10, reflectMul: 4, reflectBoss: 1.5, reflectNoise: 0.5 },
+    stats: { damage: 52, slam: 52, march: 44, rMax: 300, push: 70, widen: 2.1, soak: 14, reflect: 10, reflectMul: 4, reflectBoss: 1.5, reflectNoise: 0.5 },
     fire(g, note, st, inst) {
       if (note.k !== 'ring' && note.k !== 'mute') return;
       const S = inst.state;

@@ -1,6 +1,7 @@
 // BASS, Orchestra: Cellos. A bowed ostinato on the root and the step above it, quarters at level 1 and driving
-// sixteenths by level 5. Every note drags the enemies around the thickest crowd near you into its center (a
-// whirl marks the spot), and the accents on beats 1 and 3 crush that point. The neighbor notes stay one step
+// sixteenths by level 5. Each bar the section places a whirl on the thickest crowd near you and leaves it there;
+// every note drags the enemies around it into its center, and the accents on beats 1 and 3 crush that point (the
+// downbeat's crush lands on the spot the bar before filled). Lead the crowd past it. The neighbor notes stay one step
 // long, so the sequencer never settles them onto the root.
 
 // Pattern helpers: step s, duration d in steps, velocity v. R the root (a chord tone), N the step above it.
@@ -28,25 +29,25 @@ export default {
   name: 'Cellos',
   role: 'bass',
   style: 'orchestra',
-  blurb: 'A driving cello ostinato that drags the crowd together and crushes it.',
+  blurb: 'A driving cello ostinato that places a whirl on the crowd, drags it in all bar and crushes it on the beat.',
   steps: 16,
   low: 28,
   levels: [
-    { text: 'Each note pulls the crowd in. Accents crush it.',
+    { text: 'Each bar places a whirl on the crowd. Every note pulls into it; beats 1 and 3 crush it.',
       pattern: CELLO_1,
-      stats: { damage: 17, radius: 70, stun: 0, pull: 60, pullR: 210, range: 380 } },
+      stats: { damage: 17, radius: 70, stun: 0, pull: 60, pullR: 190, range: 320 } },
     { text: 'Eighth notes: the pull never lets up.',
       pattern: CELLO_2,
-      stats: { damage: 26, radius: 75, stun: 0, pull: 46, pullR: 220, range: 390 } },
+      stats: { damage: 26, radius: 75, stun: 0, pull: 46, pullR: 195, range: 330 } },
     { text: 'Pickup notes and bigger crushes.',
       pattern: CELLO_3,
-      stats: { damage: 33, radius: 82, stun: 0, pull: 40, pullR: 225, range: 400 } },
+      stats: { damage: 33, radius: 82, stun: 0, pull: 40, pullR: 200, range: 340 } },
     { text: 'More pickups. Crushes stun.',
       pattern: CELLO_4,
-      stats: { damage: 42, radius: 89, stun: 0.3, pull: 36, pullR: 230, range: 410 } },
+      stats: { damage: 42, radius: 89, stun: 0.3, pull: 36, pullR: 205, range: 350 } },
     { text: 'A full sixteenth ostinato. Wider, harder crushes.',
       pattern: CELLO_5,
-      stats: { damage: 54, radius: 96, stun: 0.3, pull: 32, pullR: 235, range: 420 } },
+      stats: { damage: 54, radius: 96, stun: 0.3, pull: 32, pullR: 210, range: 360 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -69,7 +70,7 @@ export default {
     id: 'maelstrom', name: 'Maelstrom', pedal: 'overdrive',
     text: 'The crowd spins the way you circle, and every crush rings outward.',
     pattern: CELLO_RX,
-    stats: { damage: 44, radius: 96, stun: 0.3, pull: 30, pullR: 250, range: 430, spin: 34, ringDamage: 19, ringReach: 2.6 },
+    stats: { damage: 44, radius: 96, stun: 0.3, pull: 30, pullR: 220, range: 360, spin: 34, ringDamage: 19, ringReach: 2.4 },
     fire(g, note, st, inst) { bow(g, note, st, inst, true); },
   },
 };
@@ -77,8 +78,9 @@ export default {
 // The orchestra's swell: soft after each fill, full at the next one (mean 1).
 const swell = (phrase) => 0.7 + 0.6 * (phrase ?? 0.5);
 
-// One bowed note. An accent crushes the point first (on the bar's downbeat, a boss in range instead). Then, on
-// each beat, the point moves to the thickest crowd near you, and every note drags the enemies around it in.
+// One bowed note. An accent crushes the point first (on the bar's downbeat, a boss in range instead): the downbeat
+// crushes the spot the last bar spent dragging the crowd into. Then, once a bar, the point is placed on the
+// thickest crowd near you and left there, and every note drags the enemies around it in.
 // Maelstrom spins them around the point too, the way you are circling it, and its crushes ring outward.
 function bow(g, note, st, inst, maelstrom) {
   const S = inst.state, p = g.player;
@@ -90,9 +92,12 @@ function bow(g, note, st, inst, maelstrom) {
     const pt = boss || S.pt || { x: p.x + p.faceX * 90, y: p.y + p.faceY * 90 };
     crush(g, note, st, pt.x, pt.y, sw, color, maelstrom);
   }
-  if (!S.pt || note.s % 4 === 0 || Math.hypot(S.pt.x - p.x, S.pt.y - p.y) > st.range) {
+  // The point is placed once a bar, on its first note after the downbeat's crush, and stays there all bar. Wander
+  // off too far and the section turns to a new spot.
+  if (!echo && (!S.pt || S.bar !== note.bar || Math.hypot(S.pt.x - p.x, S.pt.y - p.y) > st.range + 80)) {
     const d = g.densest(st.range);
     S.pt = d ? { x: d.x, y: d.y } : null;
+    S.bar = note.bar;
   }
   if (!S.pt) return;
   const { x, y } = S.pt;
