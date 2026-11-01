@@ -9,11 +9,13 @@ import { Song, SECTIONS } from './song.js';
 import { makeInst, remixBoost } from '../game/loadout.js';
 import { BY_ID } from '../content/instruments/index.js';
 
-// Bars per section in the edit, and the bar each excerpt starts from: the roll and sweep into The Drop,
-// the Drop's impact, else the end of an 8-bar phrase, so each excerpt ends on a fill (and the Bridge's
-// is the breakdown with the groove back in).
+// Bars per section in the edit, and the bar each excerpt starts from: each section's most characteristic
+// phrase (src/music/song.js CHART), played with its textures. The choruses, The Drop and the Finale start
+// on an impact (the Finale on a cycle's rise after its solo; Chorus II on its last, biggest phrase), Verse
+// II and the Bridge on their breakdowns, the Build-Up on the roll and sweep into The Drop, else the end of
+// the first phrase, so the excerpt ends on its fill.
 const EDIT_BARS = { intro: 2, build: 2 };
-const EDIT_FROM = { build: 14, drop: 0 };
+const EDIT_FROM = { chorus1: 0, verse2: 0, chorus2: 28, bridge: 0, build: 14, drop: 0, finale: 24 };
 
 const valid = (e) => Number.isInteger(e?.index) && !!SECTIONS[e.index];
 const pairs = (a) => (Array.isArray(a) ? a.filter(Array.isArray) : []);

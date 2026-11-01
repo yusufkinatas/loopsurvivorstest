@@ -1,12 +1,15 @@
 // The transport. Schedules every instrument's pattern slightly ahead on the audio clock and emits a
 // matching game event for each note, so an attack fires at the exact moment its note is heard.
 // While the game is paused ("hold"), the current bar loops as a muffled vamp and no attacks are emitted.
-// The vamp always plays the plain loop: rests, fills, rolls and stops only happen while the song moves.
+// The vamp always plays the plain loop: textures, fills, rolls, breaks and stops only happen while the
+// song moves, and an auditioned card always plays its plain part.
 
 import { STEPS_PER_BAR, STEP_SEC, BAR_SEC, ROLE_HIGH } from '../config.js';
 import { chordTone, scaleTone, voiceChord, mtof } from './theory.js';
+import { clamp } from '../util.js';
 
 const NO_CUES = [];
+const NONE = Object.freeze([]);
 // Beat fill velocities on steps 12-15: a run on a snare, clap or rim, or three kicks.
 const FILL_V = { hit: [0.55, 0.65, 0.8, 0.95], kick: [0.7, 0, 0.8, 0.9] };
 // Pickup chimes climb the chord and come back down while pickups keep coming.
@@ -19,6 +22,117 @@ export function chimeMidi(chord, idx) {
   return m;
 }
 
+// ---------------------------------------------------------------------------- textures
+//
+// The arrangement (src/music/song.js CHART) gives every channel a texture in each 8-bar phrase: one of
+// these transforms of the channel's own part. A transform only picks which of the part's notes sound on a
+// step, moves notes onto another 16th step, changes their octave (o) or length (d), or mirrors their chord
+// or scale index (ct/sc). It never invents a pitch or a sound, so every note stays in key, on the grid and
+// a kind the part plays. (by, P, bar, sib) -> the notes on step sib of bar, or null. A note that moves
+// gets s = the pattern step it sounds on ((bar * 16 + sib) % P), so s === 0 is still the pattern's downbeat.
+const at = (bar, sib, P) => (bar * STEPS_PER_BAR + sib) % P;
+const moved = (ns, s, fn) => (ns ? ns.map((n) => fn({ ...n, s })) : null);
+const pitched = (n) => n.ct !== undefined || n.sc !== undefined || !!n.chord;
+
+export const TRANSFORMS = {
+  // The part as written.
+  full: (by, P, bar, sib) => by[at(bar, sib, P)] || null,
+  // Tacet.
+  out: () => null,
+  // The first note of each beat.
+  sparse: (by, P, bar, sib) => {
+    const i = at(bar, sib, P);
+    if (!by[i]) return null;
+    for (let s = i - (i % 4); s < i; s++) if (by[s]) return null;
+    return by[i];
+  },
+  // Half time: the part at half speed on the even steps, every note twice as long.
+  half: (by, P, bar, sib) => (sib & 1 ? null : moved(by[(bar * 8 + sib / 2) % P], at(bar, sib, P), (n) => { n.d = (n.d || 1) * 2; return n; })),
+  // Double time: the part's even steps at twice the speed, notes half as long.
+  double: (by, P, bar, sib) => moved(by[(bar * 32 + sib * 2) % P], at(bar, sib, P), (n) => { n.d = Math.max(1, (n.d || 1) >> 1); return n; }),
+  // Only the even bars (the call of a 2-bar phrase) / only the odd bars (its answer).
+  call: (by, P, bar, sib) => (bar & 1 ? null : by[at(bar, sib, P)] || null),
+  answer: (by, P, bar, sib) => (bar & 1 ? by[at(bar, sib, P)] || null : null),
+  // The bar's first note, held for up to half a bar.
+  hold: (by, P, bar, sib) => {
+    const i0 = at(bar, 0, P);
+    let f = 0;
+    while (f < STEPS_PER_BAR && !by[i0 + f]) f++;
+    return f === sib ? moved(by[i0 + f], i0 + f, (n) => { n.d = Math.min(8, STEPS_PER_BAR - f); return n; }) : null;
+  },
+  // An octave down.
+  low: (by, P, bar, sib) => moved(by[at(bar, sib, P)], at(bar, sib, P), (n) => { if (pitched(n)) n.o = (n.o || 0) - 1; return n; }),
+  // The tune upside down: chord tone n -> 3 - n (root <-> octave), scale step n -> 7 - n.
+  inv: (by, P, bar, sib) => moved(by[at(bar, sib, P)], at(bar, sib, P), (n) => {
+    if (n.ct !== undefined) n.ct = 3 - n.ct;
+    else if (n.sc !== undefined) n.sc = 7 - n.sc;
+    return n;
+  }),
+};
+// lvN plays level N's authored part (levels are supersets, so it is the simpler part), never above the
+// channel's own level and with the channel's own stats. On a remix's own pattern it plays 'sparse'.
+const LV = { lv1: 1, lv2: 2, lv3: 3, lv4: 4, lv5: 5 };
+// Every texture name a chart may use ('solo' is the featured channel's, chosen by the sequencer).
+export const TEXTURE_NAMES = [...Object.keys(TRANSFORMS), ...Object.keys(LV)];
+
+const FULL_TEX = Object.freeze({ tf: 'full', w: 1 });
+const SPARSE_TEX = Object.freeze({ tf: 'sparse', w: 1 });
+// The featured channel of a solo phrase hits this hard against its full part (the game can ask for less).
+export const SOLO_GAIN = 1.8;
+// Without a game to ask, a solo goes to a remix, else the highest level, else the first role here.
+const ROLE_PREF = ['lead', 'arp', 'chords', 'bass', 'perc', 'beat'];
+// The desk follows the phrase: its level, and a quiet phrase's lowpass opening from 900 Hz across 8 bars.
+const DESK_LEVEL = { quiet: 0.8, solo: 0.95, mid: 0.95, full: 1 };
+const toneAt = (pb) => 900 * Math.pow(20, pb / 8);
+
+// The part a channel plays: a remix's own pattern (def.remix.pattern, def.remix.steps long) once
+// remixed, else its level's. The registry prepares remix._byStep; it is built here if it is missing.
+export function partOf(inst) {
+  const def = inst.def, rm = def.remix;
+  if (inst.remix && rm?.pattern?.length) {
+    if (!rm._byStep) {
+      rm._byStep = [];
+      for (const n of rm.pattern) (rm._byStep[n.s] ||= []).push(n);
+    }
+    return rm;
+  }
+  return def.levels?.[inst.level - 1] || null;
+}
+export const stepsOf = (def, part) => (part === def.remix ? def.remix.steps || def.steps : def.steps) || STEPS_PER_BAR;
+// The sound a Beat part plays its fills and rolls on: the first that is not a kick, else the kick
+// (prepared by the registry as _fillKind, for a remix's own pattern too).
+const fillKind = (part) => (part._fillKind ||= (part.pattern?.find((n) => n.k && n.k !== 'kick') || { k: 'kick' }).k);
+
+// Total velocity of a part over `bars` bars of a transform.
+function velocity(by, P, tf, bars) {
+  let v = 0;
+  for (let bar = 0; bar < bars; bar++) for (let sib = 0; sib < STEPS_PER_BAR; sib++) for (const n of TRANSFORMS[tf](by, P, bar, sib) || NONE) v += n.v ?? 1;
+  return v;
+}
+// A solo is the part doubled up when it is sparse (8 notes a bar or fewer), else the full part. Its
+// weight brings the channel to `gain` times its full part's damage. Cached on the part.
+function soloShape(part, P) {
+  if (!part._solo) {
+    const by = part._byStep, bars = 2 * (P / STEPS_PER_BAR);
+    let count = 0;
+    for (const ns of by) if (ns) count += ns.length;
+    const tf = (count * STEPS_PER_BAR) / P <= 8 ? 'double' : 'full';
+    const full = velocity(by, P, 'full', bars);
+    part._solo = { tf, ratio: full > 0 ? velocity(by, P, tf, bars) / full : 1 };
+  }
+  return part._solo;
+}
+
+function pickFeatured(band) {
+  let best = null, bk = -Infinity;
+  for (const i of band) {
+    if (!i?.def) continue;
+    const k = (i.remix ? 1000 : 0) + (i.level || 0) * 10 - ROLE_PREF.indexOf(i.def.role);
+    if (k > bk) { bk = k; best = i; }
+  }
+  return best;
+}
+
 export class Sequencer {
   constructor(clock, audio) {
     this.clock = clock;
@@ -27,6 +141,9 @@ export class Sequencer {
     this.running = false;
     this.getInstruments = () => [];
     this.getBossCues = () => NO_CUES;   // (bar, beat) -> cue names to play on that beat (see src/game/bosscues.js)
+    // At the start of a solo phrase: the instrument that takes it, or { inst, gain } (gain: how hard it
+    // hits against its full part, SOLO_GAIN by default), or null to let the sequencer pick.
+    this.getFeatured = () => null;
     this._errors = new Set();
     this.reset(null);
   }
@@ -41,16 +158,20 @@ export class Sequencer {
     this.events = [];
     this.preview = null;       // { inst } an instrument auditioned in place of its channel's current one
     this.dropState = null;     // null | 'queued' | 'building'
-    this.stepLog = [];         // recent {time, sib, bar, rest} for the playhead display
+    this.stepLog = [];         // recent {time, sib, bar, rest, tex, quiet, solo, impact} for the playhead display
     this.running = false;
     this.pos = null;           // song position of the bar being scheduled
     this.onBar = null;         // (bar) called as each new bar starts, before its notes are scheduled
     this.pendingStop = null;   // { len, home } waiting for the next downbeat
     this.lastStop = null;      // { bar, len, home, step, end } the latest stop bar
     this.fillBar = -1;         // last bar the Beat channel played a fill in
+    this.featured = null;      // { at, role, gain } the channel featured in the solo phrase starting on bar `at`
+    this.barRest = [];         // channels of the band tacet in the bar being scheduled
+    this.barTex = {};          // role -> { tf, w } the band's textures in the bar being scheduled
     this.pingStep = -1e9;      // global step of the last note chime
     this.pingN = 0;
     this.pingSlots = new Array(8).fill(-1e9);   // note chimes per 8th of the last 2 seconds
+    this._w = 1;
   }
 
   start(atTime) {
@@ -101,10 +222,11 @@ export class Sequencer {
   _step(t) {
     const sib = this.globalStep % STEPS_PER_BAR;
     const emit = !this.hold;
-    let impactAt = null, crash = 0, landed = false;
+    let impactAt = null, crash = 0, landed = false, dropped = false, songImpact = false;
     let swept = false, runIn = false, rolling = false;   // what this downbeat already plays into the next one
     const audioOn = this._audioOn();
     const A = audioOn ? this.audio : null;
+    const band = this.getInstruments();
     if (!this.pos) this.pos = this.song.position(this.bar);
 
     if (sib === 0) {
@@ -125,16 +247,18 @@ export class Sequencer {
           this.pendingStop = null;
           landed = true;
         }
-        if (arr.impact) impactAt = t;   // The Drop drops
+        if (arr.impact) { impactAt = t; songImpact = true; }   // the band slams back in
         if (arr.sweep && !this.dropState) A && A.buildSweep(t, t + 2 * BAR_SEC);
         swept = was.sweep;
         // A Beat channel rolling replaces the system snare roll.
-        rolling = !!arr.roll && this.getInstruments().some((i) => i.def.role === 'beat');
+        rolling = !!arr.roll && band.some((i) => i.def.role === 'beat');
+        // A riser into every impact (and every riser section); a snare roll into The Drop and the Finale.
         const next = pos.next || this.song.sections[pos.index + 1];
-        if (pos.barsLeft === 1 && next && next.riser) {
+        const into = pos.barsLeft === 1 && next && next.riser;
+        if (into || this.song.position(this.bar + 1).arr.impact) {
           runIn = true;
           A && A.riser(t, BAR_SEC);
-          if ((next.drop || next.id === 'finale') && !rolling) { rolling = true; A && A.snareRoll(t, BAR_SEC); }
+          if (into && (next.drop || next.id === 'finale') && !rolling) { rolling = true; A && A.snareRoll(t, BAR_SEC); }
         }
       }
       // The Drop: queued -> one bar of build -> impact on the next downbeat.
@@ -143,6 +267,7 @@ export class Sequencer {
           if (A) { A.buildSweep(t, t + BAR_SEC); A.riser(t, BAR_SEC); }
         } else {
           impactAt = t;
+          dropped = true;
           this.events.push({ type: 'drop', time: t, bar: this.bar });
           this.dropState = null;
         }
@@ -156,6 +281,9 @@ export class Sequencer {
         }
         this.events.push({ type: 'build', time: t });
       }
+      // The song's own impact is a game event too, unless the player's Drop lands on the same downbeat:
+      // then that Drop is the downbeat's one hit.
+      if (songImpact && !dropped) this.events.push({ type: 'impact', time: t, bar: this.bar });
     }
 
     const pos = this.pos;
@@ -163,38 +291,137 @@ export class Sequencer {
     const arr = this.hold ? null : pos.arr;
     const stopped = arr && this.lastStop?.bar === this.bar;
     const chord = stopped && this.lastStop.home ? this.song.chord(0, pos.section.lift) : pos.chord;
-    const cut = stopped ? this.lastStop.len : arr ? arr.cut : 0;
     // One hit per downbeat: an impact (it has its own crash) over stop-time over a plain crash.
     if (A && impactAt === null) { if (landed) A.silenced(t, chord.rootPc); else if (crash) A.crash(t, crash); }
+    if (sib === 0) this._bar(A, t, arr, band, impactAt !== null);
 
     if (emit && sib % 4 === 0) {
       this.events.push({ type: 'beat', time: t, beat: sib / 4, bar: this.bar, sib });
       // The impact is the downbeat's one hit, and a player's Drop may knock the boss off this beat.
       if (A && impactAt === null) for (const c of this.getBossCues(this.bar, sib / 4)) A.bossCue(c, t, chord);
     }
-    this.stepLog.push({ time: t, sib, bar: this.bar, rest: arr ? arr.rest : null });
+    this.stepLog.push({ time: t, sib, bar: this.bar, rest: arr ? this.barRest : null, tex: arr ? this.barTex : null,
+      quiet: !!arr?.quiet, solo: arr?.solo ? this.featured?.role ?? null : null, impact: impactAt !== null });
     if (this.stepLog.length > 24) this.stepLog.shift();
 
     const previewRole = this.preview?.inst?.def.role;
-    for (const inst of this.getInstruments()) {
+    for (const inst of band) {
       if (inst.def.role === previewRole) continue;
-      if (arr && (arr.rest.includes(inst.def.role) || (sib > 0 && sib < cut))) continue;
-      this._play(inst, t, sib, chord, emit, A, arr);
+      this._play(inst, t, sib, chord, emit, A, arr, band.length);
     }
-    if (this.preview?.inst) this._play(this.preview.inst, t, sib, chord, false, A, null);
+    if (this.preview?.inst) this._play(this.preview.inst, t, sib, chord, false, A, null, band.length);
     if (impactAt !== null && A) A.impact(impactAt, chord.rootPc);
   }
 
-  _play(inst, t, sib, chord, emit, A, arr) {
+  // Each downbeat: the band's textures for this bar (for the playhead display), and the desk follows the
+  // phrase on the audio clock (level, the quiet phrase's lowpass, the featured strip). The vamp is plain.
+  _bar(A, t, arr, band, impact) {
+    const rest = [], tex = {};
+    let playing = 0;
+    for (const inst of band) {
+      const x = arr ? this.texOf(inst, arr, band.length, this.bar) : FULL_TEX;
+      tex[inst.def.role] = x;
+      if (x.tf === 'out') rest.push(inst.def.role); else playing++;
+    }
+    this.barRest = rest;
+    this.barTex = tex;
+    if (!A?.arrange) return;
+    const quiet = !!arr?.quiet && !impact;
+    A.arrange(t, {
+      playing, band: band.length, level: arr ? DESK_LEVEL[arr.cls] ?? 1 : 1,
+      tone: quiet ? [toneAt(arr.pb), toneAt(arr.pb + 1)] : null,
+      solo: arr?.solo ? this.featured?.role ?? null : null,
+    });
+  }
+
+  // Re-level the desk now for the band as it stands (the band changed). Leaves the lowpass where it is.
+  deskNow() {
+    const A = this._audioOn() ? this.audio : null;
+    if (!A?.arrange || !this.song) return;
+    const band = this.getInstruments();
+    const arr = this.hold || !this.pos ? null : this.pos.arr;
+    let playing = 0;
+    for (const inst of band) if (!arr || this.texOf(inst, arr, band.length, this.bar, true).tf !== 'out') playing++;
+    A.arrange(A.now(), { playing, band: band.length, level: arr ? DESK_LEVEL[arr.cls] ?? 1 : 1, tone: undefined,
+      solo: arr?.solo ? this.featured?.role ?? null : null });
+  }
+
+  // The texture a channel plays in a bar of the arrangement: the chart's, with the band's rules. A solo
+  // phrase's featured channel plays its solo; a tacet channel plays 'sparse' while the band has 3 channels
+  // or fewer, and a remixed channel never goes dark. peek: never ask the game (display only).
+  texOf(inst, arr, band = this.getInstruments().length, bar = this.bar, peek = false) {
+    const role = inst.def.role;
+    if (arr.solo) {
+      const f = this._featured(arr, bar, peek);
+      if (f?.role === role) return this._soloTex(inst, f.gain);
+    }
+    const t = arr.tex?.[role] || FULL_TEX;
+    if (t.tf === 'out' && (inst.remix || band <= 3)) return SPARSE_TEX;
+    return t;
+  }
+
+  // The channel featured in the solo phrase that bar is in: asked of the game once, on the phrase's first bar.
+  _featured(arr, bar, peek) {
+    const at = bar - arr.pb;
+    if (this.featured?.at === at) return this.featured;
+    let f = null;
+    if (!peek) { try { f = this.getFeatured(); } catch (e) { this._report('getFeatured', e); } }
+    const inst = f?.inst || (f?.def ? f : null) || pickFeatured(this.getInstruments());
+    const out = { at, role: inst ? inst.def.role : null, gain: f?.gain ?? SOLO_GAIN };
+    if (!peek) this.featured = out;
+    return out;
+  }
+
+  _soloTex(inst, gain) {
+    const part = partOf(inst);
+    if (!part?._byStep) return FULL_TEX;
+    const s = soloShape(part, stepsOf(inst.def, part));
+    return { tf: s.tf, w: clamp(gain / s.ratio, 0.5, 2), solo: true };
+  }
+
+  // The notes inst plays on step sib of bar, as the band hears them (the raw pattern notes: s, v, k, ct/sc/
+  // chord, o, d): the arrangement's texture, fills, rolls, breaks and stops while the song moves, the plain
+  // loop in the vamp or for an auditioned card. For step grids (the pause sheet, cards).
+  notesFor(inst, bar = this.bar, sib = 0) {
+    if (!this.song || !inst?.def) return NONE;
+    const plain = this.hold || inst === this.preview?.inst;
+    const arr = plain ? null : this.song.position(bar).arr;
+    return this._notes(inst, arr, plain ? this.loopBar : bar, sib, this.getInstruments().length, false) || NONE;
+  }
+
+  // The notes inst plays on a step, and their damage weight in this._w. Precedence, highest first: a stop's
+  // or the song's cut, the break before a breakdown, tacet ('out'), the Beat channel's roll (the whole
+  // bar), its fill (steps 12-15), then the texture. Fill and roll notes weigh 1. live: the bar is being
+  // scheduled (marks the fill for the next downbeat's crash).
+  _notes(inst, arr, bar, sib, band, live) {
     const def = inst.def;
-    const lv = def.levels[inst.level - 1];
-    if (!lv || !lv._byStep) return;
-    const P = def.steps || STEPS_PER_BAR;
-    const idx = ((this.hold ? this.loopBar : this.bar) * STEPS_PER_BAR + sib) % P;
-    const notes = arr && (arr.fill || arr.roll) && def.role === 'beat' ? this._beatNotes(lv, idx, sib, arr) : lv._byStep[idx];
+    let part = partOf(inst);
+    this._w = 1;
+    if (!part?._byStep) return null;
+    if (!arr) return part._byStep[at(bar, sib, stepsOf(def, part))] || null;   // the plain loop
+    if (sib > 0 && sib < (this.lastStop?.bar === bar ? this.lastStop.len : arr.cut)) return null;
+    if (arr.brk && sib >= arr.brk) return null;
+    const tex = this.texOf(inst, arr, band, bar, !live);
+    if (tex.tf === 'out') return null;
+    if (def.role === 'beat' && (arr.roll || (arr.fill && sib >= 12))) return this._beatNotes(part, sib, arr, live);
+    this._w = tex.w;
+    let tf = tex.tf;
+    const n = LV[tf];
+    if (n) {
+      if (part === def.remix) tf = 'sparse';
+      else { part = def.levels[Math.min(inst.level, n) - 1]; tf = 'full'; }
+    }
+    return part?._byStep ? TRANSFORMS[tf]?.(part._byStep, stepsOf(def, part), bar, sib) ?? null : null;
+  }
+
+  _play(inst, t, sib, chord, emit, A, arr, band) {
+    const def = inst.def;
+    const notes = this._notes(inst, arr, this.hold ? this.loopBar : this.bar, sib, band, true);
     if (!notes) return;
+    const w = this._w;
+    const phrase = arr ? (arr.pb * STEPS_PER_BAR + sib) / (8 * STEPS_PER_BAR) : 0;
     for (const n of notes) {
-      const note = this._resolve(inst, n, chord, t);
+      const note = this._resolve(inst, n, chord, t, w, phrase);
       if (A) {
         try { def.sound(A.api(), t, note, A.out(def.role), inst); }
         catch (e) { this._report(def.id + '.sound', e); }
@@ -203,11 +430,11 @@ export class Sequencer {
     }
   }
 
-  // The Beat channel in a fill or roll bar. Both use the level's own fill sound (its snare, clap or rim,
-  // else its kick; see prepare() in src/content/instruments/index.js), so every note fires with this
-  // level's stats. A fill replaces steps 12-15; a roll plays that sound every `roll` steps over kicks.
-  _beatNotes(lv, idx, sib, arr) {
-    const k = lv._fillKind;
+  // The Beat channel in a fill or roll bar. Both use the part's own fill sound (its snare, clap or rim,
+  // else its kick; a remix's own pattern has its own), so every note fires with this level's stats. A fill
+  // replaces steps 12-15; a roll plays that sound every `roll` steps over kicks, all bar long.
+  _beatNotes(part, sib, arr, live) {
+    const k = fillKind(part);
     if (arr.roll) {
       const out = [];
       const kick = arr.kicks && sib % 4 === 0;
@@ -215,13 +442,12 @@ export class Sequencer {
       if (sib % arr.roll === 0 && !(kick && k === 'kick')) out.push({ s: sib, v: arr.v0 + ((arr.v1 - arr.v0) * sib) / 15, k });
       return out;
     }
-    if (sib < 12) return lv._byStep[idx];
-    this.fillBar = this.bar;
-    lv._fill ||= FILL_V[k === 'kick' ? 'kick' : 'hit'].map((v, i) => (v ? [{ s: 12 + i, v, k }] : null));
-    return lv._fill[sib - 12];
+    if (live) this.fillBar = this.bar;
+    part._fill ||= FILL_V[k === 'kick' ? 'kick' : 'hit'].map((v, i) => (v ? [{ s: 12 + i, v, k }] : null));
+    return part._fill[sib - 12];
   }
 
-  _resolve(inst, n, chord, t) {
+  _resolve(inst, n, chord, t, w = 1, phrase = 0) {
     const def = inst.def;
     const oct = 12 * (n.o || 0);
     let midi = null, midis = null;
@@ -258,6 +484,8 @@ export class Sequencer {
       pc: midi != null ? midi % 12 : -1,
       chord,
       bar: this.bar,
+      w,          // damage weight from the arrangement (game.dmg multiplies by it)
+      phrase,     // 0..1: where in its 8-bar phrase the note falls
     };
   }
 
@@ -282,8 +510,8 @@ export class Sequencer {
     this._chime(i, CLIMB[this.pingN++ % CLIMB.length], 0.07 / (1 + recent / 6));
   }
 
-  // One chime on global step i, unless a stop holds the band silent there. A landed stop is matched by
-  // bar and step, since a hold inside the stop bar keeps counting global steps but not bars.
+  // One chime on global step i, unless a stop or a break holds the band silent there. A landed stop is
+  // matched by bar and step, since a hold inside the stop bar keeps counting global steps but not bars.
   _chime(i, idx, gain) {
     const s = this.pendingStop || this.lastStop;
     const at = this.pendingStop ? Math.ceil(this.globalStep / STEPS_PER_BAR) * STEPS_PER_BAR : this.lastStop?.step;
@@ -291,6 +519,7 @@ export class Sequencer {
     const sib = i % STEPS_PER_BAR;
     if (this.pendingStop ? i > at && i < at + s.len : s && bar === s.bar && sib > 0 && sib < s.len) return;
     const pos = this.song.position(bar);
+    if (pos.arr.brk && sib >= pos.arr.brk) return;
     const chord = s?.home && i === at ? this.song.chord(0, pos.section.lift) : pos.chord;   // the ending's downbeat is on i
     this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, chimeMidi(chord, idx), gain);
   }
