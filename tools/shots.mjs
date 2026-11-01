@@ -2,6 +2,11 @@
 // then the career screens (c-*) from a seeded save, a remix (r-*) and every glyph at strip and card size
 // (icons). Prints the visible words on the card screens and the HUD (words), so text creep shows up.
 //   node tools/shots.mjs [outdir] [--mobile]
+//   node tools/shots.mjs [outdir] [--mobile] --late
+// --late takes only the late-game captures instead: one god-mode sim (seed 1, the autopilot, the full song) stopped at
+// a busy Chorus II with The Clipper (late-1-chorus2, 4.6 min), The Drop with The Glitch King (late-2-drop, 6.8 min)
+// and the Finale with White Noise (late-3-finale, 8.3 min). The same seed draws the same fight, so two builds compare
+// frame for frame (the visual-clarity check: enemies, enemy shots and your attacks, each found at a glance).
 import { serve, launch } from './serve.mjs';
 import { mkdir } from 'node:fs/promises';
 
@@ -13,6 +18,38 @@ await mkdir(outDir, { recursive: true });
 const { server, url } = await serve();
 const browser = await launch();
 const logs = [];
+
+if (args.includes('--late')) {
+  const ctx = await browser.newContext({
+    viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 720 },
+    deviceScaleFactor: mobile ? 2 : 1, hasTouch: mobile, isMobile: mobile, ignoreHTTPSErrors: true,
+  });
+  const page = await ctx.newPage();
+  page.on('console', (m) => { if (m.type() === 'error') logs.push(m.text()); });
+  page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
+  const stops = [['1-chorus2', 4.6], ['2-drop', 6.8], ['3-finale', 8.3]];
+  const t0 = Date.now();
+  await page.goto(`${url}/index.html?sim=1&speed=12&bot=1&god=1&seed=1&minutes=${stops[0][1]}`);
+  await page.waitForFunction(() => window.__LS?.game, null, { timeout: 30000 });
+  const out = [];
+  for (const [name, min] of stops) {
+    // The sim stops stepping at `minutes` and keeps drawing that frame; then the next stop moves the limit on.
+    await page.evaluate((m) => { const L = window.__LS; L.opts.minutes = m; L.done = false; }, min);
+    await page.waitForFunction(() => window.__LS.done, null, { timeout: 600000, polling: 250 });
+    await page.waitForTimeout(400);
+    const file = `${outDir}/${mobile ? 'm' : 'd'}-late-${name}.png`;
+    await page.screenshot({ path: file });
+    const s = await page.evaluate(() => {
+      const g = window.__LS.game;
+      return { t: Math.round(g.time), section: g.section.id, boss: g.boss?.type ?? null, enemies: g.enemies.length, shots: g.shots.length, notes: g.gems.filter((x) => x.kind === 'xp').length, bullets: g.fx.bullets.length };
+    });
+    out.push({ file, ...s, wall: Math.round((Date.now() - t0) / 1000) });
+  }
+  console.log(JSON.stringify({ late: out, logs: logs.slice(0, 20) }, null, 2));
+  await browser.close();
+  server.close();
+  process.exit(logs.some((l) => /^pageerror/.test(l)) ? 1 : 0);
+}
 async function newPage(save) {
   const ctx = await browser.newContext({
     viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 },
