@@ -8,7 +8,7 @@ import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
 import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
-import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat, BOSS_TYPES } from './enemies.js';
+import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat } from './enemies.js';
 import { bossCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName } from './loadout.js';
@@ -94,7 +94,6 @@ export class Game {
     this.shots = [];
     this.gems = [];
     this.later = [];
-    this.joinLines = [];     // "joins the band" lines waiting for play to resume
     this.fx.reset();
     this.director.reset();
     this.loadout = new Loadout();
