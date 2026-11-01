@@ -7,7 +7,7 @@ import { icon } from './icons.js';
 import { describeOffer, banKey } from '../game/upgrades.js';
 import { SECTIONS } from '../music/song.js';
 import { songMapHtml, songFraction, SONG_BARS } from './hud.js';
-import { GOALS, RECORDS, unlockedStarts } from '../game/progress.js';
+import { GOALS, RECORDS, unlockedStarts, unlockLabel } from '../game/progress.js';
 import { INSTRUMENTS, BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
@@ -99,7 +99,7 @@ function remixesHtml(meta) {
 
 function notesHtml(meta) {
   return `<ol class="notes">${GOALS.map((g) => `<li class="${meta.goals[g.id] ? 'done' : ''}"><i aria-hidden="true">${meta.goals[g.id] ? '✓' : ''}</i>
-    <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(BY_ID[g.unlock].name)}</small></li>`).join('')}</ol>`;
+    <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(unlockLabel(g))}</small></li>`).join('')}</ol>`;
 }
 
 export class Screens {
@@ -450,7 +450,7 @@ export class Screens {
     const lines = news?.saved ? [
       ...(news.record ? [`Record pressed: ${news.record.genre}, ${news.record.gold ? 'gold' : 'demo'}.`] : []),
       ...(news.gain ? [`Gain ${news.gain} unlocked: ${GAIN[news.gain - 1].name}.`] : []),
-      ...news.goals.map((g) => `New first sound: ${BY_ID[g.unlock].name}.`),
+      ...news.goals.map((g) => `New first sound: ${unlockLabel(g)}.`),
       ...news.remixes.map((id) => `New remix in your crate: ${BY_ID[id].remix.name}.`),
     ] : [];
     const notes = !news ? '' : !news.saved ? '<p class="end-unsaved">Progress could not be saved on this device.</p>'
