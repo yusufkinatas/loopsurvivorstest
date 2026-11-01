@@ -142,7 +142,7 @@ export class Game {
     this.seq.hold = false;
     this.seq.start(this.clock.now() + 0.12);
     if (this.audio?.ready) { this.audio.setMuffle(false); this.audio.setPreviewRole(null); }
-    this.banner(this.section.name, `${this.key.name} · ${Math.round(60 / (STEP_SEC * 4))} BPM`);
+    this.banner(this.section.name);
   }
 
   xpFor(level) { return Math.round(Math.min(200, 5 + level * 0.34 + level * level * 0.44) * this.mods.xp); }
@@ -156,12 +156,11 @@ export class Game {
     inst.since = this.time;
     this._setupInst(inst);
     this.onLoadoutChanged();
-    // A sound that joins mid-song gets a line and a ring in its channel color, once play resumes after the pick.
-    // Picks from one chained level-up share one line.
+    // A sound that joins mid-song gets a ring in its channel color and pops its strip on the HUD, once play
+    // resumes after the pick.
     if (this.time > 0) {
-      this.joinLines.push(old ? `${def.name} takes over ${ROLE_INFO[def.role].name}` : `${def.name} joins the band`);
       this.later.push({ at: this.time, fn: () => {
-        if (this.joinLines.length) this.banner(this.joinLines.splice(0).join(' · '), '', true);
+        this.hooks.onJoin?.(def.role);
         this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 14, r1: 200, dur: 0.6, damage: 0, kb: 0, width: 6, color: this.color(def.role) });
       } });
     }
@@ -184,7 +183,7 @@ export class Game {
     this.onLoadoutChanged();
     this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 300, dur: 0.6, damage: 0, kb: 0, width: 12, color: '#ffd166' });
     if (this.state === 'levelup') (this._remixNames ||= []).push(inst.def.remix.name);
-    else this.banner('Remix!', inst.def.remix.name);
+    else this.banner(inst.def.remix.name, '', false, 'gold');
     this.hooks.onRemix?.(inst.def);
   }
 
@@ -540,7 +539,7 @@ export class Game {
     this.sectionIndex = ev.index;
     this.section = ev.section;
     const opened = this.channelCap() > before;
-    this.banner(ev.section.name, ev.section.boss ? `${BOSS_TYPES[ev.section.boss]?.name || 'A boss'} is here` : opened ? 'A new channel opens on the mixer' : ev.section.note || '');
+    this.banner(ev.section.name);
     if (opened) this.hooks.onLoadout?.();
     // A boss belongs to its chorus. One still alive when the section ends fades out unbeaten (no notes,
     // no credit, no stop), so the next boss always arrives alone.
@@ -549,7 +548,6 @@ export class Game {
       e.dead = true;
       this._logBossEnd(e, 'faded');
       this.fx.particles(e.x, e.y, e.color, 40, 300, 1, 3);
-      this.banner(`${e.def.name} fades out`, '', true);
     }
     if (this.boss?.dead) { this.boss = null; this.hooks.onBoss?.(null); }
     this.director.onSection(ev);
@@ -591,11 +589,10 @@ export class Game {
       if (this.audio?.ready) this.audio.bossQuiet(true);
       // The ending is one hit and a silent bar, so a Drop still waiting for its build bar is called off.
       if (this.seq.dropState === 'queued') this.seq.dropState = this.dropState = null;
-      this.banner('Encore!', 'White Noise is silenced');
+      this.banner('Encore!');
       // The silence wave grows from where it fell and silences the arena (see step()).
       this.silence = { x: e.x, y: e.y, r: 0 };
     } else {
-      this.banner(`${e.def.name} is silenced`, '', true);
       magnetAll(this);
       // The boss implodes, then bursts outward in its color (cosmetic).
       this.fx.ring({ x: e.x, y: e.y, r0: e.r * 3.2, r1: 6, dur: 0.22, damage: 0, kb: 0, width: 12, color: e.color });
@@ -610,11 +607,12 @@ export class Game {
     if (b) { b.end = this.time; b.how = how; }
   }
 
+  // Banners are for moments only: section names, remix names (style 'gold') and the Encore.
   // compact: a short line under the boss bar instead of the big center banner (for mid-fight messages).
-  banner(title, sub, compact = false) {
+  banner(title, sub = '', compact = false, style = '') {
     if (!title) return;
     this.sectionBanner = { title, sub, t: 0 };
-    this.hooks.onBanner?.(title, sub, compact);
+    this.hooks.onBanner?.(title, sub, compact, style);
   }
 
   // ------------------------------------------------------------------ update
@@ -860,7 +858,7 @@ export class Game {
     this.preview = null;
     if (this.audio?.ready) { this.audio.setPreviewRole(null); this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost()); this.audio.setMuffle(false); }
     this.hooks.onResume?.();
-    if (this._remixNames) { this.banner('Remix!', this._remixNames.join(' · ')); this._remixNames = null; }
+    if (this._remixNames) { this.banner(this._remixNames.join(' · '), '', false, 'gold'); this._remixNames = null; }
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
