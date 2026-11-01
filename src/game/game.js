@@ -138,7 +138,8 @@ export class Game {
     this.drops = 0;
     this.songImpacts = 0;        // the song's own impacts that hit (songImpact)
     this.impactAt = -Infinity;   // game time of the last one (the arena flashes back)
-    this.solos = 0;              // solo phrases featured so far (remixes take turns)
+    this.solos = 0;              // solo phrases featured so far
+    this.soloN = {};             // instrument id -> solo phrases it took (remixes take turns)
     this._dropBar = -1;          // the bar the player's last Drop landed on
     this.bonusScore = 0;
     this.beatPulse = 0;
@@ -822,15 +823,17 @@ export class Game {
     this.hooks.onImpact?.(bar);
   }
 
-  // Who takes a solo phrase (the sequencer asks on its first bar): a remix, the one with the most damage
-  // first and the remixes taking turns across solos; else the highest level (ties: the most damage). It
-  // hits about 1.8x its full part, held to 1.4x while the final boss plays.
+  // Who takes a solo phrase (the sequencer asks on its first bar): a remix, the remixes taking turns across
+  // solos (the one that has soloed least, ties: the most damage, so a new remix gets the next one); else the
+  // highest level (ties: the most damage). It hits about 1.8x its full part, held to 1.4x while the final boss plays.
   featured() {
     const band = this.loadout?.instruments() || [];
     if (!band.length) return null;
-    const remixed = band.filter((i) => i.remix).sort((a, b) => b.dmg - a.dmg);
-    const inst = remixed.length ? remixed[this.solos % remixed.length]
+    const n = (i) => this.soloN[i.def.id] || 0;
+    const remixed = band.filter((i) => i.remix).sort((a, b) => n(a) - n(b) || b.dmg - a.dmg);
+    const inst = remixed.length ? remixed[0]
       : band.reduce((a, b) => (b.level > a.level || (b.level === a.level && b.dmg > a.dmg) ? b : a));
+    if (inst.remix) this.soloN[inst.def.id] = n(inst) + 1;
     this.solos++;
     const finalBoss = this.boss && !this.boss.dead && this.boss.def?.final;
     return { inst, gain: finalBoss ? 1.4 : 1.8 };
