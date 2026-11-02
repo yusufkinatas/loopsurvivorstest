@@ -104,8 +104,8 @@ const ODE = {
   fig: { verse1: { arp: 'f_alberti' }, verse2: { arp: 'f_alberti' }, finale: { bass: 'f_octave' } },
   // The verses march in: heavier Hums and Stomps in place of Static and Buzz.
   waves: {
-    verse1: { static: 0.5, buzz: 0.2, hum: 0.14, 'hum:loud': 0.04, 'static:loud': 0.04, stomp: 0.08 },
-    verse2: { static: 0.14, 'static:loud': 0.21, buzz: 0.08, glitch: 0.16, hum: 0.22, 'hum:loud': 0.09, stomp: 0.08, snare: 0.02 },
+    verse1: { static: 0.52, buzz: 0.22, hum: 0.16, 'static:loud': 0.04, stomp: 0.06 },
+    verse2: { static: 0.2, 'static:loud': 0.21, buzz: 0.1, glitch: 0.16, hum: 0.2, 'hum:loud': 0.05, stomp: 0.06, snare: 0.02 },
   },
 };
 const KOROBEINIKI = {
@@ -119,8 +119,8 @@ const KOROBEINIKI = {
   fig: { verse1: { bass: 'f_oompah' }, verse2: { bass: 'f_oompah' }, chorus1: { bass: 'f_oompah' }, chorus2: { bass: 'f_oompah' } },
   // The verses swarm: Buzz in place of Static.
   waves: {
-    verse1: { static: 0.4, buzz: 0.44, 'buzz:loud': 0.1, 'static:loud': 0.04, stomp: 0.02 },
-    verse2: { static: 0.12, 'static:loud': 0.17, buzz: 0.3, 'buzz:loud': 0.12, glitch: 0.12, hum: 0.08, 'hum:loud': 0.03, stomp: 0.04, snare: 0.02 },
+    verse1: { static: 0.5, buzz: 0.44, 'static:loud': 0.04, stomp: 0.02 },
+    verse2: { static: 0.14, 'static:loud': 0.21, buzz: 0.32, glitch: 0.12, hum: 0.1, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
   },
 };
 export const SONGS = [LOOP, ODE, KOROBEINIKI];
