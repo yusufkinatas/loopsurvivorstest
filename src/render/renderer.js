@@ -198,7 +198,7 @@ export class Renderer {
     // Camera
     this.cam.x = lerp(this.cam.x, p.x, Math.min(1, dt * 8));
     this.cam.y = lerp(this.cam.y, p.y, Math.min(1, dt * 8));
-    const shakeAmt = g.settings.shake ? g.shake : g.shake * 0.2;
+    const shakeAmt = g.settings.shake ? g.shake : 0;
     // Cosmetic randomness never draws from the seeded rng, so a seed plays the same run at any frame rate.
     const sx = (Math.random() * 2 - 1) * shakeAmt, sy = (Math.random() * 2 - 1) * shakeAmt;
     // The Drop camera pushes in through the build bar and punches out on the impact. It scales only the drawing,
@@ -208,17 +208,22 @@ export class Renderer {
     const prog = cur ? cur.sib / 16 : 0;
     if (g.drops > this._drops) this.zoom = 0.94;
     this._drops = g.drops;
-    // A remix landing punches out the same way.
+    // A remix landing punches out the same way, and so does a boss falling silent.
     const remixes = g.remixLog?.length || 0;
-    if (remixes > this._remixes) this.zoom = 0.95;
+    if (remixes > this._remixes || g.bossesBeaten > this._beaten) this.zoom = 0.95;
     this._remixes = remixes;
+    this._beaten = g.bossesBeaten;
+    // A boss you can still silence in time (it has a clock) leans the camera in while it is on its last hit.
+    const b = g.boss, play = g.state === 'playing';
+    const lean = b && !b.dead && b.clock && b.hp < b.maxHp * BALANCE.feel.bossLean;
     if (!g.settings.shake) this.zoom = 1;
-    else this.zoom += ((building && g.state === 'playing' ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
+    else this.zoom += ((building && play ? 1 + 0.06 * prog : lean && play ? 1.03 : 1) - this.zoom) * Math.min(1, dt * 7);
     const s = this.scale * this.zoom;
 
-    // A quiet phrase dims the arena by a quarter; the band slamming back in (a song impact) flashes it back.
+    // A quiet phrase dims the arena by a quarter; the band slamming back in (a song impact) flashes it back (Screen
+    // flashes on).
     const heard = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
-    if (g.impactAt !== this._impactAt) { if (this._impactAt !== undefined && g.impactAt > 0) this.dim = -0.3; this._impactAt = g.impactAt; }
+    if (g.impactAt !== this._impactAt) { if (this._impactAt !== undefined && g.impactAt > 0 && g.settings.flashes) this.dim = -0.3; this._impactAt = g.impactAt; }
     this.dim += ((heard?.quiet && g.state === 'playing' ? 0.25 : 0) - this.dim) * Math.min(1, dt * 2.5);
     const vw = this.w / s / 2 + 80, vh = this.h / s / 2 + 80;
     const cx = this.cam.x, cy = this.cam.y;
@@ -997,6 +1002,19 @@ export class Renderer {
       c.beginPath(); c.arc(p.x, p.y, rr + pulse * 2, -Math.PI / 2, -Math.PI / 2 + frac * TAU); c.stroke();
     }
     c.lineCap = 'butt';
+    // The count-in: full, with a press now landing on the phrase downbeat (a perfect Drop), a dashed white ring closes
+    // from rr + 26 to rr + 4 over the two bars heard before it, doubled 8 px outside when that downbeat is one of the
+    // song's own impacts (a Double Drop). Dashed and white, it stays apart from In the pocket's solid ring.
+    if (full && g.dropPerfectNow()) {
+      const cur = g.seq.sounding(g._heardNow());
+      const k = cur ? clamp(((cur.bar - g.dropLandsOn() + 2) * 16 + cur.sib) / 32, 0, 1) : 0;
+      const r = rr + 26 - 22 * k;
+      c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = 1.5;
+      c.setLineDash([3, 5]);
+      circle(c, p.x, p.y, r); c.stroke();
+      if (g.dropDoubleNow()) { circle(c, p.x, p.y, r + 8); c.stroke(); }
+      c.setLineDash([]);
+    }
     if (!(full && this._dropCap === 1) || typeof document === 'undefined') return;
     const dev = document.body.dataset.input;
     if (dev === 'touch') return;

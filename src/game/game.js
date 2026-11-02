@@ -163,6 +163,10 @@ export class Game {
     this.peak = Object.fromEntries(Object.keys(STYLES).map((st) => [st, 0]));
     this.fullBand = this.fused = this.maxedAll = false;
     this.chanPulse = Object.fromEntries(ROLES.map((r) => [r, 0]));
+    // Kills per channel since the last beat, with the sum of where they fell (_killRun), and the bar of the last run.
+    this._beatKills = ROLES.map((role) => ({ role, n: 0, x: 0, y: 0 }));
+    this._runBar = -1;
+    this._compact = null;        // the last compact line shown: { title, prio, t } (banner)
     this.sectionIndex = 0;
     this.section = SECTIONS[0];
     this.won = false;
@@ -677,7 +681,11 @@ export class Game {
     if (e.dead) return;
     e.dead = true;
     this.kills++;
-    if (src) src.kills++;
+    if (src) {
+      src.kills++;
+      const k = this._beatKills[ROLES.indexOf(src.def.role)];
+      k.n++; k.x += e.x; k.y += e.y;
+    }
     const L = this._led();
     L.kills++;
     if (!e.boss) {
@@ -832,7 +840,7 @@ export class Game {
   }
   dropPerfectNow() { return this.dropLandsOn() % DROP.phrase === 0; }
   // A Drop pressed now would land as a Double Drop (on one of the song's own impact downbeats).
-  dropDoubleNow() { return false; }
+  dropDoubleNow() { const b = this.dropLandsOn(); return b % DROP.phrase === 0 && !!this.song.position(b).arr.impact; }
 
   // A remix whose dropout is playing lands on the next downbeat, and a Drop pressed meanwhile waits a bar for
   // it (Sequencer._step): queued now, it builds on the bar after the remix and lands on the one after that.
@@ -859,20 +867,23 @@ export class Game {
 
   // The Drop lands on the downbeat of `bar`: a blast around you (BALANCE.drop) that erases the shots and Snare
   // marks inside it. A perfect drop (on a phrase downbeat) hits harder and wider and knocks a boss in it off
-  // the beat.
+  // the beat. A Double Drop (a perfect drop on one of the song's own impact downbeats, whose impact it takes) hits
+  // harder and wider again.
   doDrop(bar) {
     const p = this.player, D = DROP;
     const perfect = bar % D.phrase === 0;
+    const dbl = perfect && !!this.song.position(bar).arr.impact;
     this.dropState = null;
     this.drops++;
     const L = this._led();
     L.drops++;
     if (perfect) { L.perfect++; this.perfectDrops++; }
+    if (dbl) { L.doubles++; this.doubleDrops++; }
     this.dropFlash = 1;
     this.perfectFlash = perfect ? 1 : 0;
-    this.shake = Math.max(this.shake, perfect ? 18 : 13);
-    const R = this.dropR = D.radius * (perfect ? D.perfectRadius : 1);
-    const dmg = D.damage * (1 + this.level * D.perLevel) * this.stats.damage * (perfect ? D.perfectDmg : 1);
+    this.shake = Math.max(this.shake, dbl ? 24 : perfect ? 18 : 13);
+    const R = this.dropR = D.radius * (perfect ? D.perfectRadius : 1) * (dbl ? D.doubleRadius : 1);
+    const dmg = D.damage * (1 + this.level * D.perLevel) * this.stats.damage * (perfect ? D.perfectDmg : 1) * (dbl ? D.doubleDmg : 1);
     const prev = this.src; this.src = null;
     // Kills color by distance as a spectrum of your band: Beat nearest, Sparkle outermost.
     const band = ROLES.filter((r) => this.loadout.channels[r]).map((r) => ROLE_INFO[r].color);
@@ -895,6 +906,11 @@ export class Game {
     if (perfect) {
       this.fx.ring({ x: p.x, y: p.y, follow: true, r0: R * 0.9, r1: R * 1.04, dur: 0.5, damage: 0, kb: 0, width: 10, color: '#ffd166' });
       this.later.push({ at: this.time + STEP_SEC, fn: () => this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 30, r1: R, dur: 0.5, damage: 0, kb: 0, width: 6, color: '#ffd166' }) });
+    }
+    // A Double Drop: a white echo of the blast an 8th later, and its name on the compact line.
+    if (dbl) {
+      this.later.push({ at: this.time + 2 * STEP_SEC, fn: () => this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 30, r1: R, dur: 0.55, damage: 0, kb: 0, width: 8, color: '#ffffff' }) });
+      this.banner('Double Drop', '', true, '', 3);
     }
     this.hooks.onDrop?.('done', perfect);
   }
@@ -989,10 +1005,28 @@ export class Game {
     }
     this.beatPulse = 1;
     if (ev.beat === 0) this.barPulse = 1;
+    this._killRun(ev);
     if (this.won) return;   // White Noise is silenced: no more spawns, beats or shots, only the silence wave
     this._rulesOnBeat(ev);
     enemiesOnBeat(this, ev);
     this.director.onBeat(ev);
+  }
+
+  // A kill run (BALANCE.feel): the channel that silenced the most bodies since the last beat, when that is at least
+  // multiKill and multiShare of the section's floor (which refills up to a fifth of itself a beat, so a late section
+  // needs a real spike), once a bar: the band answers with a run up the chord, and the count pops where they fell.
+  _killRun(ev) {
+    const F = BALANCE.feel, K = this._beatKills;
+    let top = K[0];
+    for (const k of K) if (k.n > top.n) top = k;
+    const n = top.n;
+    if (n >= F.multiKill && ev.bar !== this._runBar && n >= F.multiShare * this.director.floor(this.song.position(ev.bar))) {
+      this._runBar = ev.bar;
+      this._led().multi++;
+      this._ping('crowd');
+      if (this.settings.damageNumbers) this.fx.text(top.x / n, top.y / n, 'x' + n, this.color(top.role), 12 + Math.min(8, n / 4));
+    }
+    for (const k of K) k.n = k.x = k.y = 0;
   }
 
   // The play rules on each beat. Combo streak counts a beat with no hit since the last one. In the pocket:
@@ -1191,9 +1225,15 @@ export class Game {
 
   // Banners are for moments only: section names, remix names (style 'gold') and the Encore.
   // compact: a short line under the boss bar instead of the big center banner (for mid-fight messages).
-  // prio: a compact moment's rank (3 Double Drop, 2 Signature, 1 a rule tier, 0 anything else).
+  // prio: a compact moment's rank (3 Double Drop, 2 Signature, 1 a rule tier, 0 anything else). One line at a
+  // time: a compact line within 0.9 s of a higher-ranked one is dropped.
   banner(title, sub = '', compact = false, style = '', prio = 0) {
     if (!title) return;
+    if (compact) {
+      const c = this._compact;
+      if (c && c.prio > prio && this.time - c.t < 0.9) return;
+      this._compact = { title, prio, t: this.time };
+    }
     this.sectionBanner = { title, sub, t: 0 };
     this.hooks.onBanner?.(title, sub, compact, style);
   }
@@ -1479,6 +1519,8 @@ export class Game {
     const rb = this._remixBanner;   // the gold banner runs 1.9 s: show it again if a card screen covered it
     if (rb && this.time - rb.t < 1.9) this.banner(rb.name, '', false, 'gold');
     this._remixBanner = null;
+    const c = this._compact;        // and so is a Double Drop's line (1.6 s), which names the moment
+    if (c?.prio === 3 && this.time - c.t < 1.6) this.banner(c.title, '', true, '', 3);
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no

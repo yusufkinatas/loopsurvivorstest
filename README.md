@@ -52,8 +52,11 @@ server below. Sound on, headphones help.
   would remix wear a gold rim. At most three a run.
 - **The Drop.** Collected notes fill the ring around your speaker. Press Space or E (A on a gamepad, the
   round button on a touch screen) when it is full: one bar of build, then a blast around you that erases
-  the shots inside it. Press during the fill at the end of a phrase and it lands on the phrase downbeat:
-  a perfect Drop hits harder, reaches further and knocks a boss off the beat.
+  the shots inside it. Full, a dashed white ring closes around the speaker through the two bars before each
+  phrase downbeat: press while it closes and the Drop lands on that downbeat, a perfect Drop that hits harder,
+  reaches further and knocks a boss off the beat. When that downbeat is one of the song's own impacts (each
+  chorus start, the Bridge's drums returning, The Drop, each Finale rise) the ring is doubled, and the Drop
+  lands as a **Double Drop** that hits harder and reaches further again.
 - **Pause** with Escape or P (Start on a gamepad). The pause sheet has every detail the play screen leaves
   out: your band and what each sound does, the pedals, the style rules, the live pattern grid, health,
   level and kills. M mutes.

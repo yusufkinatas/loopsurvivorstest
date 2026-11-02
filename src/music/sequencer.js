@@ -629,6 +629,11 @@ export class Sequencer {
       for (let k = 0; k < 3; k++) this._chime(i + k, 3 + k, 0.08);
       return;
     }
+    // A kill run ('crowd'): four 16ths up the chord (tones 1-4), lower and softer than the full meter's run (3-5).
+    if (kind === 'crowd') {
+      for (let k = 0; k < 4; k++) this._chime(i + k, 1 + k, 0.06);
+      return;
+    }
     i += i & 1;                                    // on the 8th-note grid
     if (i <= this.pingStep) return;                // one chime per 8th
     if (i - this.pingStep > 4) this.pingN = 0;     // a gap of more than a beat starts the climb again
