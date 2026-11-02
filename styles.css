@@ -655,7 +655,7 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .ibtn { height: 40px; padding-top: 6px; padding-bottom: 12px; }
   .chips { margin-top: 10px; }
   .panel-actions.col { display: grid; grid-template-columns: 1fr 1fr; }
-  .banner { top: calc(var(--safe-t) + 110px); }
+  .banner { top: calc(var(--safe-t) + 128px); }   /* clear of the compact line (86px), or the two read as one title */
   .banner-title { font-size: 24px; }
   .end.panel { padding: 16px 20px; }
   .end-stats { margin-top: 12px; }

@@ -166,6 +166,7 @@ export class Game {
     // Kills per channel since the last beat, with the sum of where they fell (_killRun), and the bar of the last run.
     this._beatKills = ROLES.map((role) => ({ role, n: 0, x: 0, y: 0 }));
     this._runBar = -1;
+    this._compact = null;        // the last compact line shown: { title, prio, t } (banner)
     this.sectionIndex = 0;
     this.section = SECTIONS[0];
     this.won = false;
@@ -173,7 +174,6 @@ export class Game {
     this.offers = null;
     this.preview = null;
     this.sectionBanner = null;
-    this._compact = null;        // the last compact line shown: { prio, t } (banner)
     const startDef = BY_ID[start] || BY_ID.kick808 || Object.values(BY_ID)[0];
     if (startDef) this.addInstrument(startDef, 1);
     for (const g of this.opts.give || []) {
@@ -1167,7 +1167,7 @@ export class Game {
     if (compact) {
       const c = this._compact;
       if (c && c.prio > prio && this.time - c.t < 0.9) return;
-      this._compact = { prio, t: this.time };
+      this._compact = { title, prio, t: this.time };
     }
     this.sectionBanner = { title, sub, t: 0 };
     this.hooks.onBanner?.(title, sub, compact, style);
@@ -1453,6 +1453,8 @@ export class Game {
     const rb = this._remixBanner;   // the gold banner runs 1.9 s: show it again if a card screen covered it
     if (rb && this.time - rb.t < 1.9) this.banner(rb.name, '', false, 'gold');
     this._remixBanner = null;
+    const c = this._compact;        // and so is a Double Drop's line (1.6 s), which names the moment
+    if (c?.prio === 3 && this.time - c.t < 1.6) this.banner(c.title, '', true, '', 3);
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
