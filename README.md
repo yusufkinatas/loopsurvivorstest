@@ -123,7 +123,7 @@ src/game/game.js              the run, the play rules, Master Tapes, and the API
 src/game/effects.js           attack archetypes (bullets, rings, beams, zaps, strikes, mines, orbiters,
                               cones, walls, tethers, followers)
 src/game/enemies.js           the Noise, its bosses and the Snare mortar
-src/game/bosscues.js          the sound cue a boss plays on the beat it attacks
+src/game/bosscues.js          the sound cue a boss plays on the beat it attacks, and the motif it arrives with
 src/game/director.js          spawns on the beat, following the song's energy and quiet phrases
 src/game/loadout.js           channels, pedals, stats, style play rules, genre names
 src/game/upgrades.js          level-up offers and what each card shows

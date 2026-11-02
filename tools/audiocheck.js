@@ -11,7 +11,7 @@ import { radioEdit, playSheet } from '../src/music/replay.js';
 import { KEYS, NATURAL_MINOR, HARMONIC_MINOR } from '../src/music/theory.js';
 import { STEP_SEC, BAR_SEC, ROLE_HIGH, ROLES, STEPS_PER_BAR } from '../src/config.js';
 import { rng, seedRng } from '../src/util.js';
-import { bossCue } from '../src/game/bosscues.js';
+import { bossCue, leitCue, leitNotes } from '../src/game/bosscues.js';
 import { makeInst } from '../src/game/loadout.js';
 import { AudioEngine } from '../src/audio/engine.js';
 
@@ -162,8 +162,12 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
   for (const i of insts) i.remix = !!(remix && i.def.remix);
   seq.getInstruments = () => insts;
   if (boss) {
+    // Its attack cues, and its leitmotif in its own section (the game plays that while the boss is up).
     const e = { type: boss, hp: frac, maxHp: 1, spawnT: 0, ai: { blinkTo: {} } };
-    seq.getBossCues = (bar, beat) => { const c = bossCue(e, bar, beat); return c ? [c] : []; };
+    seq.getBossCues = (bar, beat) => {
+      const pos = song.position(bar);
+      return [bossCue(e, bar, beat), pos.section.boss === boss && leitCue(pos, beat)].filter(Boolean);
+    };
   }
   if (stopAt !== null) seq.onBar = (bar) => { if (bar === stopAt) seq.stopNext(ending ? 16 : 8, ending); };
   let due = 0, runs = 0;
@@ -217,7 +221,7 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
 // silences (leaks: tacet channels, the break before a breakdown, cuts and stops).
 export function auditSong({ bars = FINALE_BAR + 32 } = {}) {
   const r = { runs: 0, notes: 0, chimes: 0, outOfKey: 0, offGrid: 0, aboveCeiling: 0, foreignKind: 0, leaks: 0, fillNotes: 0, rollNotes: 0, restBars: 0, stopBars: 0, breakBars: 0,
-    soloBars: 0, remixRuns: 0, tfNotes: 0, transforms: Object.keys(TRANSFORMS).length };
+    soloBars: 0, remixRuns: 0, tfNotes: 0, transforms: Object.keys(TRANSFORMS).length, motifs: 0 };
   const edit = radioEdit(SECTIONS.map((s, index) => ({ index })));
   const editBars = edit.slice(0, -1).reduce((n, s) => n + s.bars, 0) + 2;   // and two bars of outro
   const stops = { [bars >> 1]: [8, false], [bars - 1]: [16, true] };
@@ -245,8 +249,25 @@ export function auditSong({ bars = FINALE_BAR + 32 } = {}) {
         if (m > ROLE_HIGH.arp) r.aboveCeiling++;
       }
     }
+    auditLeit(r, song, bars);
   }
   return r;
+}
+
+// Every leitmotif pitch the song plays (each boss's motif where its cues fall, on that bar's chord, the lifted
+// Finale too), checked like the chimes: in key, under the Sparkle's ceiling.
+function auditLeit(r, song, bars) {
+  for (let b = 0; b < bars; b++) {
+    const pos = song.position(b);
+    for (let beat = 0; beat < 4; beat++) {
+      const c = leitCue(pos, beat);
+      for (const { midi } of c ? leitNotes(c, pos.chord) : []) {
+        r.motifs++;
+        if (!inKey(song, { bar: b, chord: pos.chord }, midi)) r.outOfKey++;
+        if (midi > ROLE_HIGH.arp) r.aboveCeiling++;
+      }
+    }
+  }
 }
 
 // Silent stand-ins that make a band of `band` channels around the one under test (so 'out' is tacet).
