@@ -146,6 +146,125 @@ if (args.includes('--rules')) {
   // Lane 3: pedals and Signature
 
   // Lane 6: grooves and figures
+  {
+    const { GROOVES, STYLE_GROOVE, CROSS_GROOVE, FIGURES } = await import('../src/music/grooves.js');
+    const { Sequencer, TRANSFORMS, partOf, stepsOf } = await import('../src/music/sequencer.js');
+    const { Song, SONGS, SECTIONS, CHART } = await import('../src/music/song.js');
+    const { radioEdit } = await import('../src/music/replay.js');
+    const { INSTRUMENTS } = await import('../src/content/instruments/index.js');
+    const { makeInst } = await import('../src/game/loadout.js');
+    const isDrum = (d) => d.role === 'beat' || d.role === 'perc';
+    // Every level's part of these sounds.
+    const parts = (defs) => defs.flatMap((d) => d.levels.map((l, i) => ({ d, inst: makeInst(d, i + 1), by: l._byStep, P: d.steps || 16 })));
+    const vel = (by, P, tf) => { let v = 0; for (let bar = 0; bar < 4; bar++) for (let sib = 0; sib < 16; sib++) for (const n of TRANSFORMS[tf](by, P, bar, sib) || []) v += n.v; return v; };
+    // A sequencer on the song with a band of these sounds at level 3.
+    const rig = (ids) => {
+      const seq = new Sequencer({ sim: true, now: () => 0 }, null);
+      seq.reset(new Song(9));
+      const band = ids.map((id) => makeInst(BY_ID[id], 3));
+      seq.getInstruments = () => band;
+      return { seq, band, role: (r) => band.find((i) => i.def.role === r) };
+    };
+    const styleBand = (st) => INSTRUMENTS.filter((d) => d.style === st).map((d) => d.id);
+    // What a channel plays in a bar of the song, step by step, against that transform of its own part.
+    const plays = (seq, inst, bar, tf) => {
+      const part = partOf(inst), P = stepsOf(inst.def, part);
+      for (let sib = 0; sib < 12; sib++) {
+        assert.deepEqual(seq._notes(inst, seq.song.position(bar).arr, bar, sib, 6, false), TRANSFORMS[tf](part._byStep, P, bar, sib) ?? null, `${inst.def.id} bar ${bar} step ${sib}: not ${tf}`);
+      }
+    };
+
+    check('grooves: 30 to 40, rows on the 16-step grid, every Beat bar hits step 0 on its main sound, every list 2 to 4 of them', () => {
+      const ids = Object.keys(GROOVES);
+      assert.ok(ids.length >= 30 && ids.length <= 40, `${ids.length} grooves`);
+      for (const [id, G] of Object.entries(GROOVES)) for (const ch of ['beat', 'perc']) {
+        const [K, S] = G[ch].map((r) => r.replace(/[\s|]/g, ''));
+        assert.match(K + S, /^[Xxog.=]*$/, `${id} ${ch}`);
+        assert.ok(K.length && K.length % 16 === 0 && (S === '' || S.length === K.length), `${id} ${ch} rows ${K.length}/${S.length}`);
+        if (ch === 'beat') for (let b = 0; b < K.length; b += 16) assert.ok('Xxog'.includes(K[b]), `${id} bar ${b / 16 + 1} has no step-0 hit`);
+      }
+      const lists = [...Object.values(STYLE_GROOVE), ...Object.values(CROSS_GROOVE)];
+      assert.deepEqual(Object.keys(STYLE_GROOVE).sort(), styles.slice().sort());
+      assert.deepEqual(Object.keys(CROSS_GROOVE).sort(), [...Object.values(GENRES.crossovers), 'Fusion'].sort());
+      for (const l of lists) { assert.ok(l.length >= 2 && l.length <= 4, l.join()); for (const id of l) assert.ok(GROOVES[id], id); }
+      assert.deepEqual([...new Set(lists.flat())].sort(), ids.slice().sort(), 'every groove is in a list');
+    });
+    check('as played on every level of every sound: a Beat groove hits step 0 of every bar, a figure too, and both play only the part\'s own sounds', () => {
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum))) {
+        const own = new Set(inst.def.levels[inst.level - 1].pattern.map((n) => n.k));
+        for (const id in GROOVES) for (let bar = 0; bar < 4; bar++) {
+          for (let sib = 0; sib < 16; sib++) for (const n of TRANSFORMS['g_' + id](by, P, bar, sib) || []) assert.ok(own.has(n.k), `${d.id} g_${id} plays ${n.k}`);
+          if (d.role === 'beat') assert.ok(TRANSFORMS['g_' + id](by, P, bar, 0)?.length, `${d.id} L${inst.level} g_${id} bar ${bar}: no step-0 hit`);
+        }
+      }
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter((x) => x.role === 'bass' || x.role === 'arp'))) for (const id in FIGURES) {
+        for (let bar = 0; bar < 4; bar++) assert.ok(TRANSFORMS['f_' + id](by, P, bar, 0)?.length, `${d.id} L${inst.level} f_${id} bar ${bar}: no step-0 note`);
+      }
+    });
+    check('a groove or a figure hits as hard as the part it replaces, on every level of every sound (where it cannot come near the part\'s number of notes, the 0.5x-4x weight clamp leaves 0.85x-1.4x)', () => {
+      const { seq } = rig([]);
+      const arr = { ...seq.song.position(0).arr, tex: null };
+      let n = 0, off = 0;
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter((x) => isDrum(x) || x.role === 'bass' || x.role === 'arp'))) {
+        for (const tf of Object.keys(isDrum(d) ? GROOVES : FIGURES).map((id) => (isDrum(d) ? 'g_' : 'f_') + id)) {
+          seq.forceTex = { [d.role]: tf };
+          seq._notes(inst, arr, 0, 0, 1, false);
+          const r = (seq._w * vel(by, P, tf)) / vel(by, P, 'full'), at = `${d.id} L${inst.level} ${tf} ${r.toFixed(2)}x`;
+          assert.ok(r > 0.84 && r < 1.4, at);
+          n++;
+          if (Math.abs(r - 1) > 1e-9) off++;
+        }
+      }
+      assert.ok(off < 0.05 * n, `${off} of ${n} clamped`);
+    });
+    check('the groove phrases (chorus I, chorus II, The Drop, every Finale rise) play the band\'s grooves in turn: a crossover\'s or Fusion\'s list over its top style\'s, the Beat\'s style on a tie; a remix keeps its part', () => {
+      const at = [];
+      let b0 = 0;
+      for (const sec of SECTIONS) { CHART[sec.id].forEach((ph, i) => ph.tex.beat.tf === 'groove' && at.push(b0 + i * 8)); b0 += sec.bars; }
+      assert.deepEqual(at, [72, 136, 208, 248]);
+      for (const st of styles) {
+        const { seq, role } = rig(styleBand(st));
+        const L = STYLE_GROOVE[st];
+        [...at, at[3] + 32, at[3] + 64].forEach((b, k) => { plays(seq, role('beat'), b + 2, 'g_' + L[k % L.length]); plays(seq, role('perc'), b + 2, 'g_' + L[k % L.length]); });
+        plays(seq, role('bass'), at[0] + 2, 'full');
+        seq.heard.groove = 0;
+        for (let sib = 0; sib < 16; sib++) seq._notes(role('perc'), seq.song.position(at[0]).arr, at[0], sib, 6, true);
+        assert.ok(seq.heard.groove > 0, `${st}: no groove heard`);
+        role('beat').remix = true;
+        plays(seq, role('beat'), at[1] + 2, 'full');
+      }
+      for (const [pair, name] of Object.entries(GENRES.crossovers)) {
+        const [a, b] = pair.split('+');
+        const { seq, role } = rig([...styleBand(a).slice(0, 3), ...styleBand(b).slice(3)]);
+        plays(seq, role('beat'), at[0] + 2, 'g_' + CROSS_GROOVE[name][0]);
+        plays(seq, role('perc'), at[1] + 2, 'g_' + CROSS_GROOVE[name][1]);
+      }
+      const fusion = rig(['kick808', 'shaker', 'tribass', 'supersaw', 'flute', 'chiparp']);
+      plays(fusion.seq, fusion.role('beat'), at[0] + 2, 'g_' + CROSS_GROOVE.Fusion[0]);
+      const tie = rig(['taiko', 'hats909', 'tribass', 'powerchords', 'horn']);
+      plays(tie.seq, tie.role('perc'), at[0] + 2, 'g_' + STYLE_GROOVE.organic[0]);
+    });
+    check('a song\'s figures play only where the phrase has the channel full (a list in turn by phrase); the radio edit hears the song\'s groove turns', () => {
+      const tune = { ...SONGS[0], fig: { verse1: { arp: 'alberti', bass: ['oompah', 'octave'] } } };
+      const song = new Song(9, SECTIONS, tune), v1 = SECTIONS[0].bars;
+      CHART.verse1.forEach((ph, p) => {
+        const tex = song.position(v1 + p * 8).arr.tex;
+        assert.equal(tex.arp.tf, ph.tex.arp.tf === 'full' ? 'f_alberti' : ph.tex.arp.tf, `verse1 phrase ${p} arp`);
+        assert.equal(tex.bass.tf, ph.tex.bass.tf === 'full' ? ['f_oompah', 'f_octave'][p % 2] : ph.tex.bass.tf, `verse1 phrase ${p} bass`);
+        assert.equal(tex.arp.w, ph.tex.arp.w);
+      });
+      assert.equal(new Song(9).position(v1 + 24).arr.tex.arp.tf, 'full', 'no figures without the song\'s');
+      const edit = new Song(9, radioEdit(SECTIONS.map((s, index) => ({ index }))));
+      let b = 0, grooves = 0;
+      for (const s of edit.sections.slice(0, -1)) {
+        const pos = edit.position(b), real = new Song(9).position(SECTIONS.slice(0, pos.index).reduce((n, x) => n + x.bars, 0) + (s.from || 0));
+        assert.equal(pos.arr.groove, real.arr.groove, s.id);
+        if (pos.arr.tex.beat.tf === 'groove') grooves++;
+        b += s.bars;
+      }
+      assert.equal(grooves, 2, 'chorus II and the Finale excerpts groove');
+    });
+  }
 
   let failed = 0;
   for (const { name, fn } of checks) {

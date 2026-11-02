@@ -54,10 +54,14 @@ export function sectionsOf(tune) {
 //   call     only the even bars             answer   only the odd bars
 //   hold     the bar's first note, held     low      an octave down
 //   inv      the tune mirrored (chord and scale steps upside down)
-// Weights default per transform (WEIGHT); 'tf*w' sets one. The rules on top, applied by the sequencer
-// for the band that is playing: 'out' plays 'sparse' while the band has 3 channels or fewer, a remixed
-// channel never goes 'out' (it plays 'sparse'), and in a solo phrase the featured channel plays its
-// solo variant over everyone else's thin line.
+//   groove   Beat and Groove play a classic groove in their own sounds (src/music/grooves.js): the band's
+//            crossover or top style picks the list, { groove: k } the phrase's turn in it (the Finale's next
+//            rise takes the next one); a remixed channel keeps its part
+// A song can also give a section's channel an accompaniment figure (tune.fig, see arrangement()).
+// Weights default per transform (WEIGHT); 'tf*w' sets one (a groove or a figure at 1 hits as hard as the part
+// it replaces). The rules on top, applied by the sequencer for the band that is playing: 'out' plays
+// 'sparse' while the band has 3 channels or fewer, a remixed channel never goes 'out' (it plays 'sparse'),
+// and in a solo phrase the featured channel plays its solo variant over everyone else's thin line.
 //
 // Each phrase has a class, which sets the desk and the band its energy must stay in (tools/check.mjs
 // --arrange): 'quiet' a breakdown (the desk drops and filters, the bar before it breaks off on beat 3),
@@ -67,7 +71,7 @@ export function sectionsOf(tune) {
 // impact: the phrase's downbeat hits like a Drop (the band slams back in). 'first': only on the
 // section's first pass (the Finale's opening).
 
-export const WEIGHT = { full: 1, out: 0, sparse: 1, half: 1.5, double: 0.65, call: 1.15, answer: 1.15, hold: 1.3, low: 1, inv: 1, lv1: 1, lv2: 1, lv3: 1, lv4: 1 };
+export const WEIGHT = { full: 1, out: 0, sparse: 1, half: 1.5, double: 0.65, call: 1.15, answer: 1.15, hold: 1.3, low: 1, inv: 1, lv1: 1, lv2: 1, lv3: 1, lv4: 1, groove: 1 };
 export const ENERGY_BANDS = { quiet: [0.33, 0.65], solo: [0.5, 0.8], mid: [0.55, 0.92], full: [0.88, 1.15] };
 
 const FULL_TEX = { tf: 'full', w: 1 };
@@ -82,7 +86,7 @@ function ph(cls, e, spec = '', more = {}) {
     const [tf, w] = t.split('*');
     tex[role] = tf === 'out' ? OUT_TEX : { tf, w: w !== undefined ? Number(w) : WEIGHT[tf] ?? 1 };
   }
-  return { cls, e, tex, solo: cls === 'solo', impact: more.impact || false, spec };
+  return { cls, e, tex, solo: cls === 'solo', impact: more.impact || false, groove: more.groove ?? 0, spec };
 }
 
 export const CHART = {
@@ -99,12 +103,12 @@ export const CHART = {
     ph('mid', 0.78, 'perc:lv3 chords:hold*1.6 arp:lv2'),
     ph('full', 1.0),
   ],
-  // Chorus: the whole band slams in. The third phrase turns the tune upside down.
+  // Chorus: the whole band slams in. The third phrase turns the tune upside down, the last one grooves.
   chorus1: [
     ph('full', 1.0, '', { impact: true }),
     ph('full', 1.0),
     ph('full', 1.0, 'lead:inv'),
-    ph('full', 0.94),
+    ph('full', 0.94, 'beat:groove perc:groove', { groove: 0 }),
   ],
   // Verse II drops down after the chorus breaks off: underwater at first, half-time hats, held chords, the
   // lead and the sparkle answering each other. Then the lead sinks an octave and the band climbs back,
@@ -115,12 +119,13 @@ export const CHART = {
     ph('mid', 0.86, 'chords:lv2 lead:low arp:lv2'),
     ph('full', 0.92, 'chords:hold*2 arp:double*0.9'),
   ],
-  // Chorus II is bigger: the sparkle doubles up, then the tune flips over a double-time groove.
+  // Chorus II is bigger: the sparkle doubles up, then the tune flips over the band's next groove (its Groove
+  // channel as hard as the doubled hats it used to play).
   chorus2: [
     ph('full', 1.0, '', { impact: true }),
     ph('full', 1.0),
     ph('full', 0.96, 'arp:double'),
-    ph('full', 0.93, 'perc:double*0.9 lead:inv arp:double'),
+    ph('full', 0.93, 'beat:groove perc:groove*1.25 lead:inv arp:double', { groove: 1 }),
   ],
   // The Bridge: a real breakdown (no drums, the groove only ticking, the bass in half time under held
   // chords), then one channel takes a solo over the bass and the pads, then everything but the drums
@@ -139,21 +144,21 @@ export const CHART = {
     ph('full', 0.94, 'perc:lv2 lead:out arp:double*1.2'),
   ],
   // The Drop: heavy half-time drums and fat bass and chord hits with no lead, then the lead comes back
-  // upside down, then the climax doubles the groove and the sparkle.
+  // upside down over a groove, then the climax doubles the hats and the sparkle.
   drop: [
     ph('full', 0.92, 'beat:half*2.2 perc:double*1.1 bass:full*1.3 chords:lv1*2 lead:out arp:answer*1.5', { impact: true }),
     ph('full', 0.95, 'beat:half*2.2 perc:double*1.1 bass:full*1.3 chords:lv1*2 lead:inv*0.9 arp:out'),
-    ph('full', 0.95, 'lead:inv arp:answer*1.4'),
+    ph('full', 0.95, 'beat:groove perc:groove lead:inv arp:answer*1.4', { groove: 2 }),
     ph('full', 1.02, 'perc:double*0.9 arp:double*0.9'),
   ],
   // The Finale cycles: the full band in the new key, a breakdown, a solo over the bass and the pads (the
-  // drums still out), and the band rising back in on an impact. It rises and falls every 64 seconds until
-  // White Noise is silenced.
+  // drums still out), and the band rising back in on an impact and a groove (the next of the band's, each rise).
+  // It rises and falls every 64 seconds until White Noise is silenced.
   finale: [
     ph('full', 0.94, '', { impact: 'first' }),
     ph('quiet', 0.45, 'beat:out perc:lv1*1.6 bass:half*2 chords:hold*2.2 lead:call*1.6 arp:out'),
     ph('solo', 0.63, 'beat:out perc:lv2*1.4 bass:half*1.8 chords:hold*2 lead:out arp:out'),
-    ph('full', 0.96, 'perc:double*0.9 lead:inv arp:double', { impact: true }),
+    ph('full', 0.96, 'beat:groove perc:groove*1.25 lead:inv arp:double', { impact: true, groove: 3 }),
   ],
 };
 
@@ -173,7 +178,8 @@ export const CHART = {
 //   sweep   the 2-bar filter sweep into The Drop starts on this downbeat
 //   impact  this downbeat hits like a Drop: the band slams back in (a game event too)
 //   cut     every channel plays its step-0 notes, then rests until this step
-const BASE = { phrase: 0, pb: 0, cycle: 0, cls: 'full', tex: null, quiet: false, solo: false, impact: false, energy: 1,
+//   groove  the phrase's turn in its band's groove list (a groove phrase's)
+const BASE = { phrase: 0, pb: 0, cycle: 0, cls: 'full', tex: null, quiet: false, solo: false, impact: false, energy: 1, groove: 0,
   rest: [], fill: false, brk: 0, roll: 0, kicks: true, v0: 1, v1: 1, sweep: false, cut: 0 };
 const ALL_FULL = Object.fromEntries(ROLES.map((r) => [r, FULL_TEX]));
 const ALL_OUT = Object.fromEntries(ROLES.map((r) => [r, OUT_TEX]));
@@ -194,8 +200,10 @@ export function phraseAt(section, b) {
 }
 
 // The arrangement part for bar b of a section (b counted from the section's `from`), without the
-// break (which needs the next bar).
-function arrangement(section, b) {
+// break (which needs the next bar). fig: the song's figures for the section (tune.fig[section id]), role -> a
+// figure id of src/music/grooves.js FIGURES, or a list the section's phrases take in turn; the channel plays it
+// wherever the phrase has it full, so its thinner textures stay.
+function arrangement(section, b, fig) {
   if (section.end) return b ? SILENT : LAST_HIT;
   const at = phraseAt(section, b);
   if (!at) return PLAIN;
@@ -204,8 +212,14 @@ function arrangement(section, b) {
   const rest = ROLES.filter((r) => ph.tex[r].tf === 'out');
   const impact = pb === 0 && (ph.impact === 'first' ? cycle === 0 : !!ph.impact);
   const roll = section.build && b >= 8 && b < 16 ? ROLL[b - 8] : null;
-  return { ...BASE, phrase, pb, cycle, cls: ph.cls, tex: ph.tex, quiet: ph.cls === 'quiet', solo: ph.solo, impact, energy: ph.e,
-    rest, fill: pb === 7 && !roll, ...roll };
+  let tex = ph.tex;
+  for (const r in fig) {
+    if (tex[r]?.tf !== 'full') continue;
+    const f = [].concat(fig[r]);
+    tex = { ...tex, [r]: { ...tex[r], tf: 'f_' + f[phrase % f.length] } };
+  }
+  return { ...BASE, phrase, pb, cycle, cls: ph.cls, tex, quiet: ph.cls === 'quiet', solo: ph.solo, impact, energy: ph.e,
+    groove: ph.groove + cycle, rest, fill: pb === 7 && !roll, ...roll };
 }
 
 export class Song {
@@ -256,7 +270,7 @@ export class Song {
         const barInSection = bar - start;
         const b = barInSection + (s.from || 0);
         const chord = this.chord(s.prog[b % s.prog.length], s.lift);
-        return { index: i, section: s, barInSection, sectionStart: start, chord, barsLeft: s.bars - barInSection, arr: arrangement(s, b) };
+        return { index: i, section: s, barInSection, sectionStart: start, chord, barsLeft: s.bars - barInSection, arr: arrangement(s, b, this.tune.fig?.[s.id]) };
       }
       start += s.bars;
     }
