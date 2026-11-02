@@ -69,7 +69,7 @@ if (mode === 'matrix') {
         const r = run({ give: L5(def.id), remix: rx ? [def.id] : [], pedals: p ? [{ id: p, level: 3 }] : [] });
         const v = r.out[def.id]?.dps || 0;
         if (!p) { base = v; row.base = Math.round(v); row.calls = r.calls[def.id] || {}; }
-        else row[p] = base ? +(v / base).toFixed(2) : 0;
+        else row[p] = base ? +(v / base).toFixed(3) : 0;
       }
       rows.push(row);
     }

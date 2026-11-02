@@ -14,9 +14,9 @@ export const PEDALS = [
     text: (s) => `All attack areas +${Math.round(s.area * 100)}%.`,
     fits: [
       'sidechain808', 'taiko', 'thunderhall', 'shaker', 'rainstick', 'subbass', 'wobblebass', 'upright', 'slapbass',
-      'tribass', 'blownspeaker', 'rhodes', 'soulkeys', 'chipchords', 'lineclear', 'sawlead', 'screamer', 'musicbox',
-      'lullaby', 'doublekick', 'wallofdeath', 'ride', 'chinacrash', 'breakdown', 'shred', 'windmill', 'whammy',
-      'timpani', 'overture1812', 'maelstrom', 'strings', 'crescendo', 'harp', 'aeolian',
+      'tribass', 'blownspeaker', 'rhodes', 'soulkeys', 'chipchords', 'lineclear', 'screamer', 'musicbox', 'lullaby',
+      'doublekick', 'wallofdeath', 'ride', 'chinacrash', 'breakdown', 'shred', 'windmill', 'whammy', 'timpani',
+      'overture1812', 'maelstrom', 'strings', 'crescendo', 'harp', 'aeolian',
     ],
   },
   {
