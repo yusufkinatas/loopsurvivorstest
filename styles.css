@@ -422,9 +422,9 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .gems i.gone.down::after { background: var(--bad); }
 .gems.fusion i { --s: #fff; background: conic-gradient(var(--beat), var(--perc), var(--bass), var(--chords), var(--lead), var(--arp), var(--beat)); }
 /* The foot's glyphs: a tape's reel, a remix's partner pedal (dim until it is on the board), a pedal's fit row. */
-.card-foot .reel, .card-foot .pair { display: inline-flex; width: 16px; height: 16px; color: var(--gold); }
-.card-foot .pair { opacity: 0.35; }
-.card-foot .pair.on { opacity: 1; filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
+.card-foot > .reel, .card-foot > .pair { display: inline-flex; width: 16px; height: 16px; color: var(--gold); }
+.card-foot > .pair { opacity: 0.35; }
+.card-foot > .pair.on { opacity: 1; filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
 .fit { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
 .fit i { display: block; width: 15px; height: 15px; border-radius: 50%; color: var(--text); }
 .fit i.off { opacity: 0.22; }
