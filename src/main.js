@@ -12,7 +12,7 @@ import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
 import { Song, SECTIONS } from './music/song.js';
 import { playSheet } from './music/replay.js';
-import { KEYS } from './music/theory.js';
+import { KEYS, chordTone } from './music/theory.js';
 import { Game } from './game/game.js';
 import { makeInst } from './game/loadout.js';
 import { Renderer } from './render/renderer.js';
@@ -129,6 +129,10 @@ const screens = new Screens(screensRoot, {
   },
   onDiscography: (back) => screens.discography(loadMeta(), back),
   onShowEnd: () => screens.end(...lastEnd),
+  // The curtain call: one chime per damage bar, idx tones up the song's home chord, so they climb in key.
+  onCurtainNote: (idx) => {
+    if (settings.chimes && audio.ready) audio.levelUpChime([chordTone(game.song.chord(game.song.home || 0, game.section?.lift || 0), idx, 64)]);
+  },
   onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
   onStopTrack: () => stopTrack(),
   onGain: (d) => stepGain(d),
@@ -288,6 +292,7 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ta
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
+  if (screens.current === 'end' && screens.skipCurtain()) return true;   // any other key first finishes the curtain call
   // Space and E are the Drop keys: on menus they must never press a focused button by accident. Space still
   // toggles a focused checkbox (Settings).
   const box = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'checkbox';

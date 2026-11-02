@@ -179,7 +179,7 @@ await snap('7-pause');
 await press('[data-act=resume]').catch(() => {});
 await wait(400);
 await page.evaluate(() => { const g = window.__LS.game; g.opts.god = false; g.player.iframes = 0; g.player.hp = 1; g.hurt(50, null); });
-await wait(2500);   // the death beat (0.9 s) and the screen fade, so the end screen is settled
+await wait(5000);   // the death beat (0.9 s), the screen fade and the curtain call, so the end screen is settled
 await snap('8-end');
 await press('[data-act=back]');   // the end screen's Title button
 await wait(500);

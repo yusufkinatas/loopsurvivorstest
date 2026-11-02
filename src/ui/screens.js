@@ -24,6 +24,8 @@ const pipsRow = (n, max) => `<span class="pips-sm" aria-hidden="true">${Array.fr
 // A level-up ignores picks and button presses this long after it opens, so a Drop press or the second
 // half of a double tap never takes a card blind.
 const ARM_MS = 350;
+// The end screen's curtain call (s): each stat's count, the gap between damage bars and each bar's growth.
+const CURTAIN = { stat: 0.3, gap: 0.25, grow: 0.3 };
 
 // Kind badges are glyphs only; the words are for screen readers.
 const KIND = {
@@ -619,10 +621,10 @@ export class Screens {
       <div class="panel panel-wide end">
         <h2>${sum.won ? 'Encore!' : 'Drowned out'}</h2>
         <div class="end-stats">
-          <div><b>${fmtTime(sum.time)}</b><span>survived</span></div>
-          <div><b>${sum.kills.toLocaleString('en-US')}</b><span>silenced</span></div>
-          <div><b>${sum.level}</b><span>level</span></div>
-          <div><b>${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}${sum.gain ? ` · G${sum.gain}` : ''}</span></div>
+          <div><b data-n="${sum.time}" data-time>${fmtTime(sum.time)}</b><span>survived</span></div>
+          <div><b data-n="${sum.kills}">${sum.kills.toLocaleString('en-US')}</b><span>silenced</span></div>
+          <div><b data-n="${sum.level}">${sum.level}</b><span>level</span></div>
+          <div><b data-n="${sum.score}">${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}${sum.gain ? ` · G${sum.gain}` : ''}</span></div>
         </div>
         ${notes}
         ${songEndHtml(sum, isBest, prevBest)}
@@ -650,5 +652,56 @@ export class Screens {
     el.querySelector('[data-act=disco]').addEventListener('click', () => this.h.onDiscography('end'));
     el.querySelector('[data-act=back]').addEventListener('click', () => this.h.onShowTitle());
     el.querySelector('[data-act=again]').focus({ preventScroll: true });
+    this._curtain(el, sum, maxDmg);
   }
+
+  // The curtain call: the stats count up in turn, then the damage bars grow one by one from the smallest, each
+  // on a chord tone a step higher (onCurtainNote, Note chimes), and the biggest flares in its channel color. Any
+  // key (skipCurtain: it only skips, so a key mashed to skip never presses Play again), click or tap shows the
+  // final state, where reduced motion and a return from the Discography start. The markup holds the final state.
+  _curtain(el, sum, max) {
+    this._skip = null;
+    if (this._curtainOf === sum || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    this._curtainOf = sum;
+    const { stat, gap, grow } = CURTAIN;
+    const stats = [...el.querySelectorAll('.end-stats b[data-n]')];
+    const lis = el.querySelectorAll('.end-rows li');
+    const rows = sum.instruments.map((r, i) => ({ li: lis[i], bar: lis[i].querySelector('.er-bar i'), num: lis[i].querySelector('.er-num'), n: r.dmg })).reverse();
+    const t0 = stats.length * stat, n = rows.length, end = t0 + Math.max(0, n - 1) * gap + grow;
+    const ease = (k) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3;
+    let next = 0, raf = 0;
+    const draw = (t, quiet) => {
+      for (const [i, b] of stats.entries()) {
+        const v = b.dataset.n * ease(t / stat - i);
+        b.textContent = 'time' in b.dataset ? fmtTime(v) : Math.round(v).toLocaleString('en-US');
+      }
+      for (const [j, r] of rows.entries()) {
+        const k = ease((t - t0 - j * gap) / grow);
+        r.bar.style.transform = `scaleX(${(r.n / max) * k})`;
+        r.num.textContent = Math.round(r.n * k).toLocaleString('en-US');
+      }
+      // The biggest bar takes the top tone (5, the chime range), the ones before it a tone lower each.
+      for (; next < n && t >= t0 + next * gap; next++) if (!quiet) {
+        this.h.onCurtainNote?.(Math.max(0, 5 - (n - 1 - next)));
+        if (next === n - 1) rows[next].li.classList.add('top');
+      }
+    };
+    const skip = () => { stop(); draw(Infinity, true); return true; };
+    const stop = () => { cancelAnimationFrame(raf); if (this._skip === skip) this._skip = null; el.removeEventListener('click', onClick, true); };
+    const onClick = () => skip();   // a click or tap on a button also presses it
+    this._skip = skip;
+    el.addEventListener('click', onClick, true);
+    const start = performance.now();
+    const tick = (now) => {
+      if (!el.isConnected) { stop(); return; }
+      const t = (now - start) / 1000;
+      draw(t);
+      if (t < end) raf = requestAnimationFrame(tick); else stop();
+    };
+    draw(0);
+    raf = requestAnimationFrame(tick);
+  }
+
+  // A key on the end screen first finishes its curtain call: true when there was one to finish.
+  skipCurtain() { return !!this._skip?.(); }
 }
