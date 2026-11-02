@@ -438,10 +438,17 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .card-info span:first-child { color: var(--text); }
 .card-info span + span { margin-top: 4px; }
 #screens.info .card-info { display: block; }
-/* A card never taken in any run shows its first two lines (what it is, what it does) without the info layer;
-   the lines after them (and B3/B4's lines, always last) wait for it. */
+/* A card never taken in any run shows its words without the info layer: a sound its blurb (what it is and what it
+   does; a swap skips its first line, which is about the old sound and is on the badge), a pedal or remix its first
+   two lines, one on a short screen so three cards still fit. The rest (B3/B4's lines are always last) wait for it. */
 .card.fresh .card-info { display: block; }
-#screens:not(.info) .card.fresh .card-info span:nth-child(n+3) { display: none; }
+#screens:not(.info) .card.fresh .card-info span:nth-child(n+3),
+#screens:not(.info) .card-new.fresh .card-info span:nth-child(n+2),
+#screens:not(.info) .card-swap.fresh .card-info span:not(:nth-child(2)) { display: none; }
+#screens:not(.info) .card-swap.fresh .card-info span:nth-child(2) { margin-top: 0; color: var(--text); }
+@media (max-height: 520px), (max-width: 760px) and (max-height: 700px) {
+  #screens:not(.info) .card.fresh:not(.card-swap) .card-info span:nth-child(n+2) { display: none; }
+}
 
 /* Banish mode: the cards that can go get a red frame, the rest step back. */
 .cards.banishing .card:not(.no-ban) .card-frame { background: var(--bad); }
@@ -653,7 +660,6 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .screen-levelup .cards-wrap, .cards-wrap { margin-top: 0; padding-bottom: 0; }
   .cards { gap: 10px; }
   .card { padding: 9px 12px 12px; gap: 5px; }
-  #screens:not(.info) .card.fresh .card-info span:nth-child(n+2) { display: none; }
   .card-hero { width: 40px; height: 40px; margin-top: 4px; }
   .card-hero.vinyl { width: 52px; height: 52px; }
   .card-hero.vinyl > svg { width: 26px; height: 26px; }

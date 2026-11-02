@@ -1,6 +1,7 @@
 // Menus and overlays: title, how to play, first-sound select, level-up cards, pause, the end screen and
 // the Discography. Card screens show glyphs, names and sound; every explanatory line sits in the info
-// layer (I, pad Y or the (i) button) and on the pause sheet, which is the home of the run's details.
+// layer (I, pad Y or the (i) button) and on the pause sheet, which is the home of the run's details, except
+// that a card never taken shows its first words.
 
 import { ROLE_INFO, STYLES, ROLES, GAIN, BALANCE, BAR_SEC, REROLLS_PER_RUN, BANISHES_PER_RUN, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
 import { fmtTime } from '../util.js';
@@ -410,9 +411,10 @@ export class Screens {
   levelUp(g, offers) {
     const descs = this.descs = offers.map((o) => describeOffer(g, o));
     // A sound, pedal or remix never taken (in a past run or this one) shows its first info lines without the info layer.
+    // A band sound is never a new or swap card, so only the swapped-out ones can have been taken this run.
     const meta = this.h.getSeen?.();
     if (meta) {
-      const had = new Set([...g.loadout.instruments(), ...(g.retired || [])].map((i) => i.def.id));
+      const had = new Set((g.retired || []).map((i) => i.def.id));
       for (const d of descs) d.fresh = d.kind === 'remix' ? !meta.remixes[d.glyph] : ['new', 'swap', 'pedal-new'].includes(d.kind) && !meta.seen[d.glyph] && !had.has(d.glyph);
     }
     const cards = descs.map((d, i) => cardHtml(d, i)).join('');
