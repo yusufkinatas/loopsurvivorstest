@@ -467,46 +467,57 @@ export class Renderer {
 
   // The band's play rules, as quiet tells on the floor in their style's color (no text): Long throw's dotted
   // circle, the Mosh pit's disc, In the pocket's ring that fills over the beat while you stand still, the
-  // Combo streak's 16 ticks, and a halo that swells through the 8-bar phrase.
+  // Combo streak's 16 ticks, and a halo that swells through the 8-bar phrase. A pick that turns a rule on, steps
+  // it up or forms a crossover (g.ruleBloom) blooms its tells out from the speaker over one beat, brighter at first.
   _ruleTells(c, g) {
     const R = g.stats?.rules, S = g.rules;
     if (!R?.on || !S || g.state === 'dying' || g.state === 'gameover') return;
-    const p = g.player, pulse = g.beatPulse;
+    const p = g.player, pulse = g.beatPulse, B = g.ruleBloom;
+    const bk = B ? clamp((g.time - B.t) / BEAT_SEC, 0, 1) : 1;
+    // A tell's bloom: its size (eased out) and an alpha lift that fades as it reaches full size; [1, 0] when not blooming.
+    const bloom = (rule) => (bk < 1 && B.styles.some((st) => CHEMISTRY[st]?.rule === rule) ? [1 - (1 - bk) ** 3, 0.5 * (1 - bk)] : [1, 0]);
     if (R.far) {
-      c.strokeStyle = rgba(RULE_COLOR.far, 0.2 + 0.12 * pulse);
+      const [k, up] = bloom('far');
+      c.strokeStyle = rgba(RULE_COLOR.far, 0.2 + 0.12 * pulse + up);
       c.lineWidth = 2;
       c.setLineDash([2, 12]);
-      circle(c, p.x, p.y, g.farR()); c.stroke();
+      // Electro chip's full combo counts every hit as far (farR 0): the circle hugs the speaker (just outside In the
+      // pocket's ring) instead of vanishing.
+      circle(c, p.x, p.y, Math.max(g.farR(), p.r + 40) * k); c.stroke();
       c.setLineDash([]);
     }
     if (R.near) {
-      c.fillStyle = rgba(RULE_COLOR.near, 0.03 + 0.03 * pulse);
-      circle(c, p.x, p.y, g.nearR()); c.fill();
-      c.strokeStyle = rgba(RULE_COLOR.near, 0.26);
+      const [k, up] = bloom('near');
+      c.fillStyle = rgba(RULE_COLOR.near, 0.03 + 0.03 * pulse + up * 0.3);
+      circle(c, p.x, p.y, g.nearR() * k); c.fill();
+      c.strokeStyle = rgba(RULE_COLOR.near, 0.26 + up);
       c.lineWidth = 2;
       c.stroke();
     }
     if (R.stillHeal || R.stillArea) {
-      const k = S.planted ? 1 : S.broke ? 0 : clamp((g.time - S.beatAt) / BEAT_SEC, 0, 1);
+      const [bs, up] = bloom('still');
+      // While it blooms the ring is drawn whole, planted or not.
+      const k = up ? 1 : S.planted ? 1 : S.broke ? 0 : clamp((g.time - S.beatAt) / BEAT_SEC, 0, 1);
       if (k > 0) {
-        const rr = p.r + 30;
-        c.strokeStyle = rgba(RULE_COLOR.still, S.planted ? 0.5 + 0.3 * pulse : 0.3);
+        const rr = (p.r + 30) * bs;
+        c.strokeStyle = rgba(RULE_COLOR.still, (S.planted ? 0.5 + 0.3 * pulse : 0.3) + up);
         c.lineWidth = 3;
         c.beginPath(); c.arc(p.x, p.y, rr, -Math.PI / 2, -Math.PI / 2 + k * TAU); c.stroke();
         if (S.planted) { c.fillStyle = rgba(RULE_COLOR.still, 0.07 + 0.05 * pulse); circle(c, p.x, p.y, rr); c.fill(); }
       }
     }
     if (R.combo) {
+      const [k, up] = bloom('combo');
       const n = RULES.comboCap, w = 3, gap = 1.5, x0 = p.x - (n * (w + gap) - gap) / 2, y = p.y + p.r + 34;
       for (let i = 0; i < n; i++) {
-        c.fillStyle = i < S.combo ? RULE_COLOR.combo : rgba(RULE_COLOR.combo, 0.16);
-        c.fillRect(x0 + i * (w + gap), y, w, 3);
+        c.fillStyle = i < S.combo ? RULE_COLOR.combo : rgba(RULE_COLOR.combo, 0.16 + up);
+        c.fillRect(p.x + (x0 + i * (w + gap) - p.x) * k, y, w, 3);
       }
     }
     if (R.swell) {
-      const sw = g.swellAt();
+      const [k, up] = bloom('swell'), sw = g.swellAt();
       c.globalCompositeOperation = 'lighter';
-      this.drawGlow(p.x, p.y, 36 + 54 * sw, RULE_COLOR.swell, 0.08 + 0.3 * sw);
+      this.drawGlow(p.x, p.y, (36 + 54 * sw) * k, RULE_COLOR.swell, 0.08 + 0.3 * sw + up);
       c.globalCompositeOperation = 'source-over';
     }
   }

@@ -6,7 +6,7 @@ import { ROLE_INFO, STYLES, ROLES, GAIN, BAR_SEC, REROLLS_PER_RUN, BANISHES_PER_
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer, banKey, chemTiers } from '../game/upgrades.js';
-import { CHEMISTRY } from '../game/loadout.js';
+import { CHEMISTRY, CROSS_TEXT } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
 import { songMapHtml, songFraction, SONG_BARS, heardBar, drawSeq, styleColor, styleName } from './hud.js';
 import { GOALS, RECORDS, unlockLabel, unlocksOf } from '../game/progress.js';
@@ -46,10 +46,12 @@ function pipsHtml(d) {
 }
 
 // Style gems: one dot per sound of a style the card changes (larger at its chemistry tiers), a sparkle when
-// the card gains a tier, a crack when it loses one.
+// the card gains a tier, a crack when it loses one. A crossover the card forms is a disc split in its two style
+// colors, Fusion the six-color gem (each cracked apart when the card breaks it).
 function gemsHtml(gems) {
   return (gems || []).map((gm) => {
-    if (gm.style === 'fusion') return '<span class="gems fusion" title="Fusion"><i class="big new up"></i></span>';
+    if (gm.style === 'fusion') return `<span class="gems fusion${gm.tier < 0 ? ' broke' : ''}" title="Fusion"><i class="big${gm.tier > 0 ? ' new up' : ''}"></i></span>`;
+    if (gm.style === 'cross') return `<span class="gems cross${gm.tier < 0 ? ' broke' : ''}" style="--s:${styleColor(gm.a)};--s2:${styleColor(gm.b)}" title="${esc(gm.name)}"><i class="${gm.tier > 0 ? 'new up' : ''}"></i></span>`;
     const th = new Set(chemTiers(gm.style).map((t) => t.n));
     if (!th.size) [2, 4, 6].forEach((n) => th.add(n));
     const n = Math.max(0, Math.min(6, gm.n));
@@ -111,13 +113,14 @@ function songEndHtml(sum, isBest, prev) {
 }
 
 // The 30 sleeves (gold ring for a finished song, dashed for a demo, a G tag for its Gain, dimmed with a hint
-// until pressed), then any other genre pressed, as hidden tracks.
+// until pressed; a crossover's sleeve carries its sentence), then any other genre pressed, as hidden tracks.
 function recordsHtml(meta) {
+  const line = (genre) => (Object.hasOwn(CROSS_TEXT, genre) ? `<small>${esc(CROSS_TEXT[genre])}</small>` : '');
   const sleeve = (genre, rec, hint) => (rec
-    ? `<button class="sleeve ${rec.w ? 'gold' : 'demo'}" type="button" data-genre="${esc(genre)}" ${rec.sh.length ? '' : 'disabled'}>
-        <i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>
+    ? `<button class="sleeve ${rec.w ? 'gold' : 'demo'}${line(genre) ? ' x' : ''}" type="button" data-genre="${esc(genre)}" ${rec.sh.length ? '' : 'disabled'}>
+        <i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>${line(genre)}
         <span>${rec.w ? 'Gold' : 'Demo'} · ${esc(rec.k)}${rec.g ? ` <em>G${rec.g}</em>` : ''}</span></button>`
-    : `<div class="sleeve empty"><i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b><span>${esc(hint)}</span></div>`);
+    : `<div class="sleeve empty${line(genre) ? ' x' : ''}"><i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>${line(genre)}<span>${esc(hint)}</span></div>`);
   const hidden = Object.keys(meta.records).filter((g) => !RECORDS.some((r) => r.genre === g));
   return `<p class="now-playing" aria-live="polite"></p>
     <div class="sleeves">${RECORDS.map((r) => sleeve(r.genre, meta.records[r.genre], r.hint)).join('')}</div>
@@ -146,16 +149,20 @@ function notesHtml(meta) {
     <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(unlockLabel(g))}</small></li>`).join('')}</ol>`;
 }
 
-// The style rules on the pause sheet, from CHEMISTRY in either shape (tier arrays, or { name, text, tiers }).
-function rulesHtml(counts) {
-  return Object.keys(CHEMISTRY).map((st) => {
+// The style rules on the pause sheet, from CHEMISTRY in either shape (tier arrays, or { name, text, tiers }), lit
+// at the tiers the band plays (a crossover's lift included), under the crossover in play and its sentence.
+function rulesHtml(g) {
+  const counts = g.loadout.styleCounts(), R = g.stats.rules;
+  const xs = Object.keys(counts).filter((st) => counts[st] >= 2).map(styleColor);
+  const x = R.x ? `<li class="on x" style="--g:linear-gradient(${xs.join(', ')})"><b>${esc(R.x)}</b><p>${esc(CROSS_TEXT[R.x])}</p></li>` : '';
+  return x + Object.keys(CHEMISTRY).map((st) => {
     const c = CHEMISTRY[st];
     const tiers = chemTiers(st);
-    const n = counts[st] || 0;
+    const n = counts[st] || 0, tier = R.tiers?.[st] || 0;
     const head = Array.isArray(c) ? '' : [c?.name, c?.text].filter(Boolean).map(esc).join(': ');
-    return `<li class="${n >= (tiers[0]?.n ?? 2) ? 'on' : ''}" style="--s:${styleColor(st)}">
+    return `<li class="${tier ? 'on' : ''}" style="--s:${styleColor(st)}">
       <b>${esc(styleName(st))}<span>${n}</span></b>${head ? `<p>${head}</p>` : ''}
-      <ol>${tiers.map((t) => `<li class="${n >= t.n ? 'on' : ''}"><i>${t.n}</i>${esc(t.text || '')}</li>`).join('')}</ol></li>`;
+      <ol>${tiers.map((t, i) => `<li class="${i < tier ? 'on' : ''}"><i>${t.n}</i>${esc(t.text || '')}</li>`).join('')}</ol></li>`;
   }).join('');
 }
 
@@ -576,7 +583,7 @@ export class Screens {
           </div>
           <div>
             <canvas class="seqgrid" aria-hidden="true"></canvas>
-            <ul class="rules">${rulesHtml(g.loadout.styleCounts())}</ul>
+            <ul class="rules">${rulesHtml(g)}</ul>
           </div>
         </div>
         <div class="panel-actions">
