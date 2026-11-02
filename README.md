@@ -50,6 +50,12 @@ server below. Sound on, headphones help.
 - **Survive the song.** Eight to nine minutes in nine sections (Intro, Verse, Chorus, Verse II, Chorus II,
   Bridge, Build-Up, The Drop, Finale), with White Noise in the Finale. Hearts come on a schedule (the
   quiet sections, beaten bosses and hunting elites), not from every kill, so the choruses are the exams.
+- **Three songs.** Loop Survivors, Ode (Beethoven's Ninth) and Korobeiniki (the Russian folk song) have the
+  same nine sections, bosses and length, each with its own chords and its own crowd (Ode's verses march in
+  heavy, Korobeiniki's swarm). After your first run you pick the song on the first-sound screen. The tune
+  comes to your band: in the second phrase of each chorus your Lead (else your Sparkle) plays it, and a Lead
+  or Sparkle that takes the Bridge solo or a Finale solo plays it again, every note still one of its attacks.
+  The original's Finale solo plays the Dies irae. Collected notes spell the song's tune on the pickup bells.
 - **Keep your songs.** The end screen plays your run back as a one-minute radio edit. The Discography
   keeps what you have done across runs: 17 liner-note goals that unlock first sounds (two of them open a
   whole style), 30 record sleeves for the genres a band can become, and the crate of 30 remixes.
@@ -114,7 +120,7 @@ npm run build        # writes dist/loop-survivors.html and dist/artifact.html
 ```
 src/config.js                 tempo, channels, styles, Gain, and BALANCE (every combat tuning number)
 src/music/theory.js           keys, diatonic chords, chord-tone and scale-step lookup, voice leading
-src/music/song.js             the song: sections, progressions, the 8-bar texture chart, bosses
+src/music/song.js             the setlist (songs, tunes, crowds), sections, progressions, the texture chart, bosses
 src/music/sequencer.js        lookahead scheduler, texture transforms, solos, impacts, remix moments
 src/music/replay.js           the radio edit: plays a run's track sheet back
 src/audio/engine.js           the mixing desk: channel strips, pedals, returns, phrase level and tone, master bus
@@ -144,11 +150,11 @@ All run headless in Chromium through Playwright, except where noted.
 node tools/sim.mjs "speed=12&bot=1&minutes=10" --summary --runs 8 --parallel 4   # autopiloted songs, about 2 minutes
 node tools/parity.mjs --ids timpani,harp [--no-remix]   # one sound solo at L1, L5 and remixed, against its channel's band
 node tools/check.mjs                                    # render every instrument level: level, clipping, spectrum
-node tools/check.mjs --arrange                          # the texture chart in Node: who plays, notes a bar, energy
-node tools/check.mjs --audit                            # every note in every key, texture and remix: in key, on the grid
+node tools/check.mjs --arrange [--song ode|all]         # the texture chart in Node: who plays, notes a bar, energy
+node tools/check.mjs --audit [--song all]               # every note in every key, texture, remix and tune: in key, on the grid
 node tools/check.mjs --rules                            # the game's rules as asserts in Node (crossovers, tiers, key degrees)
 node tools/check.mjs --mixall [--remix]                 # whole bands through the real desk
-node tools/check.mjs --mix a,b,c --start N --bars M     # a band bar by bar (also --remixAt N, --boss, --stopAt)
+node tools/check.mjs --mix a,b,c --start N --bars M     # a band bar by bar (also --remixAt N, --boss, --stopAt, --song)
 node tools/drop-check.mjs                               # the perfect Drop lands on the phrase downbeat you heard
 node tools/shots.mjs shots/ [--mobile]                  # drive the real UI, save screenshots, count visible words
 node tools/progress-check.mjs                           # the career rules in Node (no browser)

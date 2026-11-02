@@ -85,7 +85,11 @@ A note is `{ s, v, k, ct | sc | chord, o, d }`:
 - `k` optional kind string for unpitched or multi-sound instruments (`'kick'`, `'snare'`, `'open'`).
 - Pitch, pick one: `ct: n` the n-th chord tone counting up from the chord root at or above `low`
   (0 root, 1 third, 2 fifth, 3 next root, negative goes down); `sc: n` the n-th scale step from the
-  chord root (0 root, 2 third, 4 fifth, 7 octave); `chord: n` an n-note voice-led voicing near `center`.
+  chord root (0 root, 2 third, 4 fifth, 7 octave); `chord: n` an n-note voice-led voicing near `center`;
+  `kd: n` the n-th degree of the key counting from the tonic at or above `low` (0 tonic, 2 third, 4 fifth,
+  7 octave; over the major V chord, 6 is the leading tone). A `kd` note is a tune written as heard: it does
+  not move with the chord and is never settled onto it, so it belongs only over the chords it was written
+  for (the song quotes in `src/music/song.js`, which `check.mjs --audit` checks for folds and rubs).
 - `o` octave shift for this note (added to `low` / `center`).
 - `d` duration in steps (default 1). Arrives as `note.dur` in seconds.
 

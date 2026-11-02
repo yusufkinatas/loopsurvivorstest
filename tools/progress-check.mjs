@@ -42,9 +42,9 @@ assert.equal(normalizeMeta({ gainMax: 3, gainSel: 5 }).gainSel, 3);
 // The setlist and first-run fields: songSel stays a song this version has, played keeps only known songs' bits (a
 // career with runs has played the loop), seen keeps known sound and pedal ids marked 1 (not Object.prototype names),
 // a record's song is known or the loop.
-const sel = normalizeMeta({ runs: 0, songSel: 7, played: 2 | 4, seen: { kick808: 1, reverb: 1, nope: 1, upright: 2, flute: true, constructor: 1, toString: 1, hasOwnProperty: 1 }, records: { Duet: { s: 1, sg: 'kazoo' }, Riff: { s: 2, sg: 'loop' } } });
-assert.equal(sel.songSel, 0);
-assert.equal(sel.played, 0);
+const sel = normalizeMeta({ runs: 0, songSel: 7, played: 2 | 64, seen: { kick808: 1, reverb: 1, nope: 1, upright: 2, flute: true, constructor: 1, toString: 1, hasOwnProperty: 1 }, records: { Duet: { s: 1, sg: 'kazoo' }, Riff: { s: 2, sg: 'loop' } } });
+assert.equal(sel.songSel, 2);   // the last of the three songs
+assert.equal(sel.played, 2);    // Ode's bit; bit 6 is no song
 assert.deepEqual(sel.seen, { kick808: 1, reverb: 1 });
 assert.deepEqual([sel.records.Duet.sg, sel.records.Riff.sg], ['loop', 'loop']);
 for (const played of ['x', -1, 1.5, null]) assert.equal(normalizeMeta({ played }).played, 0);

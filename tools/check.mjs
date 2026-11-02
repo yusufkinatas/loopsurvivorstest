@@ -4,7 +4,8 @@
 //   node tools/check.mjs --mix kick808,upright,squarelead [--level 5]   # a band through the full mixing desk
 //   node tools/check.mjs --mixall              # one band per style (all five), plus two mixed bands, at level 5
 //   node tools/check.mjs --mixall --remix      # the same bands remixed: every pedal on, remix pedals at full on their strips
-//   node tools/check.mjs --audit               # whole-song note audit in Node, no browser (see auditSong)
+//   node tools/check.mjs --audit               # whole-song note audit in Node, no browser (see auditSong), and every
+//                                              # song quote and hook in every key (see auditQuotes)
 //   node tools/check.mjs --arrange             # the arrangement phrase by phrase in Node: who plays, notes a bar,
 //                                              # damage against the full band, textures (see arrangeReport)
 //   node tools/check.mjs --replay ["speed=12&bot=1&minutes=9"]   # play a sim run's track sheet as a radio edit
@@ -17,6 +18,8 @@
 // bar N, --pickups R for R collected notes a second, --remixAt N [--remixId id] for a remix queued to land on
 // bar N (the game's Master Tape moment: that channel drops out on the bar before under a riser, then its remix
 // part comes in with an impact; the first sound of the band with a remix pattern unless --remixId names one).
+// --song id|N|all plays a song of the setlist (default the first, the loop): with --mix and --mixall that song, with
+// --arrange each song named, with --audit also one level 5 run of every instrument through each song named but the loop.
 // Fails (exit 1) on clipping, NaN, notes out of key or off the grid, or errors. --timeout <s> (default 600)
 // bounds page loads and the --replay wait, not a render once it runs.
 import { serve, launch } from './serve.mjs';
@@ -32,36 +35,51 @@ const remix = args.includes('--remix');
 const timeout = num('--timeout', 600) * 1000;
 // A remixed band owns its remix pedals, so every pedal is on (level 1) under the boost.
 const pedals = remix ? { reverb: 1, delay: 1, overdrive: 1, compressor: 1, chorus: 1, wah: 1, bitcrusher: 1 } : {};
-const opts = { level, remix, pedals, bars: num('--bars', 8), keyPc: num('--key', 9), start: num('--start', 0), boss: flag('--boss', null), frac: num('--frac', 1), stopAt: num('--stopAt', null), ending: args.includes('--ending'), pickups: num('--pickups', 0) };
+const songArg = flag('--song', null);
+const opts = { level, remix, pedals, bars: num('--bars', 8), keyPc: num('--key', 9), start: num('--start', 0), boss: flag('--boss', null), frac: num('--frac', 1), stopAt: num('--stopAt', null), ending: args.includes('--ending'), pickups: num('--pickups', 0), song: songArg };
 const remixAt = num('--remixAt', null), remixId = flag('--remixId', null);
 const perBar = ['--start', '--boss', '--stopAt', '--pickups', '--remixAt'].some((f) => args.includes(f));
 
+// The songs --song names (null: none).
+const { SONGS } = await import('../src/music/song.js');
+const tunes = songArg === null ? null : songArg === 'all' ? SONGS : [SONGS.find((t) => t.id === songArg) || SONGS[Number(songArg)]];
+if (tunes && !tunes[0]) { console.log(`no song ${songArg}: ${SONGS.map((t, i) => `${i} ${t.id}`).join(', ')}`); process.exit(2); }
+
 if (args.includes('--audit')) {
-  const { auditSong } = await import('./audiocheck.js');
-  const r = auditSong();
+  const { auditSong, auditQuotes } = await import('./audiocheck.js');
+  const r = auditSong({ tunes: (tunes || []).filter((t) => t !== SONGS[0]) });
   const bad = r.outOfKey + r.offGrid + r.aboveCeiling + r.foreignKind + r.leaks;
   console.log(`audit: ${r.runs} runs (${r.remixRuns} remixed), ${r.notes} notes, ${r.tfNotes} transform notes (${r.transforms} transforms on every part), ${r.chimes} chime pitches`);
   console.log(`  ${r.fillNotes} fill notes, ${r.rollNotes} roll notes, ${r.restBars} rest bars, ${r.breakBars} break bars, ${r.soloBars} solo bars, ${r.stopBars} stop bars`);
   console.log(`out of key ${r.outOfKey}, off grid ${r.offGrid}, above ceiling ${r.aboveCeiling}, sound not in the part ${r.foreignKind}, notes where silent ${r.leaks}${bad ? '  !! FAIL' : ''}`);
-  process.exit(bad ? 1 : 0);
+  const q = auditQuotes();
+  const qbad = q.folds + q.rubs + q.outOfKey + q.offGrid + q.missing.length + q.hookOutOfKey + q.hookAbove;
+  console.log(`quotes: ${q.bars} quote bars (every song, every key), ${q.notes} notes on every Lead and Sparkle: folded ${q.folds}, held rubs ${q.rubs}, out of key ${q.outOfKey}, off grid ${q.offGrid}${q.missing.length ? `, never placed ${q.missing.join(' ')}` : ''}`);
+  console.log(`hooks: ${q.hooks} pitches, out of key ${q.hookOutOfKey}, above ceiling ${q.hookAbove}${qbad ? '  !! FAIL' : ''}`);
+  process.exit(bad || qbad ? 1 : 0);
 }
 
 // The arrangement, phrase by phrase (Node only, a few seconds). See arrangeReport in tools/audiocheck.js.
 if (args.includes('--arrange')) {
   const { arrangeReport } = await import('./audiocheck.js');
-  const r = arrangeReport();
-  const mm = (xs, d = 0) => { const a = Math.min(...xs).toFixed(d), b = Math.max(...xs).toFixed(d); return a === b ? a : `${a}-${b}`; };
-  console.log(`bands at level 5: ${r.bands.join(', ')}   dps = the band's damage against its full parts (min-max over bands, solos with every channel featured)`);
-  console.log('time   phrase      class  playing  notes/bar  dps        e     cue   textures (missing roles play full)');
-  for (const x of r.rows) {
-    const t = `${Math.floor(x.time / 60)}:${String(Math.round(x.time % 60)).padStart(2, '0')}`;
-    const cue = (x.brk ? 'brk ' : '') + (x.impact ? 'IMP' : '');
-    console.log(`${t.padStart(5)}  ${x.name.padEnd(10)}  ${x.cls.padEnd(5)}  ${mm(x.playing).padEnd(7)}  ${mm(x.notes).padEnd(9)}  ${`${x.mean.toFixed(2)} (${x.min.toFixed(2)}-${x.max.toFixed(2)})`.padEnd(17)}  ${x.e.toFixed(2)}  ${cue.padEnd(8)}  ${x.spec}${x.bad.length ? '   !! ' + x.bad.join('; ') : ''}`);
+  let failed = 0;
+  for (const tune of tunes || [SONGS[0]]) {
+    if (tunes) console.log(`\nsong: ${tune.name}`);
+    const r = arrangeReport({ tune });
+    const mm = (xs, d = 0) => { const a = Math.min(...xs).toFixed(d), b = Math.max(...xs).toFixed(d); return a === b ? a : `${a}-${b}`; };
+    console.log(`bands at level 5: ${r.bands.join(', ')}   dps = the band's damage against its full parts (min-max over bands, solos with every channel featured)`);
+    console.log('time   phrase      class  playing  notes/bar  dps        e     cue   textures (missing roles play full)');
+    for (const x of r.rows) {
+      const t = `${Math.floor(x.time / 60)}:${String(Math.round(x.time % 60)).padStart(2, '0')}`;
+      const cue = (x.brk ? 'brk ' : '') + (x.impact ? 'IMP' : '');
+      console.log(`${t.padStart(5)}  ${x.name.padEnd(10)}  ${x.cls.padEnd(5)}  ${mm(x.playing).padEnd(7)}  ${mm(x.notes).padEnd(9)}  ${`${x.mean.toFixed(2)} (${x.min.toFixed(2)}-${x.max.toFixed(2)})`.padEnd(17)}  ${x.e.toFixed(2)}  ${cue.padEnd(8)}  ${x.spec}${x.bad.length ? '   !! ' + x.bad.join('; ') : ''}`);
+    }
+    console.log('energy: ' + r.rows.map((x) => x.mean.toFixed(2)).join(' '));
+    for (const [band, s] of Object.entries(r.similar)) console.log(`texture similarity (1.00 = the same) ${band.padEnd(8)} ` + Object.entries(s).map(([k, v]) => `${k} ${v.toFixed(2)}`).join('  '));
+    if (r.failures.length) console.log('\n!! FAIL\n' + r.failures.join('\n'));
+    failed += r.failures.length;
   }
-  console.log('energy: ' + r.rows.map((x) => x.mean.toFixed(2)).join(' '));
-  for (const [band, s] of Object.entries(r.similar)) console.log(`texture similarity (1.00 = the same) ${band.padEnd(8)} ` + Object.entries(s).map(([k, v]) => `${k} ${v.toFixed(2)}`).join('  '));
-  if (r.failures.length) console.log('\n!! FAIL\n' + r.failures.join('\n'));
-  process.exit(r.failures.length ? 1 : 0);
+  process.exit(failed ? 1 : 0);
 }
 
 // Rules as asserts (Node only, a second or two). Each block adds named checks; a failure prints and the rest still run.
@@ -213,9 +231,9 @@ try {
       const byStyle = (st) => ROLES.map((r) => pick(r, st)).filter(Boolean).map((d) => d.id);
       const mixed = (shift) => ROLES.map((r, i) => pick(r, styles[(i + shift) % styles.length])).filter(Boolean).map((d) => d.id);
       const out = [];
-      const { level, remix, pedals } = opts;
-      for (const ids of [...styles.map(byStyle), mixed(0), mixed(2)]) out.push(await m.checkMix(ids, { level, remix, pedals }));
-      out.push(await m.checkMix(mixed(0), { level, remix, pedals: { reverb: 3, delay: 3, overdrive: 3, compressor: 3, chorus: 3, wah: 3, bitcrusher: 3 } }));
+      const { level, remix, pedals, song } = opts;
+      for (const ids of [...styles.map(byStyle), mixed(0), mixed(2)]) out.push(await m.checkMix(ids, { level, remix, pedals, song }));
+      out.push(await m.checkMix(mixed(0), { level, remix, song, pedals: { reverb: 3, delay: 3, overdrive: 3, compressor: 3, chorus: 3, wah: 3, bitcrusher: 3 } }));
       return out;
     }
     return m.checkAll({ roles: role ? [role] : null });

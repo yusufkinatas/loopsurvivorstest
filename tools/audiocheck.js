@@ -5,10 +5,10 @@
 
 import { BY_ID, INSTRUMENTS } from '../src/content/instruments/index.js';
 import * as V from '../src/audio/voices.js';
-import { Song, SECTIONS, FINALE_BAR, CHART, ENERGY_BANDS } from '../src/music/song.js';
-import { Sequencer, chimeMidi, TRANSFORMS, TEXTURE_NAMES, partOf, stepsOf } from '../src/music/sequencer.js';
+import { Song, SECTIONS, FINALE_BAR, CHART, ENERGY_BANDS, SONGS, sectionsOf } from '../src/music/song.js';
+import { Sequencer, chimeMidi, hookMidi, TRANSFORMS, TEXTURE_NAMES, partOf, stepsOf } from '../src/music/sequencer.js';
 import { radioEdit, playSheet } from '../src/music/replay.js';
-import { KEYS, NATURAL_MINOR, HARMONIC_MINOR } from '../src/music/theory.js';
+import { KEYS, NATURAL_MINOR, HARMONIC_MINOR, keyTone } from '../src/music/theory.js';
 import { STEP_SEC, BAR_SEC, ROLE_HIGH, ROLES, STEPS_PER_BAR } from '../src/config.js';
 import { rng, seedRng } from '../src/util.js';
 import { bossCue } from '../src/game/bosscues.js';
@@ -96,6 +96,9 @@ function inKey(song, n, m) {
   const kp = song.keyPc + (song.position(n.bar).section.lift || 0);
   return (n.chord.harm ? HARMONIC_MINOR : NATURAL_MINOR).includes((((m - kp) % 12) + 12) % 12);
 }
+// A setlist song by id or index (null: the first song, the loop).
+export const tuneOf = (x) => SONGS.find((t) => t.id === x) || SONGS[Number(x)] || SONGS[0];
+const songOf = (keyPc, tune) => new Song(keyPc, sectionsOf(tune), tune);
 const onGrid = (time, t0) => { const k = (time - t0) / STEP_SEC; return Math.abs(k - Math.round(k)) < 1e-6; };
 const pitches = (n) => n.midis || (n.midi != null ? [n.midi] : []);
 
@@ -140,7 +143,7 @@ export async function checkInstrument(id, level, { bars = 4, keyPc = 9 } = {}) {
 //   stopAt   a boss goes down so bar stopAt is stop-time; ending: the final boss, so it is the song's ending
 //   pickups  collected notes per second, chiming through seq.ping, plus a 3-note run every 4 bars
 // Returns the whole render's analysis, per-bar RMS and peak, and the scheduled notes' key and grid counts.
-export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {}, remix = false, start = 0, boss = null, frac = 1, stopAt = null, ending = false, pickups = 0 } = {}) {
+export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {}, remix = false, start = 0, boss = null, frac = 1, stopAt = null, ending = false, pickups = 0, song: songId = null } = {}) {
   // Seeded noise (this page only checks), so two renders differ only by what an option adds.
   seedRng(7);
   Math.random = rng;
@@ -155,7 +158,7 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
   const clock = { sim: false, t: 0, now() { return this.t; } };
   const seq = new Sequencer(clock, eng);
   seq._report = (w, e) => errors.push(`${w}: ${e && e.message}`);
-  const song = new Song(keyPc);
+  const song = songOf(keyPc, tuneOf(songId));
   seq.reset(song);
   seq.bar = start - lead;
   const insts = ids.map((id) => makeInst(BY_ID[id], typeof level === 'number' ? level : level[id] || 1)).filter((i) => i.def);
@@ -214,8 +217,9 @@ export async function checkMix(ids, { level = 5, bars = 8, keyPc = 9, pedals = {
 // pickup chime pitch. Counts what must stay 0: notes out of key, off the 16th grid (or with a step or
 // length off the pattern's grid), above the channel's ceiling (ROLE_HIGH), a sound the part does not play
 // (foreignKind: Beat fills and rolls, transforms), and notes in a bar or step the arrangement or a stop
-// silences (leaks: tacet channels, the break before a breakdown, cuts and stops).
-export function auditSong({ bars = FINALE_BAR + 32 } = {}) {
+// silences (leaks: tacet channels, the break before a breakdown, cuts and stops). tunes: more songs of the setlist,
+// each through one level 5 run of every instrument (alone and in a band of six) and every transform, in one key.
+export function auditSong({ bars = FINALE_BAR + 32, tunes = [] } = {}) {
   const r = { runs: 0, notes: 0, chimes: 0, outOfKey: 0, offGrid: 0, aboveCeiling: 0, foreignKind: 0, leaks: 0, fillNotes: 0, rollNotes: 0, restBars: 0, stopBars: 0, breakBars: 0,
     soloBars: 0, remixRuns: 0, tfNotes: 0, transforms: Object.keys(TRANSFORMS).length };
   const edit = radioEdit(SECTIONS.map((s, index) => ({ index })));
@@ -245,6 +249,64 @@ export function auditSong({ bars = FINALE_BAR + 32 } = {}) {
         if (m > ROLE_HIGH.arp) r.aboveCeiling++;
       }
     }
+  }
+  for (const tune of tunes) {
+    const song = songOf(KEYS[0].pc, tune);
+    for (const def of INSTRUMENTS) {
+      auditRun(r, song, def, def.levels.length, bars, stops);
+      auditRun(r, song, def, def.levels.length, bars, stops, { band: 6 });
+    }
+    auditTransforms(r, song, bars);
+  }
+  return r;
+}
+
+// The song quotes and hooks, note by note, in every key (the Finale's lift included). Every bar where a song's
+// arrangement plays a quote (two Finale cycles), on every Lead and Sparkle at level 5 and remixed, through the real transform
+// and resolver: notes folded under the ceiling (a broken contour), held notes (d >= 4) a half step above a chord
+// tone, out of key or off the grid; and every quote a song names must be placed. Then every hook pitch over every
+// chord of its song (and its home chord), in key and under the Sparkle ceiling.
+export function auditQuotes({ bars = FINALE_BAR + 2 * CHART.finale.length * 8 } = {}) {
+  const r = { bars: 0, notes: 0, folds: 0, rubs: 0, outOfKey: 0, offGrid: 0, missing: [], hooks: 0, hookOutOfKey: 0, hookAbove: 0 };
+  const mod = (n) => ((n % 12) + 12) % 12;
+  const seq = new Sequencer({ sim: true, now: () => 0 }, null);
+  const insts = INSTRUMENTS.filter((d) => d.role === 'lead' || d.role === 'arp').flatMap((d) => [false, true].map((rx) => {
+    const i = makeInst(d, d.levels.length);
+    i.remix = rx && !!d.remix?.pattern?.length;
+    return i;
+  }));
+  for (const tune of SONGS) {
+    const want = new Set(sectionsOf(tune).filter((s) => s.quote).map((s) => s.id)), seen = new Set();
+    for (const key of KEYS) {
+      const song = songOf(key.pc, tune);
+      seq.reset(song);
+      for (let bar = 0; bar < bars; bar++) {
+        const pos = song.position(bar), tf = pos.arr.quote, chord = pos.chord;
+        if (tune.hook) for (const c of [chord, song.chord(song.home, pos.section.lift)]) for (const kd of tune.hook) {
+          const m = hookMidi(c, kd);
+          r.hooks++;
+          if (!inKey(song, { bar, chord: c }, m)) r.hookOutOfKey++;
+          if (m > ROLE_HIGH.arp) r.hookAbove++;
+        }
+        if (!tf) continue;
+        r.bars++;
+        seen.add(pos.section.id);
+        for (const inst of insts) {
+          const part = partOf(inst), P = stepsOf(inst.def, part);
+          for (let sib = 0; sib < STEPS_PER_BAR; sib++) {
+            for (const n of TRANSFORMS[tf](part._byStep, P, bar, sib, pos.arr.pb) || []) {
+              r.notes++;
+              if (n.s !== (bar * STEPS_PER_BAR + sib) % P || !Number.isInteger(n.d ?? 1) || (n.d ?? 1) < 1) r.offGrid++;
+              const m = seq._resolve(inst, n, chord, 0).midi;
+              if (m !== keyTone(chord, n.kd, inst.def.low ?? 48)) r.folds++;
+              if (!inKey(song, { bar, chord }, m)) r.outOfKey++;
+              if ((n.d ?? 1) >= 4 && chord.pcs.slice(0, 3).some((c) => mod(m - c) === 1)) r.rubs++;
+            }
+          }
+        }
+      }
+    }
+    for (const id of want) if (!seen.has(id)) r.missing.push(`${tune.id}.${id}`);
   }
   return r;
 }
@@ -350,10 +412,10 @@ export function standardBands() {
 
 // One level 5 band through the song on a simulated clock. Per bar and role: notes and their damage
 // weight (v x w), and notes where the arrangement has the channel tacet or broken off (leaks).
-function bandRun(defs, bars, featuredRole = null) {
+function bandRun(defs, bars, featuredRole = null, tune = SONGS[0]) {
   const clock = { sim: true, t: 0, now() { return this.t; } };
   const seq = new Sequencer(clock, null);
-  const song = new Song(9);
+  const song = songOf(9, tune);
   seq.reset(song);
   const insts = defs.map((d) => makeInst(d, 5));
   seq.getInstruments = () => insts;
@@ -393,13 +455,13 @@ const isAllFull = (ph) => !ph.solo && ROLES.every((r) => ph.tex[r].tf === 'full'
 // also played with every channel featured. Failures: more than 2 all-full phrases in a row from Chorus II
 // on (never a wall), a phrase's ratio outside its class band or drifted from its declared energy, two
 // sections in a row with the same texture, and any note from a tacet channel or after a break.
-export function arrangeReport({ cycles = 2 } = {}) {
+export function arrangeReport({ cycles = 2, tune = SONGS[0] } = {}) {
   const finale = CHART.finale.length * 8;
   const bars = FINALE_BAR + cycles * finale;
   const bands = standardBands();
   const runs = {};
   for (const [name, defs] of Object.entries(bands)) {
-    runs[name] = { defs, main: bandRun(defs, bars), solo: ROLES.map((r) => bandRun(defs, bars, r)) };
+    runs[name] = { defs, main: bandRun(defs, bars, null, tune), solo: ROLES.map((r) => bandRun(defs, bars, r, tune)) };
   }
   // The phrases in song order.
   const phrases = [];
@@ -446,9 +508,9 @@ export function arrangeReport({ cycles = 2 } = {}) {
     if (Math.abs(mean - ph.e) > 0.06) bad.push(`declared energy ${ph.e}, measured ${mean.toFixed(2)}`);
     if (leaks) bad.push(`${leaks} notes from tacet or broken-off channels`);
     for (const b of bad) failures.push(`${name}: ${b}`);
-    const pos = new Song(9).position(b0);
+    const song = songOf(9, tune), pos = song.position(b0);
     return { name, bar: b0, time: b0 * BAR_SEC, cls: ph.cls, e: ph.e, mean, min: Math.min(...all), max: Math.max(...all), notes, playing, leaks,
-      impact: pos.arr.impact, brk: b0 > 0 && new Song(9).position(b0 - 1).arr.brk > 0, spec: ph.spec || 'full', bad };
+      impact: pos.arr.impact, brk: b0 > 0 && song.position(b0 - 1).arr.brk > 0, spec: (ph.spec || 'full') + (pos.arr.quote ? `  (${pos.arr.quote})` : ''), bad };
   });
   // Never a wall: from Chorus II on, at most 2 all-full phrases in a row.
   let run = 0;

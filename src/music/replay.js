@@ -5,7 +5,7 @@
 
 import { MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
 import { clamp } from '../util.js';
-import { Song, SECTIONS } from './song.js';
+import { Song, SECTIONS, CHART } from './song.js';
 import { makeInst, remixBoost } from '../game/loadout.js';
 import { BY_ID } from '../content/instruments/index.js';
 
@@ -13,7 +13,8 @@ import { BY_ID } from '../content/instruments/index.js';
 // phrase (src/music/song.js CHART), played with its textures. The choruses, The Drop and the Finale start
 // on an impact (the Finale on a cycle's rise after its solo; Chorus II on its last, biggest phrase), Verse
 // II and the Bridge on their breakdowns, the Build-Up on the roll and sweep into The Drop, else the end of
-// the first phrase, so the excerpt ends on its fill.
+// the first phrase, so the excerpt ends on its fill. A section whose song quote rides its solo starts on the
+// solo instead, so the edit plays the tune (every song's Finale, and the Bridge of a song that quotes there).
 const EDIT_BARS = { intro: 2, build: 2 };
 const EDIT_FROM = { chorus1: 0, verse2: 0, chorus2: 28, bridge: 0, build: 14, drop: 0, finale: 24 };
 
@@ -26,7 +27,7 @@ export function radioEdit(sheet) {
   const out = sheet.filter(valid).map((e) => {
     const s = SECTIONS[e.index];
     const bars = EDIT_BARS[s.id] || 4;
-    return { ...s, bars, from: EDIT_FROM[s.id] ?? 8 - bars };
+    return { ...s, bars, from: s.quote?.at === 'solo' ? 8 * CHART[s.id].findIndex((p) => p.solo) : EDIT_FROM[s.id] ?? 8 - bars };
   });
   out.push({ id: 'outro', name: 'Outro', bars: Infinity, prog: [0], lift: out[out.length - 1]?.lift, end: true });
   return out;

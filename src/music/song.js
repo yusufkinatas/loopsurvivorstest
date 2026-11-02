@@ -2,20 +2,21 @@
 // the enemy mix, and the arrangement changes which parts play and how. Progressions are scale degrees
 // in the run's minor key; {d, h} = harmonic-minor chord.
 //
-// Section data: lift raises the section's key by semitones (the Finale's key change). A radio edit
-// (src/music/replay.js) also uses from (start the section's progression and arrangement that many bars
-// in) and end (the outro: one last downbeat, then silence).
+// Section data: lift raises the section's key by semitones (the Finale's key change), quote names the tune a phrase
+// plays (see the setlist below). A radio edit (src/music/replay.js) also uses from (start the section's progression
+// and arrangement that many bars in) and end (the outro: one last downbeat on the song's home chord, then silence).
 
 import { ROLES } from '../config.js';
 import { makeChord } from './theory.js';
 
+const V = { d: 4, h: true };                   // the major V (harmonic minor)
 const P = {
   verse:  [0, 5, 2, 6],                       // i  VI III VII
   verse2: [0, 3, 5, 6],                       // i  iv VI  VII
   chorus: [5, 6, 4, 0],                       // VI VII v  i
-  bridge: [3, 0, 3, { d: 4, h: true }],       // iv i  iv  V
-  build:  [3, 3, { d: 4, h: true }, { d: 4, h: true }],
-  finale: [0, 6, 5, { d: 4, h: true }],       // i  VII VI V (Andalusian cadence)
+  bridge: [3, 0, 3, V],                       // iv i  iv  V
+  build:  [3, 3, V, V],
+  finale: [0, 6, 5, V],                       // i  VII VI V (Andalusian cadence)
 };
 
 export const SECTIONS = [
@@ -27,20 +28,107 @@ export const SECTIONS = [
   { id: 'bridge',  name: 'Bridge',    bars: 32, prog: P.bridge, hue: 172, note: 'The drums sit out for the breakdown' },
   { id: 'build',   name: 'Build-Up',  bars: 16, prog: P.build,  hue: 34,  build: true, note: 'The drums build to the drop' },
   { id: 'drop',    name: 'The Drop',  bars: 32, prog: P.chorus, hue: 336, boss: 'glitchking', riser: true, drop: true },
-  { id: 'finale',  name: 'Finale',    bars: Infinity, prog: P.finale, hue: 6, boss: 'whitenoise', riser: true, lift: 2 },
+  { id: 'finale',  name: 'Finale',    bars: Infinity, prog: P.finale, hue: 6, boss: 'whitenoise', riser: true, lift: 2, quote: { at: 'solo', part: 'dies' } },
 ];
 
 export const FINALE_BAR = SECTIONS.slice(0, -1).reduce((s, x) => s + x.bars, 0);
 
-// The setlist. A song is the same nine sections, bosses and chart with its own harmony and tune: id, name, hook (the
-// pickup chimes' tune in key degrees, null: they climb the chord) and home (the degree it ends on). Never drawn from
-// rng(): the lobby picks it, sims pass song=N.
-const LOOP = { id: 'loop', name: 'Loop Survivors', hook: null, home: 0 };
-export const SONGS = [LOOP];
+// ---------------------------------------------------------------------------- the setlist
+//
+// A song is the same nine sections, bosses and chart with its own harmony and tune. Never drawn from rng(): the
+// lobby picks it, sims pass song=N.
+//   name, credit  what the lobby shows
+//   hook          the pickup chimes' tune in key degrees (null: they climb the chord)
+//   home          the degree it ends on (its stop-time and last chord)
+//   prog          section id -> its progression (one chord per bar, up to 32 bars: a quote phrase gets its own 8)
+//   quote         section id -> { at, part }: the phrase (an index, or 'solo' for the solo phrase) where the band's
+//                 Lead (else its Sparkle) plays QUOTES[part] in its own sound, every note still an attack
+//   fig           section id -> { role: transform }: an accompaniment figure in place of that role's full part
+//   waves         section id -> the enemy mix in place of BALANCE.waves (its own crowd)
+//
+// Quotes are written in key degrees (kd: 0 the tonic, 2 the third, 4 the fifth, 7 the octave, negative goes down;
+// over the major V degree 6 is the leading tone), steps on the 16th grid from the phrase's downbeat, d in steps. They
+// sit only on bars whose chords the song sets for them, and tools/check.mjs --audit checks every note on every Lead
+// and Sparkle in every key: no fold under a ceiling, no held note a half step above a chord tone. Most quarters are
+// detached (d 2) and about a quarter of the notes are held (3 steps or more), as in a Lead's own part, since a held
+// note is a bigger attack on Saw Lead, Shred Guitar and French Horn. Public domain melodies only.
+const Q = (s, kd, d = 1, v = 1) => ({ s, kd, d, v });
+// Bars of [step, kd, d] from bar b0 on, the bar's first note accented.
+const bars = (b0, ...bs) => bs.flatMap((ns, i) => ns.map(([s, kd, d]) => Q((b0 + i) * 16 + s, kd, d, s ? 0.85 : 1)));
 
-// A song's sections: SECTIONS with that song's progressions and parts.
+// Beethoven, Symphony No. 9, the "Ode to Joy" theme (Beethoven died 1827), in the relative major: major degree n is
+// kd n + 2.
+const ODE_LINE = [
+  [[0, 4, 2], [4, 4, 2], [8, 5, 2], [12, 6, 4]],   // E E F G   (in A minor's C major)
+  [[0, 6, 2], [4, 5, 2], [8, 4, 2], [12, 3, 2]],   // G F E D
+  [[0, 2, 2], [4, 2, 2], [8, 3, 2], [12, 4, 4]],   // C C D E
+];
+const ODE_THEME = [...bars(0, ...ODE_LINE, [[0, 4, 6], [6, 3, 2], [8, 3, 8]]),   // E. D D
+  ...bars(4, ...ODE_LINE, [[0, 3, 6], [6, 2, 2], [8, 2, 8]])];                    // D. C C
+// Korobeiniki, the Russian folk song (traditional tune, to Nekrasov's poem of 1861), A and B strains. This is the
+// folk melody, opening E G# B G# E, never the 1989 Game Boy "Type A" arrangement (which opens E B C D C B).
+const KORO_END = [[[0, 1, 6], [6, 2, 2], [8, 3, 2], [12, 4, 2]], [[0, 2, 2], [4, 0, 2], [8, 0, 8]]];   // B C D E | C A A
+const KORO = [
+  ...bars(0, [[0, -3, 6], [6, -1, 2], [8, 1, 2], [12, -1, 2], [14, -3, 2]], [[0, 0, 6], [6, 2, 2], [8, 4, 2], [12, 3, 2], [14, 2, 2]], ...KORO_END),   // E G# B G# E | A C E D C
+  ...bars(4, [[0, 5, 6], [6, 6, 2], [8, 7, 2], [12, 6, 2], [14, 5, 2]], [[0, 4, 6], [6, 5, 2], [8, 4, 2], [12, 3, 2], [14, 2, 2]], ...KORO_END),      // F G A G F | E F E D C
+];
+// Dies irae, the 13th-century chant (attributed to Thomas of Celano, died about 1265): its first line over the
+// Finale's i VII, then our own answer over VI V. Each bar's last note is held.
+const DIES = bars(0, [[0, 2, 2], [4, 1, 2], [8, 2, 2], [12, 0, 4]], [[0, 1, 2], [4, -1, 2], [8, 0, 8]],   // F E F D | E C D (in D minor)
+  [[0, 2, 2], [4, 0, 2], [8, 2, 2], [12, 5, 4]], [[0, 1, 2], [4, -1, 2], [8, 1, 2], [12, 4, 4]]);         // F D F Bb | E C# E A
+
+// id -> { steps, pattern, by (notes by step), last (per step, the note last struck) }: the quotes (sequencer.js
+// plays QUOTES[id] as the transform q_<id>).
+const quote = (steps, pattern) => {
+  const by = [], last = [];
+  for (const n of pattern) (by[n.s] ||= []).push(n);
+  for (let i = 0; i < steps; i++) last[i] = by[i] ? by[i][0] : last[i - 1];
+  return { steps, pattern, by, last };
+};
+export const QUOTES = { ode: quote(128, ODE_THEME), koro: quote(128, KORO), dies: quote(64, DIES) };
+
+// A 32-bar progression: a 4-bar loop with the quote's own 8 chords under phrase i.
+const around = (loop, i, tune) => [...Array(2 * i).fill(loop).flat(), ...tune, ...Array(2 * (3 - i)).fill(loop).flat()];
+const ODE_CHORDS = [2, 6, 2, 6, 2, 6, 2, 2];   // I V I V I V I I in the relative major
+const KORO_CHORDS = [V, 0, V, 0, 3, 0, V, 0];  // the folk song's own V i V i iv i V i
+
+const LOOP = { id: 'loop', name: 'Loop Survivors', credit: 'The original', hook: null, home: 0 };
+const ODE = {
+  id: 'ode', name: 'Ode', credit: 'Beethoven, Symphony No. 9', home: 2,
+  hook: [4, 4, 5, 6, 6, 5, 4, 3, 2, 2, 3, 4, 4, 3, 3],
+  // The relative major: I V vi IV and its turns, ending on I.
+  prog: { intro: [2, 6, 0, 5], verse1: [2, 6, 0, 5], chorus1: around([5, 6, 2, 0], 1, ODE_CHORDS), verse2: [0, 5, 2, 6],
+    chorus2: around([5, 6, 2, 0], 1, ODE_CHORDS), bridge: around([5, 6, 2, 0], 1, ODE_CHORDS), build: [5, 5, 6, 6], drop: [5, 6, 2, 2],
+    finale: around([2, 6, 0, 5], 2, ODE_CHORDS) },
+  quote: { chorus1: { at: 1, part: 'ode' }, chorus2: { at: 1, part: 'ode' }, bridge: { at: 'solo', part: 'ode' }, finale: { at: 'solo', part: 'ode' } },
+  fig: { verse1: { arp: 'f_alberti' }, verse2: { arp: 'f_alberti' }, finale: { bass: 'f_octave' } },
+  // The verses march in: heavier Hums and Stomps in place of Static and Buzz.
+  waves: {
+    verse1: { static: 0.5, buzz: 0.2, hum: 0.14, 'hum:loud': 0.04, 'static:loud': 0.04, stomp: 0.08 },
+    verse2: { static: 0.14, 'static:loud': 0.21, buzz: 0.08, glitch: 0.16, hum: 0.22, 'hum:loud': 0.09, stomp: 0.08, snare: 0.02 },
+  },
+};
+const KOROBEINIKI = {
+  id: 'korobeiniki', name: 'Korobeiniki', credit: 'Russian folk song', home: 0,
+  hook: [-3, -1, 1, -1, -3, 0, 2, 4, 3, 2],
+  // Folk V-i harmony throughout; the Build-Up keeps the default iv iv V V.
+  prog: { intro: [V, 0, V, 0], verse1: KORO_CHORDS, chorus1: around([5, 6, V, 0], 1, KORO_CHORDS), verse2: KORO_CHORDS,
+    chorus2: around([5, 6, V, 0], 1, KORO_CHORDS), bridge: around([3, 0, 3, V], 1, KORO_CHORDS), drop: [5, 6, V, 0],
+    finale: around([0, 6, 5, V], 2, KORO_CHORDS) },
+  quote: { chorus1: { at: 1, part: 'koro' }, chorus2: { at: 1, part: 'koro' }, bridge: { at: 'solo', part: 'koro' }, finale: { at: 'solo', part: 'koro' } },
+  fig: { verse1: { bass: 'f_oompah' }, verse2: { bass: 'f_oompah' }, chorus1: { bass: 'f_oompah' }, chorus2: { bass: 'f_oompah' } },
+  // The verses swarm: Buzz in place of Static.
+  waves: {
+    verse1: { static: 0.4, buzz: 0.44, 'buzz:loud': 0.1, 'static:loud': 0.04, stomp: 0.02 },
+    verse2: { static: 0.12, 'static:loud': 0.17, buzz: 0.3, 'buzz:loud': 0.12, glitch: 0.12, hum: 0.08, 'hum:loud': 0.03, stomp: 0.04, snare: 0.02 },
+  },
+};
+export const SONGS = [LOOP, ODE, KOROBEINIKI];
+
+// A song's sections: SECTIONS with that song's progressions, quotes and figures (the loop's are SECTIONS).
 export function sectionsOf(tune) {
-  return SECTIONS;
+  if (!tune?.prog) return SECTIONS;
+  return SECTIONS.map((s) => ({ ...s, prog: tune.prog[s.id] || s.prog, quote: tune.quote?.[s.id] || s.quote, fig: tune.fig?.[s.id] }));
 }
 
 // ---------------------------------------------------------------------------- the texture chart
@@ -173,8 +261,10 @@ export const CHART = {
 //   sweep   the 2-bar filter sweep into The Drop starts on this downbeat
 //   impact  this downbeat hits like a Drop: the band slams back in (a game event too)
 //   cut     every channel plays its step-0 notes, then rests until this step
+//   quote   the transform ('q_<part>') of the section's quote on its phrase: the band's Lead (else its Sparkle)
+//           plays it, or on the solo phrase the featured channel when it is a Lead or Sparkle (sequencer.js texOf)
 const BASE = { phrase: 0, pb: 0, cycle: 0, cls: 'full', tex: null, quiet: false, solo: false, impact: false, energy: 1,
-  rest: [], fill: false, brk: 0, roll: 0, kicks: true, v0: 1, v1: 1, sweep: false, cut: 0 };
+  rest: [], fill: false, brk: 0, roll: 0, kicks: true, v0: 1, v1: 1, sweep: false, cut: 0, quote: null };
 const ALL_FULL = Object.fromEntries(ROLES.map((r) => [r, FULL_TEX]));
 const ALL_OUT = Object.fromEntries(ROLES.map((r) => [r, OUT_TEX]));
 const PLAIN = Object.freeze({ ...BASE, tex: ALL_FULL });
@@ -204,8 +294,10 @@ function arrangement(section, b) {
   const rest = ROLES.filter((r) => ph.tex[r].tf === 'out');
   const impact = pb === 0 && (ph.impact === 'first' ? cycle === 0 : !!ph.impact);
   const roll = section.build && b >= 8 && b < 16 ? ROLL[b - 8] : null;
+  const q = section.quote;
+  const quote = q && (q.at === 'solo' ? ph.solo : ph === CHART[section.id][q.at]) ? 'q_' + q.part : null;
   return { ...BASE, phrase, pb, cycle, cls: ph.cls, tex: ph.tex, quiet: ph.cls === 'quiet', solo: ph.solo, impact, energy: ph.e,
-    rest, fill: pb === 7 && !roll, ...roll };
+    rest, fill: pb === 7 && !roll, quote, ...roll };
 }
 
 export class Song {
@@ -255,7 +347,7 @@ export class Song {
       if (bar < start + s.bars) {
         const barInSection = bar - start;
         const b = barInSection + (s.from || 0);
-        const chord = this.chord(s.prog[b % s.prog.length], s.lift);
+        const chord = this.chord(s.end ? this.home : s.prog[b % s.prog.length], s.lift);   // an outro rings on home
         return { index: i, section: s, barInSection, sectionStart: start, chord, barsLeft: s.bars - barInSection, arr: arrangement(s, b) };
       }
       start += s.bars;
@@ -263,4 +355,16 @@ export class Song {
     const s = S[S.length - 1];
     return { index: S.length - 1, section: s, barInSection: bar - start, sectionStart: start, chord: this.chord(s.prog[0], s.lift), barsLeft: Infinity, arr: PLAIN };
   }
+}
+
+// Load check (console.error fails the sims): every progression is at most 32 bars of plain major or minor triads,
+// and every quote a section names exists, starts on its downbeat, sits on its grid and lands on a phrase of the chart.
+for (const tune of SONGS) for (const s of sectionsOf(tune)) {
+  const bad = (what) => console.error(`[songs] ${tune.id}.${s.id}: ${what}`);
+  if (s.prog.length > 32) bad('a progression longer than 32 bars');
+  for (const c of s.prog) { const { quality, intervals } = makeChord(0, c.d ?? c, !!c.h); if (quality === 'dim' || intervals[2] !== 7) bad(`degree ${JSON.stringify(c)} is not a major or minor triad`); }
+  if (!s.quote) continue;
+  const q = QUOTES[s.quote.part], phs = CHART[s.id] || [];
+  if (!q || q.steps % 16 || !q.by[0] || q.pattern.some((n) => !Number.isInteger(n.s) || n.s < 0 || !Number.isInteger(n.kd) || !Number.isInteger(n.d) || n.d < 1 || n.s + n.d > q.steps)) bad(`bad quote ${s.quote.part}`);
+  if (!(s.quote.at === 'solo' ? phs.some((p) => p.solo) : phs[s.quote.at])) bad(`no phrase ${s.quote.at} for its quote`);
 }
