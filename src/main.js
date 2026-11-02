@@ -79,7 +79,7 @@ let lobbyGain = 0;         // the Gain the next run plays at (meta.gainSel)
 
 const hooks = {
   onLevelUp: (offers) => { hud.hideBanner(); screens.levelUp(game, offers); },
-  onResume: () => { screens.hide(); input.releaseStick(); },
+  onResume: () => { screens.hide(); input.releaseStick(); hud.resumed(); },
   onGameOver: (sum) => endRun(sum),
   onVictory: (sum) => endRun(sum),
   onBanner: (t, s, compact, style) => hud.showBanner(t, s, compact, style),

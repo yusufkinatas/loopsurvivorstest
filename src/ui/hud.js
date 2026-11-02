@@ -180,6 +180,7 @@ export class Hud {
   reset() {
     this._tiers = null;
     this._genre = null;
+    this._stampOwed = false;
     this._targetEl = null;
     this.target(null);
     this.hint(null);
@@ -201,6 +202,8 @@ export class Hud {
   }
 
   hideBanner() { this.banner.classList.remove('show'); }
+  // Play resumes: a stamp that fired under a card screen (a pick, then another screen in the same pause) plays now.
+  resumed() { if (this._stampOwed) kick(this.stamp, 'show'); this._stampOwed = false; }
 
   // A device glyph under the player that shows how to move ('keys', 'stick' or 'finger'), or null to hide it.
   hint(kind) {
@@ -329,6 +332,7 @@ export class Hud {
       this.stamp.textContent = g.genre;
       if (line.textContent) this.stamp.append(line);
       kick(this.stamp, 'show');
+      this._stampOwed = !!document.body.dataset.screen;   // a card screen hides it: resumed() plays it again
     }
     this._genre = g.genre;
   }

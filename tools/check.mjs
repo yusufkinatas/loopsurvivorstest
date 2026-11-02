@@ -306,6 +306,7 @@ if (args.includes('--rules')) {
       // A tier stepped down that keeps a tier reads as a loss.
       d = card(['kick808', 'hats909', 'subbass', 'supersaw', 'sawlead', 'arpsynth'], { kind: 'swap', def: BY_ID.squarelead, from: 'lead' });
       has(d, 'Synth x5: Long throw drops to +40% far away');
+      has(card(['chipdrums', 'chiphat', 'tribass', 'chipchords', 'flute', 'musicbox'], { kind: 'swap', def: BY_ID.kick808, from: 'beat' }), '8-Bit x3: Combo streak drops to +25% damage');
       assert.deepEqual(xs(card(['kick808', 'hats909', 'dropd'], { kind: 'new', def: BY_ID.flute })), [], 'no crossover moves: no gem');
     });
     check('the pick moment: nothing at time 0, then one ring per pick (crossover > rule tier > channel), one line at most', () => {

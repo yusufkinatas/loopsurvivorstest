@@ -170,7 +170,7 @@ export function chemistryLine(g, style, delta) {
     const base = { style: st, rule }, head = `${STYLES[st].name} x${c[st]}: ${name}`;
     const tierText = (t) => { const s = tiers[t - 1].text; return s[0].toLowerCase() + s.slice(1); };
     if (t1[st] > t0[st]) lines.push({ ...base, good: true, text: `${head}, ${tierText(t1[st])}` });
-    else if (t1[st] < t0[st]) lines.push({ ...base, good: false, text: t1[st] ? `${head} drops to ${tierText(t1[st])}` : `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
+    else if (t1[st] < t0[st]) lines.push({ ...base, good: false, text: t1[st] ? `${head} drops to ${tierText(t1[st]).replace(/^up to /, '')}` : `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
     else if (c[st] > before[st]) {
       const next = tiers.find((t) => t.n > c[st]);
       const goal = next && (next === tiers[0] ? name : next.text);
