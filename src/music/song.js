@@ -43,7 +43,8 @@ export const FINALE_BAR = SECTIONS.slice(0, -1).reduce((s, x) => s + x.bars, 0);
 //   prog          section id -> its progression (one chord per bar, up to 32 bars: a quote phrase gets its own 8)
 //   quote         section id -> { at, part }: the phrase (an index, or 'solo' for the solo phrase) where the band's
 //                 Lead (else its Sparkle) plays QUOTES[part] in its own sound, every note still an attack
-//   fig           section id -> { role: transform }: an accompaniment figure in place of that role's full part
+//   fig           section id -> { role: figure }: an accompaniment figure (an id of src/music/grooves.js FIGURES) in
+//                 place of that role's full part
 //   waves         section id -> the enemy mix in place of BALANCE.waves (its own crowd)
 //
 // Quotes are written in key degrees (kd: 0 the tonic, 2 the third, 4 the fifth, 7 the octave, negative goes down;
@@ -101,34 +102,34 @@ const ODE = {
     chorus2: around([5, 6, 2, 0], 1, ODE_CHORDS), bridge: around([5, 6, 2, 0], 1, ODE_CHORDS), build: [5, 5, 6, 6], drop: [5, 6, 2, 2],
     finale: around([2, 6, 0, 5], 2, ODE_CHORDS) },
   quote: { chorus1: { at: 1, part: 'ode' }, chorus2: { at: 1, part: 'ode' }, bridge: { at: 'solo', part: 'ode' }, finale: { at: 'solo', part: 'ode' } },
-  fig: { verse1: { arp: 'f_alberti' }, verse2: { arp: 'f_alberti' }, finale: { bass: 'f_octave' } },
+  fig: { verse1: { arp: 'alberti' }, verse2: { arp: 'alberti' }, finale: { bass: 'octave' } },
   // The verses march in: heavier Hums and Stomps in place of Static and Buzz.
   waves: {
-    verse1: { static: 0.52, buzz: 0.22, hum: 0.16, 'static:loud': 0.04, stomp: 0.06 },
-    verse2: { static: 0.2, 'static:loud': 0.21, buzz: 0.1, glitch: 0.16, hum: 0.2, 'hum:loud': 0.05, stomp: 0.06, snare: 0.02 },
+    verse1: { static: 0.52, buzz: 0.22, hum: 0.16, 'hum:loud': 0.04, stomp: 0.06 },
+    verse2: { static: 0.16, 'static:loud': 0.18, buzz: 0.1, glitch: 0.16, hum: 0.24, 'hum:loud': 0.08, stomp: 0.06, snare: 0.02 },
   },
 };
 const KOROBEINIKI = {
   id: 'korobeiniki', name: 'Korobeiniki', credit: 'Russian folk song', home: 0,
-  hook: [-3, -1, 1, -1, -3, 0, 2, 4, 3, 2],
+  hook: [0, 2, 4, 3, 2, 1, 2, 3, 4, 2, 0, 0],   // A C E D C | B C D E | C A A: no leading tone, so it is right over any chord
   // Folk V-i harmony throughout; the Build-Up keeps the default iv iv V V.
   prog: { intro: [V, 0, V, 0], verse1: KORO_CHORDS, chorus1: around([5, 6, V, 0], 1, KORO_CHORDS), verse2: KORO_CHORDS,
     chorus2: around([5, 6, V, 0], 1, KORO_CHORDS), bridge: around([3, 0, 3, V], 1, KORO_CHORDS), drop: [5, 6, V, 0],
     finale: around([0, 6, 5, V], 2, KORO_CHORDS) },
   quote: { chorus1: { at: 1, part: 'koro' }, chorus2: { at: 1, part: 'koro' }, bridge: { at: 'solo', part: 'koro' }, finale: { at: 'solo', part: 'koro' } },
-  fig: { verse1: { bass: 'f_oompah' }, verse2: { bass: 'f_oompah' }, chorus1: { bass: 'f_oompah' }, chorus2: { bass: 'f_oompah' } },
+  fig: { verse1: { bass: 'oompah' }, verse2: { bass: 'oompah' }, chorus1: { bass: 'oompah' }, chorus2: { bass: 'oompah' } },
   // The verses swarm: Buzz in place of Static.
   waves: {
-    verse1: { static: 0.5, buzz: 0.44, 'static:loud': 0.04, stomp: 0.02 },
-    verse2: { static: 0.14, 'static:loud': 0.21, buzz: 0.32, glitch: 0.12, hum: 0.1, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
+    verse1: { static: 0.5, buzz: 0.44, 'buzz:loud': 0.04, stomp: 0.02 },
+    verse2: { static: 0.14, 'static:loud': 0.17, buzz: 0.32, 'buzz:loud': 0.04, glitch: 0.12, hum: 0.1, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
   },
 };
 export const SONGS = [LOOP, ODE, KOROBEINIKI];
 
-// A song's sections: SECTIONS with that song's progressions, quotes and figures (the loop's are SECTIONS).
+// A song's sections: SECTIONS with that song's progressions and quotes (the loop's are SECTIONS).
 export function sectionsOf(tune) {
   if (!tune?.prog) return SECTIONS;
-  return SECTIONS.map((s) => ({ ...s, prog: tune.prog[s.id] || s.prog, quote: tune.quote?.[s.id] || s.quote, fig: tune.fig?.[s.id] }));
+  return SECTIONS.map((s) => ({ ...s, prog: tune.prog[s.id] || s.prog, quote: tune.quote?.[s.id] || s.quote }));
 }
 
 // ---------------------------------------------------------------------------- the texture chart

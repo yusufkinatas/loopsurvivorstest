@@ -173,8 +173,23 @@ export function reW(part, P, tf) {
   }
   return c[tf];
 }
+// How hard a channel's notes hit under song quote q (a q_ transform): reW, times a trim for a part whose damage its
+// velocity does not tell (mostly a held note that fires wider, longer or more often). Each trim brings the part's
+// quote, forced on the Intro, within 5% of its full part's damage on training dummies (node tools/dummy.mjs
+// mode=quote, which also measures the chorus quote phrases; a remix by its id).
+// ponytail: trims measured at level 5; re-measure when a Lead or Sparkle part or a quote changes.
+const QUOTE_TRIM = {
+  q_dies: { screamer: 1.1, chiparp: 1.12, jackpot: 1.06, shred: 1.05, windmill: 1.23, horn: 1.19, fanfare: 1.35, harp: 0.89 },
+  q_ode: { sawlead: 0.84, screamer: 0.93, arpsynth: 1.06, windmill: 1.12, horn: 1.11, fanfare: 1.3 },
+  q_koro: { screamer: 0.88, chiparp: 1.08, shred: 0.88, windmill: 1.06, horn: 1.09, fanfare: 1.22 },
+};
+function quoteW(inst, q) {
+  const part = partOf(inst);
+  if (!part?._byStep || !TRANSFORMS[q]) return 1;
+  return reW(part, stepsOf(inst.def, part), q) * (QUOTE_TRIM[q]?.[part.id ?? inst.def.id] ?? 1);
+}
 
-function pickFeatured(band) {
+export function pickFeatured(band) {
   let best = null, bk = -Infinity;
   for (const i of band) {
     if (!i?.def) continue;
@@ -291,7 +306,7 @@ export class Sequencer {
   }
 
   // Stop-time: on the next downbeat that is not held, every channel plays its step-0 notes and rests
-  // until step `len`. home: that bar's chord becomes i (of the lifted key), the song's last chord.
+  // until step `len`. home: that bar's chord becomes the song's home chord (of the lifted key), its last chord.
   // It never shares a bar with the player's Drop: a queued Drop waits out the stop bar (see _step), and a
   // stop asked for while a Drop builds would land on its impact, the moment itself, so it is dropped. The
   // song's ending is kept: its silent bar follows the impact.
@@ -528,14 +543,11 @@ export class Sequencer {
     if (arr.solo) {
       const f = this._featured(arr, bar, peek);
       if (f?.role === role) return this._soloTex(inst, f.gain, arr.quote);
-    } else if (arr.quote && role === this._quoteRole(bar)) {
-      const part = partOf(inst);
-      return { tf: arr.quote, w: part?._byStep ? reW(part, stepsOf(inst.def, part), arr.quote) : 1 };
-    }
+    } else if (arr.quote && role === this._quoteRole(bar)) return { tf: arr.quote, w: quoteW(inst, arr.quote) };
     const t = arr.tex?.[role] || FULL_TEX;
     if (t.tf === 'out' && (inst.remix || band <= 3)) return SPARSE_TEX;
     const tf = t.tf === 'full' && this.forceTex?.[role];
-    if (tf) { const part = partOf(inst); return { ...t, tf, w: t.w * (part?._byStep && TRANSFORMS[tf] ? reW(part, stepsOf(inst.def, part), tf) : 1) }; }
+    if (tf) return { ...t, tf, w: tf.startsWith('q_') ? t.w * quoteW(inst, tf) : t.w };
     return t;
   }
 
@@ -565,9 +577,8 @@ export class Sequencer {
   _soloTex(inst, gain, quote = null) {
     const part = partOf(inst);
     if (!part?._byStep) return FULL_TEX;
-    const P = stepsOf(inst.def, part);
-    if (quote && (inst.def.role === 'lead' || inst.def.role === 'arp')) return { tf: quote, w: clamp(gain * reW(part, P, quote), 0.5, 4), solo: true };
-    const s = soloShape(part, P);
+    if (quote && (inst.def.role === 'lead' || inst.def.role === 'arp')) return { tf: quote, w: gain * quoteW(inst, quote), solo: true };
+    const s = soloShape(part, stepsOf(inst.def, part));
     return { tf: s.tf, w: clamp(gain / s.ratio, 0.5, 2), solo: true };
   }
 

@@ -4,6 +4,7 @@
 //                                                               # tools/data/pedal-fit.json, see tools/fitcheck.mjs)
 //   node tools/dummy.mjs mode=one give=sawlead:5 remix=sawlead pedals=overdrive:3 [faders=lead:2]
 //   node tools/dummy.mjs mode=move                              # standing vs walking a slow circle
+//   node tools/dummy.mjs mode=quote [ids=sawlead,harp] [keys=0,2,4]   # each Lead and Sparkle on the song quotes
 // Args: secs=40 (game seconds per run), n=160 (dummies), spread=460 (px).
 import { Game } from '../src/game/game.js';
 import { Sequencer } from '../src/music/sequencer.js';
@@ -15,9 +16,11 @@ const SECS = Number(args.secs || 40);
 const N = Number(args.n || 160);
 const SPREAD = Number(args.spread || 460);
 
-function run({ give = [], remix = [], pedals = [], faders = {}, secs = SECS, n = N, move = null, seed = 7 }) {
+function run({ give = [], remix = [], pedals = [], faders = {}, secs = SECS, n = N, move = null, seed = 7, song = 0, keyIndex = 0, tex = null, quotes = true }) {
   const clock = { sim: true, t: 0, now() { return this.t; } };
   const seq = new Sequencer(clock, null);
+  seq.forceTex = tex;
+  if (!quotes) seq._quoteRole = () => null;   // a song's chorus quote phrase plays the part
   const g = new Game({ audio: null, clock, seq, opts: { sim: true, god: true, solo: true, give: give.slice(1), remix, givePedals: pedals }, hooks: {} });
   g.director.onBeat = () => {}; g.director.update = () => {}; g.director.onSection = () => {};
   const calls = {};
@@ -25,7 +28,7 @@ function run({ give = [], remix = [], pedals = [], faders = {}, secs = SECS, n =
     const f = g[k].bind(g);
     g[k] = (...a) => { const id = g.src?.def?.id || '-'; (calls[id] ||= {})[k] = ((calls[id] ||= {})[k] || 0) + 1; return f(...a); };
   }
-  g.newRun({ start: give[0].id, seed, keyIndex: 0 });
+  g.newRun({ start: give[0].id, seed, keyIndex, song });
   { const s0 = g.loadout.instruments().find((i) => i.def.id === give[0].id); if (s0 && give[0].level) g.setInstrumentLevel(s0, give[0].level); }
   for (const id of remix) { const inst = g.loadout.instruments().find((i) => i.def.id === id); if (inst && !inst.remix) { inst.level = 5; inst.remix = true; g.onLoadoutChanged(); } }
   Object.assign(g.loadout.faders, faders);
@@ -40,7 +43,9 @@ function run({ give = [], remix = [], pedals = [], faders = {}, secs = SECS, n =
   }
   const dt = 1 / 60;
   let t = 0, frame = 0;
+  const atBar = [];   // the first sound's damage as each bar starts
   while (g.time < secs) {
+    atBar[seq.bar] ??= g.loadout.instruments()[0]?.dmg;
     clock.t += dt;
     seq.tick();
     g.step(dt, move ? move(g, frame) : { x: 0, y: 0 });
@@ -53,7 +58,7 @@ function run({ give = [], remix = [], pedals = [], faders = {}, secs = SECS, n =
   }
   const out = {};
   for (const i of g.loadout.instruments()) out[i.def.id] = { dps: i.dmg / g.time, notes: i.notes };
-  return { out, calls, time: g.time, crit: g.stats.crit };
+  return { out, calls, time: g.time, crit: g.stats.crit, atBar };
 }
 
 const L5 = (id) => [{ id, level: 5 }];
@@ -94,4 +99,27 @@ if (mode === 'move') {
     rows.push([rx ? def.remix.id : def.id, def.style, def.role, Math.round(a), Math.round(b), +(b / Math.max(1, a)).toFixed(2)]);
   }
   for (const r of rows) console.log(r.map(String).map((s, i) => (i < 3 ? s.padEnd(13) : s.padStart(6))).join(' '));
+}
+if (mode === 'quote') {
+  // Each Lead and Sparkle at level 5 and remixed on the song quotes against its full part (1.00: as hard; see QUOTE_TRIM
+  // in src/music/sequencer.js), summed over keys 0, 2 and 4 (keys=). forced: the quote on every full phrase of the
+  // Intro (bars 0-15, tex=); chorus: the two chorus quote phrases (bars 56-63, 120-127) over the same with the quote
+  // off. The loop's quote, the Dies irae, plays only in the Finale solo.
+  const ids = args.ids?.split(',');
+  const defs = INSTRUMENTS.filter((d) => (d.role === 'lead' || d.role === 'arp') && (!ids || ids.includes(d.id)));
+  const span = (r, a, b) => r.atBar[b] - r.atBar[a];
+  for (const [song, q] of ['q_dies', 'q_ode', 'q_koro'].entries()) {
+    const out = [];
+    for (const def of defs) for (const rx of [false, true]) {
+      const t = [0, 0, 0, 0];
+      for (const keyIndex of (args.keys || '0,2,4').split(',').map(Number)) {
+        const o = { give: L5(def.id), remix: rx ? [def.id] : [], song, keyIndex, secs: song ? 258 : 33 };
+        const off = run({ ...o, quotes: false }), forced = run({ ...o, secs: 33, tex: { lead: q, arp: q } });
+        t[0] += span(forced, 0, 16); t[1] += span(off, 0, 16);
+        if (song) { const on = run(o); t[2] += span(on, 56, 64) + span(on, 120, 128); t[3] += span(off, 56, 64) + span(off, 120, 128); }
+      }
+      out.push(`${rx ? def.remix.id : def.id} ${(t[0] / t[1]).toFixed(2)}${song ? '/' + (t[2] / t[3]).toFixed(2) : ''}`);
+    }
+    console.log(`${q} ${song ? 'forced/chorus' : 'forced'}  ${out.join('  ')}`);
+  }
 }

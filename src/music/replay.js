@@ -8,13 +8,15 @@ import { clamp } from '../util.js';
 import { Song, SECTIONS, CHART } from './song.js';
 import { makeInst, remixBoost } from '../game/loadout.js';
 import { BY_ID } from '../content/instruments/index.js';
+import { pickFeatured } from './sequencer.js';
 
 // Bars per section in the edit, and the bar each excerpt starts from: each section's most characteristic
 // phrase (src/music/song.js CHART), played with its textures. The choruses, The Drop and the Finale start
 // on an impact (the Finale on a cycle's rise after its solo; Chorus II on its last, biggest phrase), Verse
 // II and the Bridge on their breakdowns, the Build-Up on the roll and sweep into The Drop, else the end of
-// the first phrase, so the excerpt ends on its fill. A section whose song quote rides its solo starts on the
-// solo instead, so the edit plays the tune (every song's Finale, and the Bridge of a song that quotes there).
+// the first phrase, so the excerpt ends on its fill. A section whose song quote rides its solo (every song's Finale,
+// and the Bridge of a song that quotes there) starts on the solo instead when its band's soloist is a Lead or
+// Sparkle, so the edit plays the tune.
 const EDIT_BARS = { intro: 2, build: 2 };
 const EDIT_FROM = { chorus1: 0, verse2: 0, chorus2: 28, bridge: 0, build: 14, drop: 0, finale: 24 };
 
@@ -22,12 +24,14 @@ const valid = (e) => Number.isInteger(e?.index) && !!SECTIONS[e.index];
 const pairs = (a) => (Array.isArray(a) ? a.filter(Array.isArray) : []);
 
 // The edit's sections: one excerpt per sheet entry, then an outro that plays one last downbeat on i
-// (in the last section's key, so a won run ends lifted) and rests.
-export function radioEdit(sheet) {
-  const out = sheet.filter(valid).map((e) => {
+// (in the last section's key, so a won run ends lifted) and rests. bands: each entry's instruments (the edit's
+// solos go to them, see playSheet).
+export function radioEdit(sheet, bands = []) {
+  const out = sheet.filter(valid).map((e, i) => {
     const s = SECTIONS[e.index];
     const bars = EDIT_BARS[s.id] || 4;
-    return { ...s, bars, from: s.quote?.at === 'solo' ? 8 * CHART[s.id].findIndex((p) => p.solo) : EDIT_FROM[s.id] ?? 8 - bars };
+    const tune = s.quote?.at === 'solo' && ['lead', 'arp'].includes(pickFeatured(bands[i] || [])?.def.role);
+    return { ...s, bars, from: tune ? 8 * CHART[s.id].findIndex((p) => p.solo) : EDIT_FROM[s.id] ?? 8 - bars };
   });
   out.push({ id: 'outro', name: 'Outro', bars: Infinity, prog: [0], lift: out[out.length - 1]?.lift, end: true });
   return out;
@@ -38,12 +42,12 @@ export function radioEdit(sheet) {
 // for a bar. Returns { stop() }.
 export function playSheet({ seq, audio, sheet, keyPc, onSection, onEnd }) {
   const takes = (Array.isArray(sheet) ? sheet : []).filter(valid);
-  const edit = radioEdit(takes);
   const bands = takes.map((e) => pairs(e.band).filter(([id]) => BY_ID[id]).map(([id, level, remixed]) => {
     const inst = makeInst(BY_ID[id], clamp(level | 0, 1, MAX_INSTRUMENT_LEVEL));
     inst.remix = !!remixed;
     return inst;
   }));
+  const edit = radioEdit(takes, bands);
   let band = [];
   const enter = (i) => {
     band = bands[i];
