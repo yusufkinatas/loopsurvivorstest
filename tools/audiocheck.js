@@ -5,7 +5,7 @@
 
 import { BY_ID, INSTRUMENTS } from '../src/content/instruments/index.js';
 import * as V from '../src/audio/voices.js';
-import { Song, SECTIONS, FINALE_BAR, CHART, ENERGY_BANDS } from '../src/music/song.js';
+import { Song, SECTIONS, FINALE_BAR, CHART, ENERGY_BANDS, SONGS, sectionsOf } from '../src/music/song.js';
 import { Sequencer, chimeMidi, TRANSFORMS, TEXTURE_NAMES, partOf, stepsOf } from '../src/music/sequencer.js';
 import { radioEdit, playSheet } from '../src/music/replay.js';
 import { KEYS, NATURAL_MINOR, HARMONIC_MINOR } from '../src/music/theory.js';
@@ -249,13 +249,14 @@ export function auditSong({ bars = FINALE_BAR + 32 } = {}) {
         if (m > ROLE_HIGH.arp) r.aboveCeiling++;
       }
     }
-    auditLeit(r, song, bars);
+    for (const tune of SONGS) auditLeit(r, new Song(key.pc, sectionsOf(tune), tune), bars);
   }
   return r;
 }
 
 // Every leitmotif pitch the song plays (each boss's motif where its cues fall, on that bar's chord, the lifted
-// Finale too), checked like the chimes: in key, under the Sparkle's ceiling.
+// Finale too), checked like the chimes: in key, under the Sparkle's ceiling. auditSong runs it on every song of the
+// setlist in every key, whatever --song names.
 function auditLeit(r, song, bars) {
   for (let b = 0; b < bars; b++) {
     const pos = song.position(b);

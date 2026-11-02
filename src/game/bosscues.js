@@ -55,7 +55,12 @@ export function leitCue(pos, beat) {
 }
 
 // The notes a leitmotif cue plays on `chord` (the bar's): { at: 16ths after the beat, midi, d: length in 16ths }.
+// A held note a half step over a triad tone clips to an 8th: the Dies irae opens on the minor third, which
+// rubs on White Noise's entrance chord, the VII's major third.
 export function leitNotes(name, chord) {
   const [, id, k] = name.split(':');
-  return LEIT[id].filter(([s]) => s >> 2 === +k).map(([s, kd, d = 1]) => ({ at: s & 3, midi: keyTone(chord, kd, LEIT_LOW), d }));
+  return LEIT[id].filter(([s]) => s >> 2 === +k).map(([s, kd, d = 1]) => {
+    const midi = keyTone(chord, kd, LEIT_LOW);
+    return { at: s & 3, midi, d: d >= 4 && chord.pcs.slice(0, 3).some((p) => (midi - p) % 12 === 1) ? 2 : d };
+  });
 }
