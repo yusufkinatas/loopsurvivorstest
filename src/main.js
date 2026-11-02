@@ -402,6 +402,7 @@ function frame(ts) {
 // Autopilot uses the Drop like a sensible player: when it is swamped, or hurt with things close, right away;
 // when crowded or with a boss close, it waits for a press that lands on a phrase downbeat (a perfect drop). A
 // boss showing up is no reason on its own, and a meter that has sat full a long while goes on the next phrase.
+// Unless hurt, it keeps a full meter for the song's next impact downbeat and lands a Double Drop on it.
 let dropFullSince = null;
 function botDrop() {
   if (game.state !== 'playing' || game.dropCharge < game.dropMax || game.dropState) { dropFullSince = null; return; }
@@ -414,6 +415,9 @@ function botDrop() {
   const b = game.boss && !game.boss.dead ? game.boss : null;
   const bossClose = b && Math.hypot(b.x - p.x, b.y - p.y) < 380;
   if ((low && (near >= 8 || shots >= 6)) || near >= 32) { game.requestDrop(); return; }
+  if (game.dropDoubleNow()) { game.requestDrop(); return; }
+  // One of the song's impact downbeats within 8 bars: keep the meter for the Double Drop unless hurt.
+  if (!low) for (let i = game.seq.bar + 1; i <= game.seq.bar + 8; i++) if (game.song.position(i).arr.impact) return;
   if (game.dropPerfectNow() && (near >= 14 || bossClose || low || game.time - dropFullSince > 40)) game.requestDrop();
 }
 

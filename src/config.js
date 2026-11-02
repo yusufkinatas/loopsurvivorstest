@@ -239,8 +239,9 @@ export const BALANCE = {
   // growth with the phrase, film: Long throw's shrink with the phrase, lofi: combo a clean planted beat adds.
   crossover: { pairTier: 0, fusionTier: 1, grunge: 2, symphonic: 1, film: 0.4, lofi: 2 },
   // Moments: a kill run when one channel silences at least max(multiKill, multiShare x the section's floor) bodies in
-  // a beat; the camera leans in while a boss you can still silence is under bossLean of its health.
-  feel: { multiKill: 10, multiShare: 0.25, bossLean: 0.05 },
+  // a beat (as tuned: 0-1 a section through Verse II, 2-6 from Chorus II on, for the skilled bot); the camera leans in
+  // while a boss you can still silence is under bossLean of its health.
+  feel: { multiKill: 12, multiShare: 0.15, bossLean: 0.05 },
 };
 
 // The Drop's numbers (kept as their own export for the code that already reads DROP).
