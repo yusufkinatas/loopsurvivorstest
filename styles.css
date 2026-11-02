@@ -112,9 +112,11 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 @keyframes phasehit { 0% { box-shadow: 0 0 0 2px #ff4d6d, 0 0 26px #ff4d6d; } 100% { box-shadow: none; } }
 /* The boss's clock: a thin gold line under the bar that drains with the bars left in its section (its Master
    Tape is a race). It reddens through the last quarter. */
-.bossbar-clock { height: 2px; margin-top: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 1px; overflow: hidden; }
+.bossbar-clock { height: 2px; margin: 4px 15px 0 0; background: rgba(255, 255, 255, 0.08); border-radius: 1px; overflow: hidden; }
 .bossbar-clock i { display: block; height: 100%; background: var(--gold); transform-origin: left center; transition: transform 0.12s linear, background 0.3s; box-shadow: 0 0 6px var(--gold); }
 .bossbar-clock.late i { background: #ff7a8a; box-shadow: 0 0 6px #ff7a8a; }
+/* The line ends in the tape it races for (positioned on the bar, so the clock's clipping leaves it whole). */
+.bossbar-clock svg { position: absolute; right: 0; bottom: -4px; width: 10px; height: 10px; color: var(--gold); filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
 .fightnote { position: absolute; top: calc(var(--safe-t) + 86px); left: 16px; right: 16px; text-align: center; opacity: 0; font-family: var(--f-display); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 2px 10px #000; }
 .fightnote.show { animation: banner 1.6s ease-out forwards; }
 
@@ -185,6 +187,14 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 .tapes svg { width: 20px; height: 20px; filter: drop-shadow(0 0 5px rgba(255, 209, 102, 0.6)); }
 .tapes.pop { animation: tapepop 0.6s ease-out; }
 @keyframes tapepop { 0% { transform: scale(1.6); filter: brightness(2); } 100% { transform: none; } }
+/* A banked tape waits for these strips (the highest level below the remix level): its reel sits on the strip and
+   pulses on the beat. While a tape lies on the floor, the strips it would remix get a gold rim (never a fill). */
+.strip-reel { position: absolute; top: -8px; right: -5px; display: none; width: 15px; height: 15px; padding: 1px; color: var(--gold); background: var(--ink); border-radius: 3px; filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
+.strip-reel svg { display: block; width: 100%; height: 100%; }
+.strip.tape-wait .strip-reel { display: block; }
+.mixer.beat .strip.tape-wait .strip-reel { animation: reelbeat 0.4s ease-out; }
+@keyframes reelbeat { 0% { transform: scale(1.3); filter: brightness(1.7) drop-shadow(0 0 7px var(--gold)); } 100% { transform: none; } }
+.strip.tapeready { outline: 1.5px solid var(--gold); outline-offset: 2px; }
 /* Moments: a sound joins (pop), a chemistry tier rises (flash in the style color). */
 .strip.pop { animation: strippop 0.5s ease-out; }
 .strip.pop .strip-glyph { animation: glyphflash 0.5s ease-out; }
@@ -680,5 +690,5 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .dropbtn, .hp.low, .leds i.free, .pips i.new, .gems i.up, .hint, .songwrap .songmap b.open { animation: none; }
   .banner.show, .banner.gold.show { animation-duration: 2.2s; }
   .card, .btn, .ibtn, .strip { transition: none; }
-  .sleeve.playing .disc, .card-hero .vdisc, .strip.remix .strip-glyph::before, .strip.queued, .tapes.pop { animation: none; }
+  .sleeve.playing .disc, .card-hero .vdisc, .strip.remix .strip-glyph::before, .strip.queued, .tapes.pop, .mixer.beat .strip.tape-wait .strip-reel { animation: none; }
 }

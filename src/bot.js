@@ -1,4 +1,6 @@
 import { rng } from './util.js';
+import { BALANCE } from './config.js';
+import { bandMove } from './game/upgrades.js';
 
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It plays roughly like a careful but ordinary human: a few times a second it tries a handful of
@@ -265,9 +267,10 @@ function focus(g) {
   return g.loadout.instruments().slice().sort((a, b) => b.level - a.level || b.dmg - a.dmg);
 }
 
-// Card choice for autopilot runs. 'smart' fills the band, then plays a focused build: once four channels are
-// filled, level cards on its two highest channels come first (the third next), so a level 5 is ready for a Master
-// Tape by the second boss. 'random' is uniform. A tape's remix cards (all 'remix'): the channel with the most damage.
+// Card choice for autopilot runs. 'smart' fills the band toward the styles it plays (rule tiers and crossovers
+// first), then plays a focused build: once four channels are filled, level cards on its two highest channels come
+// first (the third next), and a banked Master Tape pulls the card that brings a channel to its level. 'random' is
+// uniform. A tape's remix cards (all 'remix'): the channel with the most damage.
 export function autopick(offers, g, mode = 'smart') {
   if (offers.length && offers.every((o) => o.kind === 'remix')) {
     let best = 0;
@@ -277,26 +280,27 @@ export function autopick(offers, g, mode = 'smart') {
   if (mode === 'random') return Math.floor(rng() * offers.length);
   if (mode === 'first') return 0;
   const top = g.loadout.filled() >= 4 ? focus(g) : null;
+  const counts = g.loadout.styleCounts();
   let best = 0, bs = -Infinity;
   offers.forEach((o, i) => {
     let s = 0;
     switch (o.kind) {
-      case 'new': s = 6 + (g.loadout.filled() < 3 ? 2 : 0); break;
+      case 'new': s = 6 + (g.loadout.filled() < 3 ? 2 : 0) + 0.5 * counts[o.def.style] + (bandMove(counts, o.def.style) > 0 ? 1 : 0); break;
       case 'up': {
         const rank = top ? top.indexOf(o.inst) : -1;
         s = !top ? 4 + o.level * 0.6 : rank >= 0 && rank < 2 ? 7.5 + o.level * 0.3 : rank === 2 ? 6.2 : 3 + o.level * 0.2;
-        if (o.level >= 5 && g.tapes?.banked > 0) s = 9.5;   // a banked Master Tape is waiting for this level 5
+        if (o.level >= BALANCE.remix.minLevel && g.tapes?.banked > 0) s = 9.5;   // a banked Master Tape is waiting for this level
         break;
       }
       case 'swap': {
-        const c = g.loadout.styleCounts();
-        s = c[o.def.style] >= c[o.from.def.style] ? 2.5 : 0.5;
+        const m = bandMove(counts, o.def.style, o.from.def.style);
+        s = m > 0 ? 5.5 : m < 0 || counts[o.def.style] < counts[o.from.def.style] ? 0.5 : 2.5;
         break;
       }
       case 'pedal-new': s = 3.5; break;
       case 'pedal-up': s = 3.2; break;
       case 'remix': s = 9; break;
-      case 'fader': s = 3; break;
+      case 'fader': { const rank = (top || focus(g)).indexOf(o.inst); s = rank >= 0 && rank < 2 ? 5.5 : 3; break; }
       default: s = 0.5;
     }
     s += rng() * 0.8;

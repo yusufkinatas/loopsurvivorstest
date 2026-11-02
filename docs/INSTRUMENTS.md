@@ -231,9 +231,11 @@ Every instrument has one remix: a new part for its channel, a new timbre and a b
 never dealt on a level-up. A non-final boss silenced inside its own section drops a **Master Tape** where it
 fell (at most three a run, `BALANCE.remix`). The tape lies 8 bars, blinks through its last 2 s and is never
 pulled in by magnets or the boss's pull-all, so you walk into the fight to get it; the boss bar's thin clock
-line shows how many bars of its section are left. A tape spends on a channel at level 5 that is not remixed yet:
+line shows how many bars of its section are left. A tape spends on a channel at `BALANCE.remix.minLevel` (3) or
+more that is not remixed yet, and the remix finishes it to level 5 as it lands:
 
-- none ready: it is banked (a gold reel by the mixer) and spent the moment a channel reaches level 5;
+- none ready: it is banked (a gold reel by the mixer and on the strips it could finish) and spent the moment a
+  channel reaches that level;
 - one ready: that remix is queued;
 - two or more: the run pauses on gold remix cards (name, glyph in a vinyl, the remix's step lane, auditioned on
   hover or hold; no reroll, banish or skip). The pick is queued.

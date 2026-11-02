@@ -270,12 +270,13 @@ export class Game {
   // ------------------------------------------------------------------ Master Tapes and remixes
   //
   // A non-final boss silenced in its own section drops a Master Tape where it fell (onBossDeath). Walking into
-  // it spends it on a channel at level 5 that is not remixed yet (remixReady): none ready banks it (the HUD shows
-  // a reel), one is queued, two or more open the remix cards. A queued remix lands on the song's next free
-  // 4-bar line (Sequencer.remixBar): the channel drops out for a bar under a riser, then on the downbeat the
-  // remix's own part comes in with an impact ring (landRemix).
+  // it spends it on a channel at BALANCE.remix.minLevel or more that is not remixed yet (remixReady, finished to
+  // level 5 as it lands): none ready banks it (the HUD puts a reel on the strips it waits for), one is queued, two or
+  // more open the remix cards. A queued remix lands on the song's next free 4-bar line (Sequencer.remixBar): the
+  // channel drops out for a bar under a riser, then on the downbeat the remix's own part comes in with an impact ring
+  // (landRemix).
 
-  // Channels a tape can remix: level 5, a remix of their own, not remixed or queued yet.
+  // Channels a tape can remix: minLevel or more, a remix of their own, not remixed or queued yet.
   remixReady() { return this.loadout.instruments().filter((i) => remixReady(i) && !this.remixQueued(i)); }
   remixQueued(inst) { return this.seq.remixAt?.inst === inst || this.remixQueue.includes(inst); }
 
@@ -347,13 +348,13 @@ export class Game {
     this.queueRemix(o.inst);
   }
 
-  // The remix cards for a banked tape (the channels with the most damage first, at most three), or false when
+  // The remix cards for a banked tape (the highest level first, then the most damage, at most three), or false when
   // fewer than two channels are ready any more (then one ready is queued at once).
   _dealTape() {
     this.tapePick = false;
     const ready = this.remixReady();
     if (ready.length < 2 || !(this.tapes.banked > 0)) { this._spendTape(); return false; }
-    this.offers = ready.sort((a, b) => b.dmg - a.dmg).slice(0, 3)
+    this.offers = ready.sort((a, b) => b.level - a.level || b.dmg - a.dmg).slice(0, 3)
       .map((inst) => ({ kind: 'remix', def: inst.def, role: inst.def.role, inst, level: MAX_INSTRUMENT_LEVEL }));
     this.tapeOffers = true;
     return true;
@@ -450,7 +451,7 @@ export class Game {
     this.fullBand ||= full;
     this.fused ||= isFusion(counts);
     this.maxedAll ||= full && this.loadout.instruments().every((i) => i.level >= MAX_INSTRUMENT_LEVEL);
-    // A channel that just reached level 5 takes a banked tape.
+    // A channel that just reached minLevel takes a banked tape.
     this._spendTape();
     if (!quiet) this.hooks.onLoadout?.();
   }
