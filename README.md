@@ -30,6 +30,11 @@ server below. Sound on, headphones help.
   breakdown, a solo for your strongest part, a half-time Drop and a Finale that rises and falls. A quiet
   phrase is dangerous (the band plays thin and the mix goes dark), and the band slamming back in hits
   everything around you.
+- **The Noise never thins.** A floor of bodies walks in from just past the screen's edge and refills on every
+  beat, so you cannot clear the room. Each section brings tougher, bigger bodies, rings close in before the
+  song's big downbeats and walls sweep through the quiet phrases (always with a gap to slip through). Almost
+  all of the danger is bodies: being surrounded, not being shot. Your attack areas start small and grow with
+  Hall Reverb and the Live rule.
 - **Bosses are on the clock.** A boss arrives with each chorus and with The Drop; a thin gold line under its
   bar shows the time left in its section. Silence it in time and it drops a **Master Tape**.
 - **Remix.** A tape remixes a channel at level 5 (with two ready, you choose). The channel drops out for a
@@ -78,12 +83,23 @@ The build *is* the arrangement, so the game enforces the rules a producer would:
 | Lead | Saw Lead | Wooden Flute | Square Lead | Shred Guitar | French Horn |
 | Sparkle | Arp Synth | Music Box | Coin Arp | Pinch Harmonics | Harp |
 
-The Heavy sounds fight close: kicks blast cones the way you move, cymbals you plant ring on every ride
-note, the bass punts enemies into each other, power chords raise walls that soak shots, held guitar notes
-swing blades, and pinch harmonics hook enemies and drag them in. The Orchestra swells with the phrase:
-the timpani charges on rolls and releases on accents, drummers march behind you, the cellos pull the crowd
-to one point and crush it, strings shield you and release a wave, held horn notes fire one growing blast,
-and the harp plucks a frame of strings over a crowd.
+Each style plays its own way, and each of the five sounds in a channel works differently:
+
+- **Synth reaches far and straight.** The 808 lances the farthest enemy, the hats needle along your path,
+  the sub bass rolls a wave the way you face, supersaw shots snipe the farthest crowd, the saw lead fires
+  along your facing, and the arp's pitch picks how far away its target is.
+- **Live works around where you stand.** Taiko slams the ground around you (harder the longer you plant),
+  the shaker orbits, the upright thumps a patch that walks around you, the electric piano's ring rolls back
+  in while you stand still, flute wisps loop around you, and music box stars land on a clock face.
+- **8-Bit is grid-snapped and keeps working while you dodge.** Drum blocks ricochet on straight and diagonal
+  lines, a spark crawls through the crowd on its own, triangle bombs blow in a + on the floor grid, chords
+  drop falling-block pieces, square pixels bounce, and coins boomerang along the compass lines.
+- **Heavy fights close.** Kicks blast cones the way you move, cymbals you plant ring on every ride note, the
+  bass punts enemies into each other, power chords raise walls that soak shots, the guitar cuts wedges
+  around you, and pinch harmonics hook enemies and drag them in.
+- **Orchestra is placed and timed.** The timpani sets a kettle on a crowd that grows on soft strokes and
+  booms on accents, drummers march behind you, the cellos pull a crowd to a spot and crush it, string ranks
+  march out along the bar, held horn notes release one growing blast, and the harp plucks a frame over a crowd.
 
 ## Run it locally
 
@@ -141,12 +157,13 @@ node tools/progress-check.mjs                           # the career rules in No
 healing, lowest health, level, picks, kills and their distance, hearts, Drops, Snare marks, notes that
 faded) and, with `--runs`, an AGGREGATE line: wins, where runs died, lowest health before the Finale,
 levels, picks, Drops, hearts, boss fight lengths, tapes and remixes. That is how balance is checked: one
-batch of eight seeds takes about two minutes. At this commit the smart bot wins about half its runs at
-Gain 0, with deaths spread across the Chorus, The Drop and the Finale, and a bot that picks cards at
-random dies in Chorus II.
+batch of eight seeds takes about two minutes. Balance is checked against two autopilots: the ordinary bot
+(it reacts in 0.3 s) and `botskill=1`, a sharp player (half the reaction time, more shots watched). At this
+commit the skilled bot wins 3 to 4 of 8 at Gain 0 with deaths in the Bridge, The Drop and the Finale and its
+lowest health before the Finale mostly under 10%, and the ordinary bot loses most runs.
 
 Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god` (the ledger still
 records what would have hit), `solo` (no level-ups), `seed`, `start=<id>`, `give=id:level,...`,
 `pedals=id:level,...`, `remix=id,...`, `tapes=N`, `gain=N`, `minutes`, `key`, `botrules=0` (the bot
-ignores the style rules), `realpick` (level-ups through the real pause path) and `chaos` (random pauses,
+ignores the style rules), `botskill=1` (the sharper bot), `realpick` (level-ups through the real pause path) and `chaos` (random pauses,
 and with `realpick` also rerolls, banishes and skips). Sims never read or write the career.

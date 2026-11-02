@@ -1,6 +1,9 @@
-// CHORDS, Orchestra: String Section. A bowed chord is held long and swells: while it sounds it wraps you in a
-// shield, and when it ends the shield breaks outward as a wave. Short staccato chords (spiccato) pulse close.
-// Like every Orchestra sound it rides the 8-bar phrase (note.phrase): soft after each fill, full at its climax.
+// CHORDS, Orchestra: String Section. Each bar's downbeat lines the section up on the thickest crowd near you, and
+// the bar plays a barrage along that heading on the grid: every short staccato chord (spiccato) lands a rank of bow
+// strokes across the line, one step further out from you than the last, so the line marches away from you through
+// the crowd. A bowed chord is held long and swells: while it sounds (late in the 8-bar phrase) it wraps you in a
+// shield, and when it ends a wide rank lands across the line. Like every Orchestra sound it rides the 8-bar phrase
+// (note.phrase): soft after each fill, full at its climax.
 
 import { STEP_SEC } from '../../../config.js';
 
@@ -32,50 +35,74 @@ const SWELL = 0.5; // but only in the second half of the 8-bar phrase, while the
 const LONG = 12;   // and one this long takes two hits
 const isBowed = (note) => note.k === 'bow' || note.dur >= BOWED * STEP_SEC - 0.001;
 
-// A wave of bowed sound out from you. o: dmg (already scaled), r (radius), kb, erase (share of r that wipes shots).
-function wave(g, inst, o) {
-  const p = g.player;
-  const color = g.color(inst);
-  g.fx.ring({ x: p.x, y: p.y, follow: true, r0: 30, r1: o.r, dur: o.dur ?? 0.5, damage: o.dmg, kb: o.kb, width: o.width ?? 9,
-    color, erase: o.erase || 0 });
-  if (o.erase) g.fx.flash(p.x, p.y, o.r * o.erase, color, 0.3, 0.12);
+// The barrage: the bar's first note sets the line it marches along (toward a boss in range, else the thickest crowd
+// near you, else where you face), and the line keeps that heading all bar, marching out from wherever you are.
+// mem.k counts the ranks the stabs have landed this bar.
+function lineUp(g, note, st, mem) {
+  if ((g.dmgScale === 1 && mem.bar !== note.bar) || mem.a === undefined) {   // an echo never re-lines the bar
+    const p = g.player;
+    const boss = g.bossInRange(p.x, p.y, st.aim);
+    const crowd = boss || g.densest(st.aim);
+    mem.bar = note.bar; mem.k = 0;
+    mem.a = crowd ? Math.atan2(crowd.y - p.y, crowd.x - p.x) : g.aim();
+  }
+  return { x: g.player.x, y: g.player.y, a: mem.a };
 }
 
-// A bowed chord: the shield while it sounds (as the phrase swells), the wave when it ends (on the grid, a whole
-// number of steps later). A hit on the shield takes that one hit and breaks it: the wave goes out at once, cut
-// short (as big as the share of the chord already played). Crescendo (remix, st.stack): each chord that ends
-// without you being hit stacks the next wave up (harder and wider), and a full stack floods the whole screen and
-// wipes out the shots close to you. A hit, on you or on the shield, starts the count again.
+// A rank: n bow strokes side by side across the line, d px out from you. Each is a strike that lands
+// a 16th-fraction later, hitting what stands on it. o: dmg (already scaled), r, kb, stun. Strikes carry `rank`
+// (their place in it and its size) for the renderer.
+function rank(g, inst, line, d, n, o) {
+  const a = line.a, cx = line.x + Math.cos(a) * d, cy = line.y + Math.sin(a) * d;
+  const nx = -Math.sin(a), ny = Math.cos(a), gap = o.r * 1.7;
+  const color = g.color(inst);
+  for (let i = 0; i < n; i++) {
+    const off = (i - (n - 1) / 2) * gap;
+    const s = g.fx.strike({ x: cx + nx * off, y: cy + ny * off, delay: 0.1, r: o.r, damage: o.dmg, kb: o.kb, stun: o.stun || 0, color, style: 'ring' });
+    s.rank = { i, n, a };
+  }
+}
+
+// A bowed chord: the shield while it sounds (as the phrase swells), a wide rank across the line when it ends (on the
+// grid, a whole number of steps later), `bowD` px out. A hit on the shield takes that one hit and breaks it: the rank
+// lands at once, cut short (as strong as the share of the chord already played, three strokes wide). Crescendo
+// (remix, st.stack): each chord that ends without you being hit stacks the next rank up (harder), and a full stack
+// lands three wide ranks, one behind the other, and wipes out the shots close to you. A hit, on you or on the
+// shield, starts the count again.
 function bow(g, note, st, inst) {
   const steps = Math.max(1, Math.round(note.dur / STEP_SEC));
   const held = Math.min(1, steps / 8);
+  const mem = inst.state;
+  const a = lineUp(g, note, st, mem).a;
+  const line = (gg) => ({ x: gg.player.x, y: gg.player.y, a });   // the heading it started with, from where you are
   // Damage and size are fixed when the chord starts: its weight in the arrangement, the fader and the echo scale.
   const dmg = g.dmg(st.damage) * note.v * swellDmg(note) * (0.6 + 0.4 * held);
-  const r = g.area(st.radius) * (0.85 + 0.15 * note.v) * (0.8 + 0.2 * held);
-  // An echo has no chord to hold: it breaks as a small wave at once, with no shield and nothing scheduled.
-  if (g.dmgScale !== 1) { wave(g, inst, { dmg, r: r * 0.8, kb: st.kb * 0.6 }); return; }
-  const mem = inst.state;
+  const r = g.area(st.spot);
+  // An echo has no chord to hold: it lands a short rank at once, with no shield and nothing scheduled.
+  if (g.dmgScale !== 1) { rank(g, inst, line(g), st.bowD, 3, { dmg, r: r * 0.9, kb: st.kb * 0.6 }); return; }
   const tok = { burst: false, t0: g.time, shield: null };
   const release = (gg, burst) => {
     if (burst) {
       const played = Math.max(0, Math.min(1, (gg.time - tok.t0) / (steps * STEP_SEC)));
       if (st.stack) mem.stack = 0;
-      wave(gg, inst, { dmg: dmg * (0.4 + 0.6 * played), r: r * (0.7 + 0.3 * played), kb: st.kb * 0.6 });
+      rank(gg, inst, line(gg), st.bowD, 3, { dmg: dmg * (0.4 + 0.6 * played), r, kb: st.kb * 0.6 });
       return;
     }
     const stack = st.stack ? mem.stack || 0 : 0;
-    let mul = 1 + stack * (st.stack || 0), rr = r * (1 + stack * (st.stackR || 0)), erase = 0;
+    let mul = 1 + stack * (st.stack || 0), rows = 1;
     if (st.stack) {
       const clean = gg.lastHurtAt < tok.t0 && !(tok.shield && tok.shield.n < tok.shield.n0);
       mem.stack = clean ? stack + 1 : 0;
       if (clean && mem.stack >= st.stackMax) {
-        // The last unbroken chord of a full stack: the whole section swells over the screen.
+        // The last unbroken chord of a full stack: the whole section digs in, three ranks deep.
         mem.stack = 0;
-        mul = st.flood; rr = g.area(st.floodR); erase = st.floodErase;
-        gg.shake = Math.max(gg.shake, 6);
+        mul = st.flood; rows = st.floodRows;
+        const p = gg.player;
+        gg.fx.ring({ x: p.x, y: p.y, follow: true, r0: 30, r1: gg.area(st.floodErase), dur: 0.5, damage: 0, kb: 0, width: 6, color: gg.color(inst), erase: 1 });
+        gg.shake = Math.max(gg.shake, 5);
       }
     }
-    wave(gg, inst, { dmg: dmg * mul, r: rr, kb: st.kb, erase, dur: rr > r * 1.5 ? 0.9 : 0.5, width: rr > r * 1.5 ? 14 : 9 });
+    for (let k = 0; k < rows; k++) rank(gg, inst, line(gg), st.bowD + k * r * 1.8, st.wide, { dmg: dmg * mul, r, kb: st.kb, stun: st.stun });
   };
   if (steps >= GUARD && (note.phrase || 0) >= SWELL) {
     const n = steps >= LONG ? 2 : st.guard;
@@ -95,11 +122,14 @@ function bow(g, note, st, inst) {
   } });
 }
 
-// A staccato chord: a quick, small pulse around you.
+// A staccato chord: a rank of three short strokes, one step further along the line than the last stab's (an echo
+// lands on the last one's spot again).
 function stab(g, note, st, inst) {
-  const p = g.player;
-  g.fx.pulse({ x: p.x, y: p.y, r: g.area(st.spicR) * (0.85 + 0.15 * note.v), damage: g.dmg(st.spic) * note.v * swellDmg(note),
-    kb: 70, color: g.color(inst), fill: 0.1, flashLife: 0.14 });
+  const mem = inst.state;
+  const line = lineUp(g, note, st, mem);
+  const d = Math.min(st.dMax, st.d0 + st.step * Math.max(0, mem.k - (g.dmgScale === 1 ? 0 : 1)));
+  if (g.dmgScale === 1) mem.k++;
+  rank(g, inst, line, d, 3, { dmg: g.dmg(st.spic) * note.v * swellDmg(note), r: g.area(st.spot) * 0.85, kb: 70 });
 }
 
 export default {
@@ -107,25 +137,25 @@ export default {
   name: 'String Section',
   role: 'chords',
   style: 'orchestra',
-  blurb: 'Swelling strings: long chords shield you as the music builds, then break as a wave.',
+  blurb: 'Swelling strings: every bar a barrage of bow strokes marches from you into the crowd, and long chords shield you as the music builds.',
   steps: 16,
   center: 62,
   levels: [
-    { text: 'A long chord breaks as a wave. Swelling, it shields you.',
+    { text: 'Each bar lines up on the crowd. Stabs land ranks of bow strokes marching out along that line; the long chord lands a wide rank as it ends, and shields you while the music builds.',
       pattern: [...ADD_1],
-      stats: { damage: 11, radius: 180, kb: 140, guard: 1, spic: 6, spicR: 90 } },
-    { text: 'Stabs on every half beat after the chord.',
+      stats: { damage: 28, spic: 18, spot: 32, d0: 45, step: 42, dMax: 300, bowD: 110, wide: 5, aim: 300, kb: 120, guard: 1 } },
+    { text: 'Stabs on every half beat after the chord: the line marches farther.',
       pattern: [...ADD_1, ...ADD_2],
-      stats: { damage: 17, radius: 200, kb: 140, guard: 1, spic: 7, spicR: 92 } },
+      stats: { damage: 34, spic: 21, spot: 33, d0: 45, step: 42, dMax: 300, bowD: 110, wide: 5, aim: 300, kb: 125, guard: 1 } },
     { text: 'A galloping rhythm drives into the next bar.',
       pattern: [...ADD_1, ...ADD_2, ...ADD_3],
-      stats: { damage: 28, radius: 225, kb: 145, guard: 1, spic: 8, spicR: 96 } },
-    { text: 'Wider waves that push harder.',
+      stats: { damage: 46, spic: 25, spot: 35, d0: 45, step: 40, dMax: 300, bowD: 115, wide: 5, aim: 310, kb: 130, guard: 1 } },
+    { text: 'Bigger, harder strokes.',
       pattern: [...ADD_1, ...ADD_2, ...ADD_3],
-      stats: { damage: 44, radius: 260, kb: 155, guard: 1, spic: 9, spicR: 100 } },
-    { text: 'A pickup stab leads in. The biggest waves.',
+      stats: { damage: 66, spic: 33, spot: 38, d0: 45, step: 40, dMax: 300, bowD: 120, wide: 5, aim: 320, kb: 140, guard: 1 } },
+    { text: 'A pickup stab leads in. The biggest strokes, and the long chord\'s rank stuns.',
       pattern: [...ADD_1, ...ADD_2, ...ADD_3, ...ADD_5],
-      stats: { damage: 70, radius: 290, kb: 160, guard: 1, spic: 11, spicR: 105 } },
+      stats: { damage: 100, spic: 50, spot: 41, d0: 45, step: 38, dMax: 300, bowD: 125, wide: 5, aim: 320, kb: 150, guard: 1, stun: 0.3 } },
   ],
 
   sound(A, t, note, out, inst) {
@@ -165,11 +195,11 @@ export default {
 
   remix: {
     id: 'crescendo', name: 'Crescendo', pedal: 'chorus',
-    text: 'Unbroken chords build the wave. Four in a row flood the screen.',
+    text: 'Unbroken chords stack the long chord\'s rank. Four in a row land three ranks deep and clear the shots around you.',
     // A new part: a measured tremolo that grows across the first half of the bar into a chord bowed to its end,
-    // so every wave breaks on the next downbeat.
+    // so every rank lands on the next downbeat.
     pattern: [S(0, 3, 0.45), S(1, 3, 0.5), S(2, 3, 0.55), S(3, 3, 0.6), S(4, 3, 0.65), S(5, 3, 0.7), S(6, 3, 0.75), S(7, 3, 0.8),
       B(8, 4, 1, 8)],
-    stats: { stack: 0.4, stackR: 0.3, stackMax: 4, flood: 2.5, floodR: 720, floodErase: 0.45 },
+    stats: { damage: 130, spic: 66, step: 34, stack: 0.4, stackMax: 4, flood: 2.2, floodRows: 3, floodErase: 170 },
   },
 };

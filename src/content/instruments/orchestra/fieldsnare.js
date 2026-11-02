@@ -88,7 +88,7 @@ export default {
     text: 'Each tap ripples down a longer line, and the last drummer throws confetti.',
     pattern: PARADE,
     steps: 32,
-    stats: { drummers: 9, jab: 33, reach: 140, width: 9, pierce: 3, gap: 34, confetti: 7, confettiDamage: 28, toss: 460, stick: 1 },
+    stats: { drummers: 9, jab: 36, reach: 130, width: 9, pierce: 3, gap: 34, confetti: 7, confettiDamage: 28, toss: 300, stick: 1 },
     fire(g, note, st, inst) { tap(g, note, st, inst, true); },
   },
 };
@@ -143,7 +143,7 @@ function tap(g, note, st, inst, parade) {
   const toss = claims(g, S);
   const cdmg = g.dmg(st.confettiDamage) * note.v;
   jab(g, grp.items[0], st, dmg, grp.color, toss);
-  const n = grp.items.length;
+  const n = grp.items.length, last = n - 1;   // the confetti comes from whoever was last when the ripple started
   if (n === 1 && accent) confetti(g, grp.items[0], st, note, cdmg);
   for (let i = 1; i < n; i++) {
     g.later.push({ at: g.time + i * STEP_SEC, fn: () => {
@@ -152,7 +152,7 @@ function tap(g, note, st, inst, parade) {
       if (!it) return;
       const prev = g.src; g.src = inst;
       jab(g, it, st, dmg, f.color, toss);
-      if (accent && i === f.items.length - 1) confetti(g, it, st, note, cdmg);
+      if (accent && (i === last || i === f.items.length - 1)) confetti(g, it, st, note, cdmg);
       g.src = prev;
     } });
   }

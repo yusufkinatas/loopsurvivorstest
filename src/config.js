@@ -16,7 +16,7 @@ export const ROLES = ['beat', 'perc', 'bass', 'chords', 'lead', 'arp'];
 export const ROLE_HIGH = { bass: 51, chords: 77, lead: 86, arp: 98 };
 
 export const ROLE_INFO = {
-  beat:   { name: 'Beat',    color: '#ff5b6b', desc: 'Kicks and snares. Big hits on the beat.' },
+  beat:   { name: 'Beat',    color: '#b6f23a', desc: 'Kicks and snares. Big hits on the beat.' },
   perc:   { name: 'Groove',  color: '#ffb547', desc: 'Hats and shakers. Fast, light hits.' },
   bass:   { name: 'Bass',    color: '#9b78ff', desc: 'Low notes. Thick, heavy damage.' },
   chords: { name: 'Chords',  color: '#3fcdf5', desc: 'Harmony. Wide areas and support.' },
@@ -30,7 +30,7 @@ export const STYLES = {
   synth:     { name: 'Synth',     color: '#7ab0ff', blurb: 'Electronic' },
   organic:   { name: 'Live',      color: '#f0b884', blurb: 'Played by hand' },
   chip:      { name: '8-Bit',     color: '#c2f25e', blurb: 'Retro console' },
-  heavy:     { name: 'Heavy',     color: '#ff7020', blurb: 'Rock and metal' },
+  heavy:     { name: 'Heavy',     color: '#c9d1e0', blurb: 'Rock and metal' },
   orchestra: { name: 'Orchestra', color: '#d4a6ff', blurb: 'Cinematic' },
 };
 
@@ -50,7 +50,7 @@ export const FADER = { step: 0.08, max: 5 };
 export const WORLD = {
   spawnMargin: 70,       // px outside the visible area where enemies appear
   despawnDist: 1500,     // enemies farther than this get recycled closer to the player
-  maxEnemies: 420,
+  maxEnemies: 480,       // the horde's floor and stream stop BALANCE.horde.reserve below it (set pieces use the rest)
   maxGems: 420,
 };
 
@@ -72,7 +72,81 @@ export const GAIN = [
 // through the game code. Other lanes add their own keys. Times are in seconds unless a name says bars or beats.
 export const BALANCE = {
   // The player: health before pedals and chemistry, and a master dial on all damage taken (before armor).
-  player: { maxHp: 120, dmgIn: 0.72 },
+  // area: a master dial on every attack area of the band (game.area): small areas early, earned back with Reverb
+  // and the Live rule. It reaches area footprints only, not projectile range or auto-aim.
+  player: { maxHp: 120, dmgIn: 0.72, area: 0.8 },
+  // The Noise's health: hp x (1 + lin*m + quad*m^2) x sec[section] for song minute m (bosses have their own line
+  // under boss). sec: one section's toughness on top of the curve.
+  enemy: { hp: 1, lin: 0.3, quad: 0.1, sec: { chorus2: 1.25, bridge: 1.12, build: 1.08, drop: 1.12, finale: 1.2 } },
+  // The horde (director.js): a floor of bodies near the view that refills every beat, so the screen never clears,
+  // and a stream on top that piles up when the band cannot keep up.
+  horde: {
+    scale: 1,               // master dial on the floor, the stream and the set pieces' counts
+    // Section -> [first, last] minimum bodies inside the view grown by `near` px, ramped across the section's bars
+    // (the open-ended Finale ramps over `finaleBars`, then holds).
+    floor: { intro: [12, 24], verse1: [30, 56], chorus1: [58, 82], verse2: [60, 80], chorus2: [120, 155], bridge: [100, 130], build: [125, 170], drop: [170, 210], finale: [190, 240] },
+    finaleBars: 32, near: 100,
+    // Missing bodies come back each beat: at most max(base, share x floor), times `grace` for `graceBars` after a
+    // song impact downbeat and (afterDrop) after the player's Drop, so a clear reads as a clear.
+    refill: { base: 6, share: 0.2, grace: 0.4, graceBars: 1, afterDrop: true },
+    // Bodies per second on top of the floor (halved in quiet phrases), while the crowd near you is under cap x floor.
+    stream: { intro: 0.2, verse1: 0.5, chorus1: 1, verse2: 0.8, chorus2: 1.5, bridge: 1.2, build: 1.8, drop: 2, finale: 2.5 },
+    cap: 1.25,
+    // Spawns land edge[0..1] px past the view's edge. While you move faster than `moving` px/s, `ahead` of them come
+    // from the side you are heading to, `aheadExtra` px further out (about 2 s of warning). A body `recycle` px
+    // beyond the view's edge comes back on the edge ahead of you, its health kept.
+    edge: [40, 90], ahead: 0.35, aheadExtra: 60, moving: 40, recycle: 420,
+    boss: 0.65, finalBoss: 0.7,   // the floor while a boss is up (White Noise: finalBoss), so the boss stays the focus
+    view: { ref: 921600, min: 0.8, max: 1.15 },   // the floor scales with the view's area / ref, clamped
+    xp: 0.7,                // notes of every ordinary body (the horde kills more than the old crowd did)
+    reserve: 60,            // the floor and the stream stop at WORLD.maxEnemies - reserve (set pieces use the rest)
+    liveMax: { screech: 2, snare: 2, stomp: 2 },   // live at most (x the view factor); past it a pick falls back
+    fallback: { verse2: 'static:loud', chorus2: 'static:loud', bridge: 'static:loud', build: 'static:loud', drop: 'static:loud', finale: 'static:loud' },
+  },
+  // Tougher bodies in the same silhouettes (spawnEnemy opts): health, size, speed, damage, notes and mass.
+  variants: {
+    loud:  { hp: 2.2, scale: 1.25, speed: 0.92, dmg: 1.3, xp: 1.8, mass: 1.8 },
+    heavy: { hp: 5,   scale: 1.55, speed: 0.8,  dmg: 1.7, xp: 3.5, mass: 4 },
+  },
+  // Each section's wave: 'type' or 'type:variant' -> weight. Shooters (Screech, Snare) and Stomps are rare and
+  // capped by horde.liveMax.
+  waves: {
+    intro:   { static: 1 },
+    verse1:  { static: 0.62, buzz: 0.32, 'static:loud': 0.04, stomp: 0.02 },
+    chorus1: { static: 0.4, buzz: 0.28, hum: 0.14, 'static:loud': 0.1, 'buzz:loud': 0.06, stomp: 0.02 },
+    verse2:  { static: 0.2, 'static:loud': 0.21, buzz: 0.18, glitch: 0.16, hum: 0.14, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
+    chorus2: { static: 0.12, 'static:loud': 0.26, buzz: 0.14, 'buzz:loud': 0.08, glitch: 0.1, hum: 0.1, 'hum:loud': 0.05, feedback: 0.1, 'static:heavy': 0.03, stomp: 0.03, screech: 0.02 },
+    bridge:  { 'static:loud': 0.23, static: 0.08, 'static:heavy': 0.05, hum: 0.12, 'hum:loud': 0.05, feedback: 0.13, glitch: 0.12, buzz: 0.14, stomp: 0.03, screech: 0.02, snare: 0.03 },
+    build:   { buzz: 0.2, 'buzz:loud': 0.26, 'static:loud': 0.24, glitch: 0.12, 'glitch:loud': 0.08, 'static:heavy': 0.07, stomp: 0.02 },
+    drop:    { 'static:loud': 0.22, static: 0.1, 'static:heavy': 0.06, hum: 0.1, 'hum:loud': 0.05, 'buzz:loud': 0.12, buzz: 0.12, feedback: 0.08, 'feedback:loud': 0.04, 'glitch:loud': 0.06, stomp: 0.02, screech: 0.02 },
+    finale:  { 'static:loud': 0.2, static: 0.1, 'static:heavy': 0.08, hum: 0.08, 'hum:loud': 0.05, 'buzz:loud': 0.14, buzz: 0.1, feedback: 0.08, 'feedback:loud': 0.05, 'glitch:loud': 0.08, screech: 0.02, snare: 0.02 },
+  },
+  // Set pieces on the song's moments (director.js formation). Counts are base + perMin x song minute, times the
+  // horde's density, at most max. Keys follow the section ('default' when it has none).
+  sets: {
+    // Mid-phrase rotation: beat 1 of every bar with bar % rotationEvery === rotationAt, skipped when a song impact
+    // lands within skipNearImpact bars. While a boss is up a 'ring' turn becomes a swarm.
+    rotation: ['swarm', 'wall', 'ring'], rotationEvery: 16, rotationAt: 4, skipNearImpact: 4,
+    // The bar before each impact a ring closes in from `dist`, at least `gapMin` px between bodies, with a `door` of
+    // empty slots facing away from the boss. A second ring `gap` px behind it (0.75 as many) in the `double`
+    // sections, only with no boss up. Key and double follow the section the impact opens.
+    ring: { base: 16, perMin: 4, max: 40, dist: 420, gap: 70, gapMin: 36, door: 3, double: ['chorus2', 'bridge', 'drop', 'finale'],
+      key: { default: 'static', verse1: 'static', chorus1: 'static', verse2: 'static:loud', chorus2: 'static:loud', bridge: 'static:loud', drop: 'static:loud', finale: 'static:loud' } },
+    // A dense block marching for `march` s through where you will be, `spread` x sqrt(n) px across.
+    swarm: { base: 24, perMin: 4, max: 48, march: 9, spread: 14,
+      key: { default: 'buzz', chorus2: 'buzz:loud', bridge: 'buzz:loud', build: 'buzz:loud', drop: 'buzz:loud', finale: 'buzz:loud' } },
+    // A line `span` x the view's side wide, marching for `march` s, `spacing` body diameters apart (heavySpacing for
+    // heavies: gaps just wide enough to thread). One wall per quiet phrase; in the `pincer` sections two, from the
+    // two ends of the view's long axis.
+    wall: { march: 14, spacing: 1.6, heavySpacing: 1.7, span: 1.15, max: 40, pincer: ['finale'], pincerAxis: 'long',
+      key: { default: 'static', verse1: 'static', chorus1: 'static:loud', verse2: 'static:loud', chorus2: 'static:loud', bridge: 'static:heavy', drop: 'static:loud', finale: 'static:loud' } },
+    buildSwarms: [8, 12],   // the Build-Up's bars that send a swarm (the drum roll)
+  },
+  // Bodies: contact knockback on the body that hit you, how hard a crowd blocks you (block x overlap, split by
+  // mass against playerMass, `inset` px inside contact range), boss body damage x boss, a boss shoves you clear
+  // to `bossGap` px from its edge after the crowd pushed (negative: still inside contact range, so a boss holding
+  // you keeps hurting at the iframe rate), and the crowd yields while you touch a boss.
+  contact: { kb: 140, block: 0.5, inset: 5, playerMass: 2, boss: 0.75, bossShove: true, bossGap: -5, yieldToBoss: true },
   // Healing is a budget tied to the song, not to kills: choruses test you, verses let you recover.
   hearts: {
     heal: 0.35,             // a heart restores this share of max health
@@ -86,35 +160,40 @@ export const BALANCE = {
   xp: { base: 5, lin: 0.5, quad: 0.6, cap: 340 },
   // Notes left on the floor fade after `life` (8 bars) and blink through their last `blink` seconds.
   notes: { life: 18, blink: 2 },
-  // How many enemies the director keeps around: base + perSec * t + perMin2 * minutes^2, times the energy.
-  crowd: { base: 12, perSec: 0.5, perMin2: 2.8 },
-  // Threat follows the song: section -> crowd multiplier (the Build-Up ramps across its bars).
-  energy: { intro: 0.8, verse1: 0.85, chorus1: 1.15, verse2: 0.8, chorus2: 1.05, bridge: 0.62, build: [1.0, 1.5], drop: 1.05, finale: 0.85 },
-  // A quiet phrase (the band plays thin): a smaller crowd, more ranged enemies and elites, no formations.
-  quiet: { crowd: 0.85, ranged: 2, elite: 1.5 },
-  // Drop-ins: this share of a beat's spawns appears close to you after a one-beat ring. Never tanks or Stomps.
-  dropIns: { share: { chorus1: 0.08, chorus2: 0.12, build: 0.16, drop: 0.16, finale: 0.12 }, min: 200, max: 320, types: ['static', 'buzz', 'glitch'], telegraph: 1 },
-  // Formations: rings close in from `ringDist` px after a one-beat telegraph. impactRing: a ring arrives the bar
-  // before each arrangement impact, so the release lands on a crowd.
-  formation: { ringDist: 420, telegraph: 1, impactRing: true },
-  // The Snare: a mortar that marks where you will be on beat 4 and lands on the next backbeat.
+  // A quiet phrase (the band plays thin): the floor x floor, the stream x stream, `upgrade` of the plain bodies come
+  // loud, elites come x elite sooner, a wall sweeps in on its downbeat, and no drop-ins or rotation set pieces.
+  quiet: { floor: 0.85, stream: 0.5, upgrade: 0.25, elite: 1.5 },
+  // Drop-ins: this share of a beat's spawns appears close to you after a one-beat ring, at most perBeat a beat,
+  // plain keys of `types` only (plainOnly), never in a quiet phrase or a refill grace. Never tanks or Stomps.
+  dropIns: { share: { chorus1: 0.08, chorus2: 0.12, build: 0.16, drop: 0.16, finale: 0.12 }, min: 200, max: 320, types: ['static', 'buzz', 'glitch'], telegraph: 1, perBeat: 2, plainOnly: true },
+  // Formations: set pieces arrive after a `telegraph`-beat ring. impactRing: a ring closes in the bar before each
+  // arrangement impact, so the release lands on a crowd (sets.ring has its numbers).
+  formation: { telegraph: 1, impactRing: true },
+  // The Snare: a mortar that marks where you will be on beat 4 and lands on the next backbeat. Its share of each
+  // section is in `waves`, its live count in horde.liveMax.
   snare: {
-    mix: { verse2: 0.045, chorus2: 0.06, bridge: 0.12, drop: 0.06, finale: 0.075 },
     keep: [380, 520],       // px it keeps from you
     range: 620,             // px it fires from (and only on screen)
     r: 64, dmg: 13, dmgPerMin: 0.06,
     lead: 1, leadCap: 160,  // aims where you will be in `lead` s, at most `leadCap` px ahead
-    cap: 6,                 // live marks at most
+    cap: 2,                 // live marks at most
   },
   // Elites hunt: faster, and every `every` bars they light a lane on beat 4 and dash down it on the downbeat.
-  elites: { hp: 9, speed: 1.2, dash: 700, every: 4, min: 120, max: 560 },
-  // Screech: damage of its aimed shot (grows 6% per song minute), and a multiplier on its share of every mix.
-  screech: { dmg: 11, mix: 0.7 },
+  // They are drawn from the wave's types minus `exclude` (no tiny ones, no shooters, no 9x-health Stomp).
+  elites: { hp: 9, speed: 1.2, dash: 700, every: 4, min: 120, max: 560, exclude: ['buzz', 'stomp', 'screech', 'snare'] },
+  // Screech: damage of its aimed shot (grows 6% per song minute). Its share of each section is in `waves`.
+  screech: { dmg: 11 },
   // Bosses: health grows `hpPerMin` per song minute, times hp[type]. Attack numbers for the retuned fights.
   boss: {
     hpPerMin: 0.14,
     hp: { drone: 1.3, clipper: 1.15, glitchking: 0.9, whitenoise: 0.5 },
-    clipperRadial: 11, clipperTriple: 0.5,          // radial shots on beats 1 and 3; aimed triples below this health
+    // Fewer bullets, more bodies: every radial count x radial, summoned bodies x summon (arriving after a
+    // summonTelegraph-beat ring), the Clipper's radials only on clipperRadialBeats, the Glitch King's aimed triples
+    // only on kingTripleBeats and below kingTripleBelow of its health (1: always), White Noise's spiral with
+    // noiseSpiralArms [phases 1-2, phase 3] arms, plus a second set on the 8th after the beat when noiseSpiral8th.
+    radial: 0.6, summon: 1.25, summonTelegraph: 1,
+    clipperRadialBeats: [0], kingTripleBeats: [3], kingTripleBelow: 0.5, noiseSpiralArms: [1, 2], noiseSpiral8th: false,
+    clipperRadial: 11, clipperTriple: 0.35,         // the Clipper's radial shots; aimed triples below this health
     kingTripleDmg: 13, kingRadialDmg: 16,           // the Glitch King's aimed triples and its blink radial
     noiseRadialDmg: 16, noiseSpiralDmg: 14,         // White Noise's radials and spiral arms
   },
