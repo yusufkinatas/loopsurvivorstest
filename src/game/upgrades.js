@@ -14,6 +14,10 @@ import { CHEMISTRY, CROSS_TEXT, crossoverOf, ruleTiers } from './loadout.js';
 // strip once it is, not a requirement.
 export const remixReady = (inst) => !!(inst?.def?.remix && !inst.remix && inst.level >= BALANCE.remix.minLevel);
 
+// A pedal not on the board can still join it: a free slot (pedals never leave) and not banished (never dealt again).
+// The remix card and the remixed strip promise a Signature only while this holds.
+export const pedalCanJoin = (g, id) => g.loadout.pedalSlotsFree() > 0 && !g.banished?.has(id);
+
 // The channels a banked tape waits for: every one not remixed yet below minLevel, at the highest such level. A level
 // card that reaches minLevel always starts from there, so the strips and the card that finishes the job agree.
 // None while a channel is ready: the tape is going there (its remix cards are pending or open).
@@ -267,11 +271,11 @@ export function describeOffer(g, o) {
     if (o.kind === 'remix') {
       // A tape's remix card: its own part where it has one (else the level 5 part), a new attack, its pedal
       // opened up on the strip, and the jump to level 5 from where the channel is (prev: its pips pulse). The foot
-      // shows that pedal, lit when it is on the board (the Signature, last line), and nothing once a full board can
-      // never take it (pedals never leave).
+      // shows that pedal, lit when it is on the board (the Signature, last line), and nothing once it can never join
+      // (pedalCanJoin).
       const rm = def.remix, pd = PEDAL_BY_ID[rm.pedal], from = o.inst?.level ?? MAX_INSTRUMENT_LEVEL;
       const on = !!g.loadout.pedal(rm.pedal), x = `×${BALANCE.remix.sig}`;
-      const can = on || g.loadout.pedalSlotsFree() > 0;
+      const can = on || pedalCanJoin(g, rm.pedal);
       return {
         ...out, title: rm.name, prev: from,
         cells: rm.pattern ? laneCells(rm.pattern, rm.steps || steps, null) : laneCells(lv.pattern, steps, null),

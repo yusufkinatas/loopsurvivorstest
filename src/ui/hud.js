@@ -9,7 +9,7 @@ import { rgba } from '../util.js';
 import { icon } from './icons.js';
 import { CHEMISTRY, CROSS_TEXT } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
-import { tapeTarget } from '../game/upgrades.js';
+import { tapeTarget, pedalCanJoin } from '../game/upgrades.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -287,7 +287,7 @@ export class Hud {
       s.el.classList.toggle('empty', !inst);
       s.el.classList.toggle('locked', !inst && !free);
       s.el.classList.toggle('remix', !!inst?.remix);
-      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}:${inst.sig ? 1 : 0}:${g.loadout.pedalSlotsFree() ? 1 : 0}` : free ? 'free' : 'locked';
+      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}:${inst.sig ? 1 : 0}:${inst.remix && pedalCanJoin(g, inst.def.remix.pedal) ? 1 : 0}` : free ? 'free' : 'locked';
       if (s.last === key) continue;
       s.last = key;
       if (inst) {
@@ -297,8 +297,8 @@ export class Hud {
         s.glyph.innerHTML = icon(inst.def.id, role);
         s.pips.innerHTML = pips(inst.level, MAX_INSTRUMENT_LEVEL);
         // A remixed strip wears its partner pedal: dim until that pedal is on the board, then gold with its number. No
-        // tab once a full board can never take it (pedals never leave).
-        const pd = inst.remix && (inst.sig || g.loadout.pedalSlotsFree() > 0) ? PEDAL_BY_ID[inst.def.remix.pedal] : null, x = `×${BALANCE.remix.sig}`;
+        // tab once it can never join (a full board, or banished).
+        const pd = inst.remix && (inst.sig || pedalCanJoin(g, inst.def.remix.pedal)) ? PEDAL_BY_ID[inst.def.remix.pedal] : null, x = `×${BALANCE.remix.sig}`;
         const sig = pd ? (inst.sig ? `${pd.name} ${x}` : `Add ${pd.name} for ${x}`) : '';
         s.sig.className = `strip-sig${inst.sig ? ' on' : ''}`;
         s.sig.innerHTML = pd ? icon(pd.id, 'pedal') + (inst.sig ? `<b>${x}</b>` : '') : '';

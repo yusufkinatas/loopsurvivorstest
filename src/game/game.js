@@ -473,7 +473,11 @@ export class Game {
       this._led().sig++;
       formed.push(inst);
     }
-    if (formed.length && !quiet) this.later.push({ at: this.time, fn: () => this._sigMoment(formed) });
+    // On the pick moments' queue (_pickMoment), so a pedal and a sound picked in one pause ring a beat apart.
+    if (formed.length && !quiet) {
+      this._momentAt = Math.max(this.time, this._momentAt + 4 * STEP_SEC);
+      this.later.push({ at: this._momentAt, fn: () => this._sigMoment(formed) });
+    }
     if (this.audio?.ready) {
       this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost());
       // The desk levels by the channels actually playing in the bar (the sequencer re-levels every downbeat).
@@ -496,7 +500,8 @@ export class Game {
   _sigMoment(insts) {
     for (const inst of insts) this.hooks.onJoin?.(inst.def.role);
     this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 260, dur: 0.6, damage: 0, kb: 0, width: 8, color: PEDAL_BY_ID[insts[0].def.remix.pedal].color });
-    this.banner(`${new Intl.ListFormat('en').format(insts.map((i) => i.def.remix.name))} ×${BALANCE.remix.sig}`, '', true, '', 2);
+    // ' + ', not 'and': one remix is called Call and Response.
+    this.banner(`${insts.map((i) => i.def.remix.name).join(' + ')} ×${BALANCE.remix.sig}`, '', true, '', 2);
   }
 
   // ------------------------------------------------------------------ API for instruments
@@ -1380,6 +1385,7 @@ export class Game {
     if (!key) return null;
     this.banished.add(key);
     this.banishes--;
+    this.hooks.onLoadout?.();   // a remixed strip stops promising a banished partner pedal
     this.previewOffer(null);
     return this._deal();
   }

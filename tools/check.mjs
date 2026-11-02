@@ -356,7 +356,7 @@ if (args.includes('--rules')) {
   {
     const { Game } = await import('../src/game/game.js');
     const { Sequencer } = await import('../src/music/sequencer.js');
-    const { BALANCE } = await import('../src/config.js');
+    const { BALANCE, BEAT_SEC } = await import('../src/config.js');
     const { PEDAL_BY_ID, pedalFits } = await import('../src/content/pedals.js');
     const { describeOffer } = await import('../src/game/upgrades.js');
     const { spawnEnemy } = await import('../src/game/enemies.js');
@@ -436,7 +436,15 @@ if (args.includes('--rules')) {
       assert.equal(g.later.length, n + 1);
       g.later.splice(n).forEach((l) => l.fn());
       assert.equal(g.fx.rings.length, rings + 1);
-      assert.deepEqual(banners, [{ title: `Slap Bass and Screamer ×${SIG}`, compact: true, style: '' }]);
+      assert.deepEqual(banners, [{ title: `Slap Bass + Screamer ×${SIG}`, compact: true, style: '' }]);
+      // A new sound and the pedal picked in one pause (either order) ring a beat apart, on the pick moments' queue.
+      for (const order of [['sound', 'pedal'], ['pedal', 'sound']]) {
+        const b = game({ remix: true });
+        b.g._momentAt = -Infinity;
+        b.g.time = 30;
+        for (const k of order) if (k === 'sound') b.g.addInstrument(BY_ID.kick808, 1); else addPedal(b.g, 'overdrive');
+        assert.deepEqual(b.g.later.map((l) => l.at), [30, 30 + BEAT_SEC], order.join(' then '));
+      }
     });
     check('Signature: the band multiplier (ledger bx) counts it', () => {
       const { g, inst } = game({ remix: true, pedals: ['overdrive'] });
@@ -463,6 +471,13 @@ if (args.includes('--rules')) {
       const d = describeOffer(g, { kind: 'remix', def: inst.def, role: inst.def.role, inst, level: 5 });
       assert.equal(d.pair, null);
       assert.ok(!d.info.some((l) => l.includes(`×${SIG}`)), d.info.at(-1));
+      // Nor once the partner is banished (never dealt again), slots free or not.
+      const b = game({});
+      b.inst.level = 5;
+      b.g.banished.add('overdrive');
+      const db = describeOffer(b.g, { kind: 'remix', def: b.inst.def, role: b.inst.def.role, inst: b.inst, level: 5 });
+      assert.equal(db.pair, null);
+      assert.ok(!db.info.some((l) => l.includes(`×${SIG}`)), db.info.at(-1));
     });
     check('Pedal cards: a row of the band lit where pedalFits, gold where it is a remix partner, "Powers n of your N sounds." last', () => {
       const M = BALANCE.remix.minLevel;
