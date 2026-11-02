@@ -656,9 +656,9 @@ export class Screens {
   }
 
   // The curtain call: the stats count up in turn, then the damage bars grow one by one from the smallest, each
-  // on a chord tone a step higher (onCurtainNote, Note chimes), and the biggest flares in its channel color. Any
-  // key (skipCurtain: it only skips, so a key mashed to skip never presses Play again), click or tap shows the
-  // final state, where reduced motion and a return from the Discography start. The markup holds the final state.
+  // on a chord tone a step higher (onCurtain, Note chimes), and the biggest flares in its channel color. Any key
+  // (skipCurtain), click or tap shows the final state, where reduced motion and a return from the Discography
+  // start. The markup holds the final state, so rows at 0 (nothing to grow) sit out.
   _curtain(el, sum, max) {
     this._skip = null;
     if (this._curtainOf === sum || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
@@ -666,10 +666,10 @@ export class Screens {
     const { stat, gap, grow } = CURTAIN;
     const stats = [...el.querySelectorAll('.end-stats b[data-n]')];
     const lis = el.querySelectorAll('.end-rows li');
-    const rows = sum.instruments.map((r, i) => ({ li: lis[i], bar: lis[i].querySelector('.er-bar i'), num: lis[i].querySelector('.er-num'), n: r.dmg })).reverse();
+    const rows = sum.instruments.map((r, i) => ({ li: lis[i], bar: lis[i].querySelector('.er-bar i'), num: lis[i].querySelector('.er-num'), n: r.dmg })).filter((r) => r.n > 0).reverse();
     const t0 = stats.length * stat, n = rows.length, end = t0 + Math.max(0, n - 1) * gap + grow;
     const ease = (k) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3;
-    let next = 0, raf = 0;
+    let next = 0, raf = 0, chime = null;
     const draw = (t, quiet) => {
       for (const [i, b] of stats.entries()) {
         const v = b.dataset.n * ease(t / stat - i);
@@ -680,9 +680,12 @@ export class Screens {
         r.bar.style.transform = `scaleX(${(r.n / max) * k})`;
         r.num.textContent = Math.round(r.n * k).toLocaleString('en-US');
       }
-      // The biggest bar takes the top tone (5, the chime range), the ones before it a tone lower each.
-      for (; next < n && t >= t0 + next * gap; next++) if (!quiet) {
-        this.h.onCurtainNote?.(Math.max(0, 5 - (n - 1 - next)));
+      // The biggest bar takes tone 5 (the top of the chime range), each one before it a chord tone lower (under 0
+      // into the octave below), so every note climbs. Only the latest note due sounds: after a stall (a hidden
+      // tab, a long frame) the missed ones stay quiet instead of landing as one stacked chord.
+      for (; next < n && t >= t0 + next * gap; next++) {
+        if (quiet || (next < n - 1 && t >= t0 + (next + 1) * gap)) continue;
+        (chime ||= this.h.onCurtain?.())?.(next + 6 - n);   // onCurtain holds the chord sounding at the first note
         if (next === n - 1) rows[next].li.classList.add('top');
       }
     };

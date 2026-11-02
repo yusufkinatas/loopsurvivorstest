@@ -1155,6 +1155,7 @@ export class Game {
     this.seq.pendingStop = null;
     this.seq.remixAt = null;   // no remix lands on the band playing on after the run
     this.dropState = null;
+    this.deathPops.length = 0;   // the clock stops here, so a young pop would hang: the shatter takes over
     if (this.audio?.ready) this.audio.setMuffle(true);
     for (const inst of this.loadout.instruments()) this.fx.particles(p.x, p.y, this.color(inst), 16, 340, 1.1, 3.5);
     this.fx.particles(p.x, p.y, '#f4efff', 20, 260, 0.9, 3);

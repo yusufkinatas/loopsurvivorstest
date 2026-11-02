@@ -129,9 +129,11 @@ const screens = new Screens(screensRoot, {
   },
   onDiscography: (back) => screens.discography(loadMeta(), back),
   onShowEnd: () => screens.end(...lastEnd),
-  // The curtain call: one chime per damage bar, idx tones up the song's home chord, so they climb in key.
-  onCurtainNote: (idx) => {
-    if (settings.chimes && audio.ready) audio.levelUpChime([chordTone(game.song.chord(game.song.home || 0, game.section?.lift || 0), idx, 64)]);
+  // The curtain call's chimes, one per damage bar: chord tone idx of the chord the band is on at the first note,
+  // held for the run so a chord change midway cannot break the climb.
+  onCurtain: () => {
+    const c = seq.position?.chord || game.song.chord(game.song.home || 0, game.section?.lift || 0);
+    return (idx) => { if (settings.chimes && audio.ready) audio.levelUpChime([chordTone(c, idx, 64)]); };
   },
   onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
   onStopTrack: () => stopTrack(),
@@ -292,7 +294,9 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ta
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
-  if (screens.current === 'end' && screens.skipCurtain()) return true;   // any other key first finishes the curtain call
+  // Any other key first finishes the curtain call. One that could press a button (B is Back) is spent on that, so
+  // a key mashed to skip never presses Play again; the rest (F5, F12) keep their browser default.
+  if (screens.current === 'end' && screens.skipCurtain() && (k === 'Enter' || k === ' ' || k.startsWith('pad-'))) return true;
   // Space and E are the Drop keys: on menus they must never press a focused button by accident. Space still
   // toggles a focused checkbox (Settings).
   const box = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'checkbox';
