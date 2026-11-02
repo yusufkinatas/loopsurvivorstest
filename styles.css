@@ -311,6 +311,7 @@ body[data-input=pad] #screens :is(.btn, .ibtn, input):focus { outline: 2px solid
 .howto { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; font-size: 15px; }
 .howto li { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 12px; }
 .ht-icon { width: 24px; height: 24px; color: var(--muted); }
+.ht-icon .gems { --s: var(--muted); width: 100%; height: 100%; justify-content: center; }
 .keys { width: 100%; margin-top: 16px; border-collapse: collapse; font-size: 13.5px; }
 .keys th, .keys td { padding: 3px 12px 3px 0; text-align: left; border-bottom: 1px solid var(--line); }
 .keys thead th { font: 700 10.5px/1.4 var(--f-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
@@ -437,6 +438,10 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .card-info span:first-child { color: var(--text); }
 .card-info span + span { margin-top: 4px; }
 #screens.info .card-info { display: block; }
+/* A card never taken in any run shows its first two lines (what it is, what it does) without the info layer;
+   the lines after them (and B3/B4's lines, always last) wait for it. */
+.card.fresh .card-info { display: block; }
+#screens:not(.info) .card.fresh .card-info span:nth-child(n+3) { display: none; }
 
 /* Banish mode: the cards that can go get a red frame, the rest step back. */
 .cards.banishing .card:not(.no-ban) .card-frame { background: var(--bad); }
@@ -488,6 +493,8 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .end-notes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 14px; line-height: 1.4; }
 .end-notes .more { color: var(--muted); }
 .end-unsaved { margin: 16px 0 0; font-size: 13.5px; color: var(--dim); }
+.end-next { margin: 12px 0 0; font-size: 14px; line-height: 1.4; color: var(--muted); }
+.end-next b { color: var(--text); font-weight: 600; }
 .end .now-playing:empty { display: none; }
 .end [data-act=listen] { min-width: 12em; }   /* Listen and Stop keep one width, so the buttons stay put */
 
@@ -646,6 +653,7 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .screen-levelup .cards-wrap, .cards-wrap { margin-top: 0; padding-bottom: 0; }
   .cards { gap: 10px; }
   .card { padding: 9px 12px 12px; gap: 5px; }
+  #screens:not(.info) .card.fresh .card-info span:nth-child(n+2) { display: none; }
   .card-hero { width: 40px; height: 40px; margin-top: 4px; }
   .card-hero.vinyl { width: 52px; height: 52px; }
   .card-hero.vinyl > svg { width: 26px; height: 26px; }
@@ -662,6 +670,7 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .end-stats div { padding: 8px 10px; }
   .end-stats b { font-size: 17px; }
   .end-notes, .end-song, .end-genre { margin-top: 12px; }
+  .end-next { margin-top: 8px; }
   .end-song .songmap { margin: 28px 0 14px; }
   .end-rows { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
   .end .panel-actions { margin-top: 14px; }
