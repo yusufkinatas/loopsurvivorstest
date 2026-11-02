@@ -157,9 +157,9 @@ export const BALANCE = {
     breathers: { verse2: [0, 16], bridge: [0, 16], finale: [16, 32] },   // section -> bars in it that put a heart near you
     breatherDist: 300,      // px from the player, in a random direction
   },
-  // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp), flat from level 18 on so the late sections
+  // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp), flat from level 16 on so the late sections
   // still deal cards. Vinyls only come from featured elites.
-  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 190 },
+  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 160 },
   // Notes left on the floor fade after `life` (8 bars) and blink through their last `blink` seconds.
   notes: { life: 18, blink: 2 },
   // A quiet phrase (the band plays thin): the floor x floor, the stream x stream, `upgrade` of the plain bodies come
@@ -234,7 +234,7 @@ export const BALANCE = {
   // (the top channel's at least topFloor), one level card on upSlot of screens, pedal weights (pedalNew2 once two are
   // owned, x pedalDud when the pedal powers none of the band), swap x swapGain when it gains a tier or a crossover,
   // x swapLoss when it loses one, x swapSide when it moves away from the band's styles, and Fader cards in the pool.
-  offers: { mom: 0.35, upA: 0.95, upB: 0.12, topFloor: 0.75, upSlot: 0.75, pedalUp: 0.8, pedalNew: 0.75, pedalNew2: 0.5, pedalDud: 0.3,
+  offers: { mom: 0.35, upA: 0.95, upB: 0.16, topFloor: 0.55, upSlot: 0.85, pedalUp: 0.8, pedalNew: 0.75, pedalNew2: 0.5, pedalDud: 0.3,
     swap: 0.32, swapGain: 3, swapLoss: 0.25, swapSide: 0.4, fader: 0.45 },
   // Crossovers (loadout.js crossoverOf): two styles at 2+ sounds bend their two rules, three form Fusion. pairTier and
   // fusionTier: rule tiers a pair or Fusion adds (cap 3). grunge: the Mosh pit's reach while planted, symphonic: its

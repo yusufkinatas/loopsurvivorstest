@@ -7,7 +7,8 @@ import { Loadout } from '../src/game/loadout.js';
 import { INSTRUMENTS, BY_ID } from '../src/content/instruments/index.js';
 import { PEDALS, PEDAL_BY_ID } from '../src/content/pedals.js';
 import { ROLES } from '../src/config.js';
-import { weightedPick, shuffle } from '../src/util.js';
+import { weightedPick, shuffle, seedRng } from '../src/util.js';
+seedRng(1);   // the shipped deal draws from the seeded rng: the same numbers on every run
 const TIERS = [2, 4, 6], tierOf = (n) => TIERS.filter((t) => n >= t).length;
 function propose(g, K) {
   const L = g.loadout, filled = L.filled(), room = filled < g.channelCap(), out = [];

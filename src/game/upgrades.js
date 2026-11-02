@@ -16,7 +16,9 @@ export const remixReady = (inst) => !!(inst?.def?.remix && !inst.remix && inst.l
 
 // The channels a banked tape waits for: every one not remixed yet below minLevel, at the highest such level. A level
 // card that reaches minLevel always starts from there, so the strips and the card that finishes the job agree.
+// None while a channel is ready: the tape is going there (its remix cards are pending or open).
 export function tapeTarget(g) {
+  if (g.remixReady?.().length) return [];
   const below = g.loadout.instruments().filter((i) => i.def.remix && !i.remix && i.level < BALANCE.remix.minLevel);
   const top = Math.max(...below.map((i) => i.level));
   return below.filter((i) => i.level === top);

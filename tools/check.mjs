@@ -171,6 +171,10 @@ if (args.includes('--rules')) {
       assert.equal(remixReady({ def: BY_ID.kick808, level: 5, remix: true }), false);
       const g = dealer([['kick808', mn - 1], ['upright', mn - 1], ['sawlead', 1], ['rhodes', mn], ['shaker', 5, true]], { banked: 1 });
       assert.deepEqual(tapeTarget(g).map((i) => i.def.id), ['kick808', 'upright']);
+      // Two ready: the tape goes to their remix cards, so no strip waits.
+      const two = dealer([['kick808', mn + 1], ['flute', mn], ['upright', mn - 1]], { banked: 1 });
+      two.remixReady = () => two.loadout.instruments().filter(remixReady);
+      assert.deepEqual(tapeTarget(two), []);
       const card = (gg) => describeOffer(gg, { kind: 'up', def: BY_ID.kick808, role: 'beat', level: mn, inst: gg.loadout.channels.beat });
       assert.equal(card(g).tape, true);
       assert.ok(card(g).info.includes(`Reaches level ${mn}: your Master Tape remixes it.`));

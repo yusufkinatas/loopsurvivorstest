@@ -359,14 +359,15 @@ export class Hud {
       this._tapesN = n;
       this.tapes.hidden = !n;
       this.tapes.innerHTML = icon('tape').repeat(n);
-      this.tapes.setAttribute('aria-label', `${n} Master Tape${n === 1 ? '' : 's'} waiting for a channel at level ${BALANCE.remix.minLevel}`);
       if (more) kick(this.tapes, 'pop');
     });
     // The strips a banked tape waits for wear its reel, pulsing on the beat (from the frame it is banked, not on the
-    // next loadout change), and while a tape lies on the floor the strips it would remix get a gold rim.
+    // next loadout change), and while a tape lies on the floor the strips it would remix get a gold rim. A tape whose
+    // remix cards are pending or open waits for nothing (tapeTarget is empty).
     const toggle = (cls) => (s) => { const on = s ? s.split(',') : []; for (const r of ROLES) this.strips[r].el.classList.toggle(cls, on.includes(r)); };
     const roles = (insts) => insts.map((i) => i.def.role).join(',');
     const wait = banked > 0 ? roles(tapeTarget(g)) : '';
+    set('tapearia', `${banked} Master Tape${banked === 1 ? '' : 's'}${wait ? ` waiting for a channel at level ${BALANCE.remix.minLevel}` : ''}`, (v) => this.tapes.setAttribute('aria-label', v));
     set('tapewait', wait, toggle('tape-wait'));
     set('tapebeat', wait && cur ? cur.bar * 4 + (cur.sib >> 2) : -1, () => { if (wait) kick(this.mixer, 'beat'); });
     const onFloor = g.tapes && g.tapes.dropped > g.tapes.collected + g.tapes.lost;
