@@ -72,7 +72,7 @@ The build *is* the arrangement, so the game enforces the rules a producer would:
    (full, out, sparse, half-time, double-time, call, answer, held, an octave down, mirrored, a lower
    level's part, a classic groove, or a song's accompaniment figure). The textures only move notes on the
    grid, so they stay in key, and an attack only fires on a note you hear. A groove re-times the part's own
-   sounds and a figure plays chord tones in its sound, and both hit as hard in total as the part they replace.
+   notes and a figure plays chord tones on them, so both hit exactly as hard as the part they replace.
 4. **The desk mixes for you.** Channels are panned apart, melodic channels duck under the kick, the bus
    compresses and limits, and the level and brightness follow who is playing.
 

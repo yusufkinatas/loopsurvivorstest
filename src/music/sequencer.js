@@ -72,89 +72,103 @@ export const TRANSFORMS = {
   }),
 };
 
-// Grooves and figures (src/music/grooves.js). A part's main sound K (a Beat part's kick, else its most played
-// sound) and its second S (its most played other sound, else K) as their first notes, so a re-timed note keeps
-// its kind (its length is the row's); beat: it has a kick; line: every note is one pitch (no chord, no drum).
+// Grooves and figures (src/music/grooves.js) re-time the part's own notes. In every bar the part's notes, loudest
+// first, take the transform's slots, strongest first (a slot ranks by its velocity in the row, then by where it
+// falls: step 0, beat 3, the other beats, the 8ths), and a bar with more notes than slots plays the rest, softest
+// last, on the strongest steps left free (a figure holds its pitch there). So every note of the part plays, with
+// its sound and its velocity (an attack keyed on a kind, an accent or the downbeat fires as often), and only the
+// timing changes (and a figure's pitch): a groove or a figure hits exactly as hard as the part.
+const rank = (sib, v) => v + (sib ? (sib === 8 ? 1.25 : sib % 4 ? (sib % 2 ? 0 : 0.5) : 1) : 2);
+// Notes ns into slots [{ sib, r, x }] (x: what the slot sets on its note), into out by step of the bar; hold: a
+// free step takes the slot before it (a figure's pitch).
+function fit(ns, slots, out, hold) {
+  if (!ns.length) return;
+  if (ns.length > slots.length) {
+    const by = slots.slice().sort((a, b) => a.sib - b.sib), free = [];
+    for (let sib = 0; sib < STEPS_PER_BAR; sib++) {
+      if (by.some((sl) => sl.sib === sib)) continue;
+      free.push({ sib, r: rank(sib, 0) - 10, x: hold && (by.findLast((sl) => sl.sib < sib) || by[0]).x });
+    }
+    slots = [...slots, ...free];
+  }
+  ns = ns.slice().sort((a, b) => (b.v ?? 1) - (a.v ?? 1));
+  slots.slice().sort((a, b) => b.r - a.r || a.sib - b.sib).slice(0, ns.length)
+    .forEach((sl, i) => (out[sl.sib] ||= []).push({ ...ns[i], ...sl.x }));
+}
+// A part's notes re-timed bar by bar: pools(the notes of bar b, b) -> [[notes, slots, hold], ...]. Cached on the
+// part, for as many bars as it takes the part and every 1, 2 and 4-bar row or figure to come round together.
+function retime(by, P, tf, pools) {
+  const c = (by._re ||= {});
+  if (!c[tf]) {
+    let L = 4;
+    while (L % (P / STEPS_PER_BAR)) L += 4;
+    const t = (c[tf] = []);
+    for (let b = 0; b < L; b++) {
+      const ns = [], out = [];
+      for (let sib = 0; sib < STEPS_PER_BAR; sib++) ns.push(...(by[at(b, sib, P)] || NONE));
+      for (const [pool, slots, hold] of pools(ns, b)) fit(pool, slots, out, hold);
+      for (let sib = 0; sib < STEPS_PER_BAR; sib++) t.push(out[sib]?.map((n) => ({ ...n, s: at(b, sib, P) })) || null);
+    }
+  }
+  return c[tf];
+}
+// A part's main sound K (a Beat part's kick, else its most played); drum: no note has a pitch; line: every note is
+// one pitch (no chord); beat: it has a kick.
 const kindsOf = (by) => by._kinds ||= (() => {
-  const n = {}, first = {};
+  const n = {};
   let drum = true, line = true;
   for (const ns of by) for (const x of ns || NONE) {
     if (pitched(x)) drum = false;
     if (!pitched(x) || x.chord) line = false;
     n[x.k] = (n[x.k] || 0) + 1;
-    first[x.k] ||= x;
   }
-  const ks = Object.keys(n).sort((a, b) => n[b] - n[a]);
-  const K = n.kick ? 'kick' : ks[0];
-  return { drum, line, beat: !!n.kick, K: first[K], S: first[ks.find((k) => k !== K) ?? K], k0: by.find(Boolean)?.[0].k };
+  return { drum, line, beat: !!n.kick, K: n.kick ? 'kick' : Object.keys(n).sort((a, b) => n[b] - n[a])[0] };
 })();
-// A grid row ('X... o=..' | per bar) as one { v, d } or null per step.
+// A grid row ('X... o...', '|' between bars) as a velocity (0 a rest) per step, and its slots in bar b.
 const VEL = { X: 1, x: 0.8, o: 0.6, g: 0.4 };
-const row = (str) => {
+const row = (str) => [...str.replace(/[\s|]/g, '')].map((c) => VEL[c] || 0);
+const slotsIn = (r, b) => {
   const out = [];
-  let last = null;
-  for (const c of str.replace(/[\s|]/g, '')) {
-    if (c === '=' && last) last.d = (last.d || 1) + 1;
-    out.push(c === '=' ? null : (last = VEL[c] ? { v: VEL[c] } : null));
+  for (let sib = 0; sib < STEPS_PER_BAR; sib++) {
+    const v = r[(b * STEPS_PER_BAR + sib) % r.length];
+    if (v) out.push({ sib, r: rank(sib, v) });
   }
   return out;
 };
-// A groove or a figure keeps the part's grain: it drops its weakest notes (soft ones off the beat first) while that
-// brings it nearer the part's own number of notes (the bar's first note always plays), so a level 1 part plays its
-// skeleton and a stream of small hits stays a stream. floorOf: the lowest rank it keeps, cached on the part.
-const rank = (sib, v) => v + (sib % 4 ? (sib % 2 ? 0 : 0.5) : 1);
-const count = (play, f) => { let n = 0; for (let bar = 0; bar < 4; bar++) for (let sib = 0; sib < STEPS_PER_BAR; sib++) n += play(bar, sib, f)?.length || 0; return n; };
-function floorOf(by, P, id, play) {
-  const c = (by._floor ||= {});
-  if (c[id] === undefined) {
-    const own = count((bar, sib) => TRANSFORMS.full(by, P, bar, sib)), off = (f) => Math.abs(Math.log(count(play, f) / own));
-    const fs = new Set([0]);
-    for (let bar = 0; bar < 4; bar++) for (let sib = 0; sib < STEPS_PER_BAR; sib++) for (const n of play(bar, sib, 0) || NONE) fs.add(rank(sib, n.v));
-    c[id] = [...fs].sort((a, b) => a - b).reduce((a, f) => (off(f) < off(a) ? f : a));
-  }
-  return c[id];
-}
-// A groove re-times a drum part's own K and S onto its rows (Beat rows on a part with a kick, else Groove rows); a
-// pitched part plays as written. Two rows on one step play both sounds, or one when the part has a single sound.
+// A groove re-times a drum part (Beat rows on a part with a kick, else Groove rows): its main sound takes the K row,
+// any other sound the S row, then the K row's other hits (so a second sound the row has no room for keeps its
+// job); a pitched part plays as written.
 for (const [id, G] of Object.entries(GROOVES)) {
   const rows = { beat: G.beat.map(row), perc: G.perc.map(row) };
   TRANSFORMS['g_' + id] = (by, P, bar, sib) => {
     const p = kindsOf(by);
     if (!p.drum) return by[at(bar, sib, P)] || null;
-    const [K, S] = p.beat ? rows.beat : rows.perc;
-    const play = (bar, sib, f) => {
-      const i = (bar * STEPS_PER_BAR + sib) % K.length, s = at(bar, sib, P), k = K[i] && (rank(sib, K[i].v) >= f || sib === 0), out = [];
-      if (k) out.push({ ...p.K, s, v: K[i].v, d: K[i].d || 1 });
-      if (S[i] && rank(sib, S[i].v) >= f && (!k || p.S.k !== p.K.k)) out.push({ ...p.S, s, v: S[i].v, d: S[i].d || 1 });
-      return out.length ? out : null;
-    };
-    return play(bar, sib, floorOf(by, P, 'g_' + id, play));
+    const t = retime(by, P, 'g_' + id, (ns, b) => {
+      const [K, S] = (p.beat ? rows.beat : rows.perc).map((r) => slotsIn(r, b));
+      const spill = K.filter((k) => !S.some((s) => s.sib === k.sib));
+      return [[ns.filter((n) => n.k === p.K), K], [ns.filter((n) => n.k !== p.K), [...S.map((s) => ({ ...s, r: s.r + 10 })), ...spill]]];
+    });
+    return t[(bar * STEPS_PER_BAR + sib) % t.length];
   };
 }
-// A figure plays its own chord tones in the part's sound (its first note's kind), on a part of single pitches; any
-// other part plays as written.
+// A figure plays its chord tones on the part's notes (their kinds, velocities and lengths; its own velocities only
+// rank its notes), on a part of single pitches; any other part plays as written. On a part with a quarter or half
+// as many notes it plays at quarter or half speed (an Alberti on quarters is still an Alberti); a sparser part
+// leaves out its weakest notes.
 for (const [id, F] of Object.entries(FIGURES)) {
-  const fig = [];
-  for (const n of F) (fig[n.s] ||= []).push(n);
   TRANSFORMS['f_' + id] = (by, P, bar, sib) => {
     const p = kindsOf(by);
     if (!p.line) return by[at(bar, sib, P)] || null;
-    const play = (bar, sib, f) => {
-      const ns = fig[sib]?.filter((n) => rank(sib, n.v) >= f || sib === 0);
-      return ns?.length ? ns.map((n) => ({ ...n, s: at(bar, sib, P), ...(p.k0 && { k: p.k0 }) })) : null;
-    };
-    return play(bar, sib, floorOf(by, P, 'f_' + id, play));
+    const t = retime(by, P, 'f_' + id, (ns, b) => {
+      const per = (by.reduce((n, x) => n + (x?.length || 0), 0) * STEPS_PER_BAR) / P, z = [4, 2].find((z) => F.length / z >= per) || 1;
+      const slots = F.filter((n) => Math.floor((n.s * z) / STEPS_PER_BAR) === b % z).map((n) => {
+        const sib = (n.s * z) % STEPS_PER_BAR;
+        return { sib, r: rank(sib, n.v), x: { ct: n.ct, ...(n.o && { o: n.o }) } };
+      });
+      return [[ns.map((n) => ({ v: n.v, ...(n.d && { d: n.d }), ...(n.k && { k: n.k }) })), slots, true]];
+    });
+    return t[(bar * STEPS_PER_BAR + sib) % t.length];
   };
-}
-// How hard the notes of a transform that writes its own (a groove g_, a figure f_, any x_ name) hit: the part's
-// full velocity over the transform's, across 4 bars (every cycle of 1, 2 and 4 bars), clamped. Cached on the part.
-function reW(part, P, tf) {
-  const c = (part._reW ||= {});
-  if (c[tf] === undefined) {
-    const v = velocity(part._byStep, P, tf, 4);
-    c[tf] = v ? clamp(velocity(part._byStep, P, 'full', 4) / v, 0.5, 4) : 1;
-  }
-  return c[tf];
 }
 // lvN plays level N's authored part (levels are supersets, so it is the simpler part), never above the
 // channel's own level and with the channel's own stats. On a remix's own pattern it plays 'sparse'.
@@ -208,6 +222,17 @@ function soloShape(part, P) {
     part._solo = { tf, ratio: full > 0 ? velocity(by, P, tf, bars) / full : 1 };
   }
   return part._solo;
+}
+
+// The weight that makes a part under transform tf hit like its full part over a phrase (8 bars): the full part's
+// velocity over the transform's, clamped to 0.5-4. Cached on the part.
+export function reW(part, P, tf) {
+  const c = (part._reW ||= {});
+  if (c[tf] === undefined) {
+    const v = velocity(part._byStep, P, tf, 8);
+    c[tf] = v > 0 ? clamp(velocity(part._byStep, P, 'full', 8) / v, 0.5, 4) : 1;
+  }
+  return c[tf];
 }
 
 function pickFeatured(band) {
@@ -618,7 +643,7 @@ export class Sequencer {
     this._w = tex.w;
     let tf = tex.tf;
     if (tf === 'groove') tf = this._groove(arr, bar);
-    if (inst.remix && (tf.startsWith('g_') || tf.startsWith('f_'))) tf = 'full';   // a remix keeps its own part
+    if (inst.remix && (tf.startsWith('g_') || tf.startsWith('f_'))) { tf = 'full'; this._w = 1; }   // a remix keeps its own part, at its own weight
     const n = LV[tf];
     if (n) {
       if (part === def.remix) tf = 'sparse';
@@ -628,9 +653,7 @@ export class Sequencer {
     // A texture with no transform would silence the channel without a word: say so (a sim counts it as an error).
     const fn = TRANSFORMS[tf];
     if (!fn) { this._report(`texture ${tf}`, new Error(`no transform ${tf}`)); return null; }
-    const P = stepsOf(def, part);
-    if (tf[1] === '_') this._w *= reW(part, P, tf);
-    const out = fn(part._byStep, P, bar, sib) ?? null;
+    const out = fn(part._byStep, stepsOf(def, part), bar, sib) ?? null;
     if (live && out && tf.startsWith('g_')) this.heard.groove += out.length;
     return out;
   }
