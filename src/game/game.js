@@ -11,7 +11,7 @@ import { Director } from './director.js';
 import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat } from './enemies.js';
 import { bossCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
-import { Loadout, computeStats, makeInst, genreName, isFusion, RULES } from './loadout.js';
+import { Loadout, computeStats, makeInst, genreName, isFusion, RULES, CHEMISTRY } from './loadout.js';
 import { buildOffers, applyOffer as applyCard, banKey, deadScreen, remixReady } from './upgrades.js';
 import { BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
@@ -170,6 +170,8 @@ export class Game {
     this.offers = null;
     this.preview = null;
     this.sectionBanner = null;
+    this._tierSnap = null;   // the rules as the last pick left them (_pickMoment)
+    this.ruleBloom = null;   // { styles, t }: rule tells blooming out from the speaker (renderer _ruleTells)
     const startDef = BY_ID[start] || BY_ID.kick808 || Object.values(BY_ID)[0];
     if (startDef) this.addInstrument(startDef, 1);
     for (const g of this.opts.give || []) {
@@ -256,14 +258,29 @@ export class Game {
     this._pickMoment(inst.def.role);
   }
 
-  // A pick's one moment on the floor, once play resumes after it (never at time 0: the start sound and give=).
-  // join: a sound joined (a new card or a swap): a ring in its channel color, and its strip pops on the HUD. A
-  // level pick (join false) has none.
+  // A pick's one moment on the floor, once play resumes after it (never at time 0: the start sound and give=): its
+  // strip pops on the HUD and exactly one kind of ring plays. A crossover that forms (or Fusion) rings in its styles'
+  // colors and blooms their floor tells (the genre stamp is its line). Else a rule tier that rises rings in its
+  // style's color, blooms its tell and names itself on the compact line, unless the genre changed (the stamp
+  // speaks). Else the channel rings: a sound that joins (a new card or a swap), smaller for a level pick.
+  // Only addInstrument changes style counts, so every tier and crossover change passes through here.
   _pickMoment(role, join = false) {
-    if (this.time <= 0 || !join) return;
+    const R = this.stats.rules, prev = this._tierSnap;
+    this._tierSnap = { tiers: R.tiers, x: R.x, genre: this.genre };
+    if (this.time <= 0 || !prev) return;
+    const rose = Object.keys(R.tiers).filter((st) => R.tiers[st] > (prev.tiers[st] || 0)).sort((a, b) => R.tiers[b] - R.tiers[a]);
+    const formed = R.x && R.x !== prev.x ? Object.keys(R.tiers).filter((st) => R.tiers[st] > 0) : null;
+    const st = rose[0], line = st && !formed && this.genre === prev.genre ? `${CHEMISTRY[st].name} · ${CHEMISTRY[st].tiers[R.tiers[st] - 1].text}` : null;
     this.later.push({ at: this.time, fn: () => {
+      const p = this.player, L = this._led();
+      const ring = (o) => this.fx.ring({ x: p.x, y: p.y, follow: true, dur: 0.6, damage: 0, kb: 0, ...o });
       this.hooks.onJoin?.(role);
-      this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 14, r1: 200, dur: 0.6, damage: 0, kb: 0, width: 6, color: this.color(role) });
+      if (formed) formed.forEach((s, i) => ring({ r0: 20, r1: 240 + 40 * i, width: 4, color: STYLES[s].color }));
+      else if (st) ring({ r0: 20, r1: 260, width: 8, color: STYLES[st].color });
+      else ring({ r0: 14, r1: join ? 200 : 140, width: join ? 6 : 4, color: this.color(role) });
+      if (formed || st) this.ruleBloom = { styles: formed || [st], t: this.time };
+      if (line) { this.banner(line, '', true, '', 1); L.lines = (L.lines || 0) + 1; }
+      L.rings = (L.rings || 0) + (formed ? formed.length : 1);
     } });
   }
 
@@ -601,15 +618,28 @@ export class Game {
       if (R.near && d2 < (this.nearR() + e.r) ** 2) m *= 1 + R.near;
     }
     if (R.combo) m *= 1 + R.combo * Math.min(1, S.combo / RULES.comboCap);
-    if (R.swell) m *= 1 + R.swell * (2 * this.swellAt() - 1);
+    if (R.swell) m *= 1 + R.swell * this.swellAt();   // x1 after each fill, never below it
     return m;
   }
 
   // The rules' live reach and swell, as every reader sees them (ruleMul, the floor tells, the autopilot): Mosh pit's
-  // radius, Long throw's radius (px) and Ride the swell's place in the phrase (0..1).
-  nearR() { return RULES.near; }
-  farR() { return RULES.far; }
-  swellAt() { return this.rules.phrase; }
+  // radius, Long throw's radius (px) and Ride the swell's place in the phrase (0..1). Crossovers bend them (pure
+  // math on the band and the rule state, CROSS_TEXT in loadout.js says each in words).
+  nearR() {
+    const x = this.stats.rules.x, X = BALANCE.crossover;
+    if (x === 'Industrial') return RULES.far;
+    if (x === 'Grunge' && this.rules.planted) return RULES.near * X.grunge;
+    if (x === 'Symphonic metal') return RULES.near * (1 + X.symphonic * this.rules.phrase);
+    return RULES.near;
+  }
+  farR() {
+    const x = this.stats.rules.x, S = this.rules;
+    if (x === 'Indietronica' && S.planted) return RULES.near;
+    if (x === 'Film score') return RULES.far * (1 - BALANCE.crossover.film * S.phrase);
+    if (x === 'Electro chip' && S.combo >= RULES.comboCap) return 0;
+    return RULES.far;
+  }
+  swellAt() { return this.stats.rules.x === 'Chamber pop' && this.rules.planted ? 1 : this.rules.phrase; }
 
   kill(e, src) {
     if (e.dead) return;
@@ -694,7 +724,7 @@ export class Game {
   // What a hit does to the play rules: In the pocket's calm restarts and the Combo streak resets.
   _hitRules() {
     this.lastHurtAt = this.time;
-    this.rules.combo = 0;
+    this.rules.combo = this.stats.rules.x === 'Chip metal' ? this.rules.combo >> 1 : 0;
   }
 
   collect(gm) {
@@ -936,11 +966,13 @@ export class Game {
   // The play rules on each beat. Combo streak counts a beat with no hit since the last one. In the pocket:
   // a beat that finds you where the last one did (never more than RULES.plant away in between) plants you,
   // and a planted beat heals once you have not been hit for RULES.calm bars. Ride the swell: the phrase
-  // runs 0..1 from the bar after each 8-bar fill to the fill itself.
+  // runs 0..1 from the bar after each 8-bar fill to the fill itself. Lo-fi chip: a clean planted beat adds
+  // crossover.lofi. Boss theme: the fill's downbeat fills the combo.
   _rulesOnBeat(ev) {
     const S = this.rules, R = this.stats.rules, p = this.player;
-    if (this.lastHurtAt < S.beatAt) S.combo = Math.min(RULES.comboCap, S.combo + 1);
-    S.planted = !S.broke;
+    const planted = !S.broke;
+    if (this.lastHurtAt < S.beatAt) S.combo = Math.min(RULES.comboCap, S.combo + (planted && R.x === 'Lo-fi chip' ? BALANCE.crossover.lofi : 1));
+    S.planted = planted;
     S.broke = false;
     S.lastBeatX = p.x; S.lastBeatY = p.y;
     S.beatAt = this.time;
@@ -948,6 +980,7 @@ export class Game {
     const pos = this.song.position(ev.bar);
     const b = pos.barInSection + (pos.section.from || 0);
     S.phrase = ((b % RULES.phraseBars) * 4 + ev.beat) / (RULES.phraseBars * 4 - 1);
+    if (R.x === 'Boss theme' && ev.beat === 0 && b % RULES.phraseBars === RULES.phraseBars - 1) S.combo = RULES.comboCap;
   }
 
   // ------------------------------------------------------------------ crowd control and defense (attack API)

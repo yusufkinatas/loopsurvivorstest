@@ -88,7 +88,12 @@ const named = (o) => genreName({ styleCounts: () => counts(o) });
 assert.equal(named({}), 'Silence');
 assert.equal(named({ heavy: 6 }), 'Pure metal');
 assert.equal(named({ heavy: 5, synth: 1 }), 'Heavy metal');
-assert.equal(named({ orchestra: 3, chip: 2, synth: 1 }), 'Chamber orchestra');
+assert.equal(named({ orchestra: 3, chip: 1, synth: 1, heavy: 1 }), 'Chamber orchestra');
+// Exactly two styles at 2+ press their crossover whatever the split (the stamp, the record and the twist agree).
+assert.equal(named({ orchestra: 3, chip: 2, synth: 1 }), 'Boss theme');
+assert.equal(named({ heavy: 4, synth: 2 }), 'Industrial');
+assert.equal(named({ synth: 1, organic: 1 }), 'Synth solo');
+assert.equal(named({ chip: 4, heavy: 1, orchestra: 1 }), 'Chiptune');
 assert.equal(named({ orchestra: 6 }), 'Full symphony');
 assert.equal(named({ heavy: 3, orchestra: 3 }), 'Symphonic metal');
 assert.equal(named({ orchestra: 3, chip: 3 }), 'Boss theme');

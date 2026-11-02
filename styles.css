@@ -128,7 +128,9 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 @keyframes bannergold { 0% { opacity: 0; transform: scale(1.35); } 12% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: scale(1.04); } }
 
 /* The genre stamps once over the mixer when it changes. */
-.stamp { position: absolute; left: 50%; bottom: calc(var(--safe-b) + 84px); transform: translateX(-50%); opacity: 0; white-space: nowrap; font: 800 15px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text); text-shadow: 0 2px 14px #000; }
+.stamp { position: absolute; left: 50%; bottom: calc(var(--safe-b) + 84px); transform: translateX(-50%); opacity: 0; white-space: nowrap; text-align: center; font: 800 15px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text); text-shadow: 0 2px 14px #000; }
+/* Its one small line: a crossover's sentence, or the rule tier the new genre turned on. Wraps on a phone. */
+.stamp small { display: block; margin-top: 5px; white-space: normal; width: min(300px, calc(100vw - 32px)); font: 600 11px/1.3 var(--f-body); letter-spacing: 0.04em; text-transform: none; color: var(--text); }
 .stamp.show { animation: stamp 1.5s ease-out forwards; }
 @keyframes stamp { 0% { opacity: 0; transform: translateX(-50%) scale(1.6) rotate(-4deg); } 14% { opacity: 1; transform: translateX(-50%) scale(1) rotate(-2deg); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) scale(1) rotate(-2deg); } }
 
@@ -421,6 +423,9 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .gems i.gone.down { border-color: var(--bad); }
 .gems i.gone.down::after { background: var(--bad); }
 .gems.fusion i { --s: #fff; background: conic-gradient(var(--beat), var(--perc), var(--bass), var(--chords), var(--lead), var(--arp), var(--beat)); }
+/* A crossover the card forms: a disc split in its two style colors; one it breaks: the halves cracked apart. */
+.gems.cross i { width: 10px; height: 10px; background: linear-gradient(100deg, var(--s) 50%, var(--s2) 50%); }
+.gems.cross.broke i { opacity: 0.7; background: linear-gradient(100deg, var(--s) 38%, transparent 38% 62%, var(--s2) 62%); }
 /* The foot's glyphs: a tape's reel, a remix's partner pedal (dim until it is on the board), a pedal's fit row. */
 .card-foot > .reel, .card-foot > .pair { display: inline-flex; width: 16px; height: 16px; color: var(--gold); }
 .card-foot > .pair { opacity: 0.35; }
@@ -524,6 +529,9 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .rules ol li i { font-style: normal; font-family: var(--f-mono); color: var(--dim); }
 .rules ol li.on { color: var(--text); }
 .rules ol li.on i { color: var(--s); }
+/* The crossover in play: its styles' colors down the edge, its sentence under the name. */
+.rules > li.x { border-left-color: transparent; background: var(--g) left / 3px 100% no-repeat, var(--panel-2); }
+.rules > li.x b { color: var(--text); }
 
 /* Discography: record sleeves, the remix crate and the liner notes, one page at a time. */
 #screens:has(.screen-disco) { background: rgba(11, 8, 20, 0.84); }
@@ -544,6 +552,8 @@ button.sleeve { font: inherit; cursor: pointer; }
 button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens .sleeve:focus { border-color: var(--text); outline: none; }
 .sleeve b { font-size: 13.5px; line-height: 1.2; overflow-wrap: break-word; }
 .sleeve span { grid-column: 2; font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
+.sleeve small { grid-column: 2; font-size: 11px; line-height: 1.3; color: var(--muted); }
+.sleeve.x .disc { grid-row: span 3; }
 .sleeve em { font-style: normal; color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent); border-radius: 3px; padding: 0 4px; }
 .sleeve.demo { border-style: dashed; }
 .sleeve.empty { opacity: 0.42; }

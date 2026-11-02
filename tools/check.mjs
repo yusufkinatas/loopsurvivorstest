@@ -142,6 +142,137 @@ if (args.includes('--rules')) {
   // Lane 1: deal and tapes
 
   // Lane 2: rules, crossovers and the pick moment
+  {   // its own scope, so another lane's block can import the same names
+    const { genreName, CROSS_TEXT, RULES } = await import('../src/game/loadout.js');
+    const { Game } = await import('../src/game/game.js');
+    const { describeOffer } = await import('../src/game/upgrades.js');
+    const { BALANCE } = await import('../src/config.js');
+    const genre = (o) => genreName({ styleCounts: () => counts(o) });
+    // A bare game for the rule math: stats, rule state and a player at the origin, no run.
+    const ruleGame = (o, S = {}) => {
+      const L = new Loadout();
+      for (const id of o) L.set(BY_ID[id], 1);
+      return Object.assign(Object.create(Game.prototype), { stats: computeStats(L), rules: { combo: 0, planted: false, phrase: 0, broke: false, beatAt: 0, ...S }, player: { x: 0, y: 0 }, time: 1, lastHurtAt: -Infinity });
+    };
+    const HEAVY = ['doublekick', 'ride', 'dropd'], SYNTH = ['supersaw', 'sawlead', 'arpsynth'];
+    check('genreName and crossoverOf agree: exactly two styles at 2+ name their crossover, three Fusion, else the ladder', () => {
+      const cases = [
+        [{ heavy: 2, synth: 2 }, 'Industrial', 'Industrial'], [{ heavy: 3, organic: 3 }, 'Grunge', 'Grunge'],
+        [{ chip: 4, orchestra: 2 }, 'Boss theme', 'Boss theme'], [{ synth: 3, organic: 2, chip: 1 }, 'Indietronica', 'Indietronica'],
+        [{ synth: 2, chip: 2, heavy: 2 }, 'Fusion', 'Fusion'], [{ chip: 4, heavy: 1, orchestra: 1 }, null, 'Chiptune'],
+        [{ synth: 1, organic: 1 }, null, 'Synth solo'], [{ heavy: 6 }, null, 'Pure metal'],
+      ];
+      for (const [o, x, name] of cases) {
+        assert.equal(crossoverOf(counts(o)), x, JSON.stringify(o));
+        assert.equal(genre(o), name, JSON.stringify(o));
+      }
+      for (const c of bands) if (crossoverOf(c)) assert.equal(genreName({ styleCounts: () => c }), crossoverOf(c));
+      for (const name of [...Object.values(GENRES.crossovers), 'Fusion']) {
+        const words = CROSS_TEXT[name]?.replace(/\.$/, '').split(/\s+/) || [];
+        assert.ok(words.length >= 3 && words.length <= 7, `${name}: "${CROSS_TEXT[name]}"`);
+      }
+    });
+    check('ruleTiers: Fusion lifts every 2+ style one tier (cap 3), xo off and pairs do not, 6 Heavy is tier 3', () => {
+      assert.deepEqual(ruleTiers(counts({ synth: 2, organic: 2, orchestra: 2 })), { ...plain(emptyCounts()), synth: 2, organic: 2, orchestra: 2 });
+      assert.deepEqual(ruleTiers(counts({ synth: 2, organic: 2, orchestra: 2 }), false), { ...plain(emptyCounts()), synth: 1, organic: 1, orchestra: 1 });
+      assert.deepEqual(ruleTiers(counts({ heavy: 4, synth: 2 })), plain(counts({ heavy: 4, synth: 2 })), 'pairTier 0: a pair plays plain tiers');
+      assert.deepEqual(ruleTiers(counts({ heavy: 6 })), { ...plain(emptyCounts()), heavy: 3 });
+      assert.equal(crossoverOf(counts({ heavy: 6 })), null);
+      for (const c of bands) for (const st of styles) assert.ok(ruleTiers(c)[st] <= 3 && ruleTiers(c)[st] >= plain(c)[st]);
+      // computeStats plays the lifted tier's values.
+      const L = new Loadout();
+      for (const id of ['timpani', 'hats909', 'cellos', 'supersaw', 'flute', 'musicbox']) L.set(BY_ID[id], 1);
+      const R = computeStats(L).rules;
+      assert.equal(R.x, 'Fusion');
+      assert.equal(R.swell, CHEMISTRY.orchestra.tiers[1].swell);
+      assert.equal(computeStats(L, null, false).rules.swell, CHEMISTRY.orchestra.tiers[0].swell);
+    });
+    check('Ride the swell: x1 at phrase 0, x(1 + swell) at phrase 1, never below 1', () => {
+      for (const n of [2, 4, 6]) {
+        const ids = ['timpani', 'fieldsnare', 'cellos', 'strings', 'horn', 'harp'].slice(0, n);
+        const sw = CHEMISTRY.orchestra.tiers[n / 2 - 1].swell;
+        const e = { x: 100, y: 0, r: 10 };
+        assert.equal(ruleGame(ids, { phrase: 0 }).ruleMul(e), 1);
+        assert.equal(ruleGame(ids, { phrase: 1 }).ruleMul(e), 1 + sw);
+        assert.ok(ruleGame(ids, { phrase: 0.3 }).ruleMul(e) > 1);
+      }
+    });
+    check('crossover twists: each bends its two rules, and only while it is in play', () => {
+      const X = BALANCE.crossover, body = { x: 200, y: 0, r: 10 };
+      const ind = ruleGame([...HEAVY, ...SYNTH]);
+      assert.equal(ind.stats.rules.x, 'Industrial');
+      assert.equal(ind.ruleMul(body), 1 + ind.stats.rules.near, 'Industrial: a 200 px body takes the Mosh pit bonus');
+      assert.equal(ruleGame([...HEAVY, SYNTH[0]]).ruleMul(body), 1, 'Mosh pit alone does not reach it');
+      const grunge = ['doublekick', 'ride', 'upright', 'rhodes'];
+      assert.equal(ruleGame(grunge, { planted: true }).nearR(), RULES.near * X.grunge);
+      assert.equal(ruleGame(grunge).nearR(), RULES.near);
+      assert.equal(ruleGame(['doublekick', 'ride', 'cellos', 'strings'], { phrase: 1 }).nearR(), RULES.near * (1 + X.symphonic));
+      assert.equal(ruleGame(['kick808', 'hats909', 'upright', 'rhodes'], { planted: true }).farR(), RULES.near);
+      assert.equal(ruleGame(['kick808', 'hats909', 'cellos', 'strings'], { phrase: 1 }).farR(), RULES.far * (1 - X.film));
+      assert.equal(ruleGame(['kick808', 'hats909', 'tribass', 'chipchords'], { combo: RULES.comboCap }).farR(), 0);
+      assert.equal(ruleGame(['kick808', 'hats909', 'tribass', 'chipchords'], { combo: RULES.comboCap - 1 }).farR(), RULES.far);
+      assert.equal(ruleGame(['taiko', 'shaker', 'cellos', 'strings'], { planted: true, phrase: 0.1 }).swellAt(), 1);
+      assert.equal(ruleGame(['taiko', 'shaker', 'cellos', 'strings'], { phrase: 0.1 }).swellAt(), 0.1);
+      // Chip metal: a hit halves the combo (12 -> 6); any other band resets it.
+      const cm = ruleGame(['doublekick', 'ride', 'tribass', 'chipchords'], { combo: 12 });
+      cm._hitRules();
+      assert.equal(cm.rules.combo, 6);
+      const chip = ruleGame(['chipdrums', 'chiphat', 'tribass', 'chipchords'], { combo: 12 });
+      chip._hitRules();
+      assert.equal(chip.rules.combo, 0);
+      // Lo-fi chip: a clean planted beat adds lofi; Boss theme: the fill's downbeat fills the combo.
+      const beat = (g, bar, beat) => { g.song = { position: () => ({ barInSection: bar, section: { from: 0 } }) }; g._rulesOnBeat({ bar, beat }); return g.rules.combo; };
+      assert.equal(beat(ruleGame(['taiko', 'shaker', 'tribass', 'chipchords'], { combo: 3 }), 2, 1), 3 + X.lofi);
+      assert.equal(beat(ruleGame(['taiko', 'shaker', 'tribass', 'chipchords'], { combo: 3, broke: true }), 2, 1), 4);
+      assert.equal(beat(ruleGame(['chipdrums', 'chiphat', 'cellos', 'strings'], { combo: 3 }), 7, 0), RULES.comboCap);
+      assert.equal(beat(ruleGame(['chipdrums', 'chiphat', 'cellos', 'strings'], { combo: 3 }), 6, 0), 4);
+    });
+    check('cards: a split gem and a line for a crossover formed or broken, the fusion gem for Fusion', () => {
+      const card = (ids, o) => { const L = new Loadout(); for (const id of ids) L.set(BY_ID[id], 1); return describeOffer({ loadout: L }, { level: 1, ...o, from: o.from && L.channels[o.from] }); };
+      const cross = (d) => d.gems.find((gm) => gm.style === 'cross' || gm.style === 'fusion');
+      let d = card(['kick808', 'hats909', 'dropd'], { kind: 'new', def: BY_ID.shred });
+      assert.deepEqual(cross(d), { style: 'cross', a: 'synth', b: 'heavy', name: 'Industrial', tier: 1 });
+      assert.ok(d.info.includes(`Forms Industrial: ${CROSS_TEXT.Industrial}`), d.info.join(' | '));
+      d = card(['kick808', 'hats909', 'dropd', 'powerchords'], { kind: 'swap', def: BY_ID.chiphat, from: 'perc' });
+      assert.equal(cross(d).tier, -1);
+      assert.ok(d.info.includes('Breaks Industrial'), d.info.join(' | '));
+      d = card(['kick808', 'hats909', 'dropd', 'powerchords', 'flute'], { kind: 'new', def: BY_ID.musicbox });
+      assert.equal(cross(d).style, 'fusion');
+      assert.ok(d.info.includes(`Forms Fusion: ${CROSS_TEXT.Fusion}`) && d.info.some((l) => l.startsWith('Live x2: In the pocket, +24% area')), d.info.join(' | '));
+      assert.equal(cross(card(['kick808', 'hats909', 'dropd'], { kind: 'new', def: BY_ID.flute })), undefined, 'no crossover moves: no gem');
+    });
+    check('the pick moment: nothing at time 0, then one ring per pick (crossover > rule tier > channel), one line at most', () => {
+      const clock = { sim: true, t: 0, now() { return this.t; } };
+      const give = ['hats909', 'dropd', 'rhodes'].map((id) => ({ id, level: 1 }));
+      const g = new Game({ audio: null, clock, seq: new (class { reset() {} start() {} })(), opts: { sim: true, give }, hooks: {} });
+      g.newRun({ start: 'kick808', seed: 1, keyIndex: 0 });
+      const lines = [];
+      g.banner = (title, sub, compact, style, prio) => lines.push({ title, compact, prio });
+      const pick = (fn) => { fn(); for (const l of g.later.splice(0)) l.fn(); return g.fx.rings.splice(0).map((r) => [r.color, r.r1]); };
+      assert.equal(g.later.length, 0, 'the start sound and give= never ring');
+      assert.equal(g._led().rings, undefined);
+      g.time = 10;
+      g.fx.rings.length = 0;
+      // A level pick: the channel's small ring.
+      assert.deepEqual(pick(() => g.setInstrumentLevel(g.loadout.channels.beat, 2)), [[g.color('beat'), 140]]);
+      // Synth 2 + Live 2 forms Indietronica: two rings in the two style colors, the stamp is the only line.
+      assert.deepEqual(pick(() => g.addInstrument(BY_ID.flute, 1)).map((r) => r[0]).sort(), [STYLES.synth.color, STYLES.organic.color].sort());
+      assert.deepEqual(g.ruleBloom.styles.sort(), ['organic', 'synth']);
+      // A third Live sound moves no rule: its channel ring.
+      assert.deepEqual(pick(() => g.addInstrument(BY_ID.musicbox, 1)), [[g.color('arp'), 200]]);
+      // A fourth Live sound steps In the pocket up and the genre stays: the rule's ring, its bloom and its line.
+      assert.deepEqual(pick(() => g.addInstrument(BY_ID.upright, 1)), [[STYLES.organic.color, 260]]);
+      assert.equal(g.genre, 'Indietronica');
+      assert.deepEqual(g.ruleBloom, { styles: ['organic'], t: 10 });
+      assert.deepEqual(lines, [{ title: `In the pocket · ${CHEMISTRY.organic.tiers[1].text}`, compact: true, prio: 1 }]);
+      // Two Heavy swaps: the second forms Fusion, three rings and no line.
+      pick(() => g.addInstrument(BY_ID.powerchords, 1));
+      assert.equal(pick(() => g.addInstrument(BY_ID.shred, 1)).length, 3);
+      assert.equal(g.stats.rules.x, 'Fusion');
+      assert.equal(lines.length, 1);
+      assert.equal(g._led().rings, 1 + 2 + 1 + 1 + 1 + 3);
+    });
+  }
 
   // Lane 3: pedals and Signature
 

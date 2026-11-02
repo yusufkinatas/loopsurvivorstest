@@ -215,12 +215,30 @@ A style is also a way to move. Two, four and six sounds of one style turn its ru
 | Heavy | Mosh pit (`near`) | hits on enemies reaching inside 140 px | +20 / 40 / 65% damage |
 | Live | In the pocket (`still`) | planted: moved under 24 px since the last beat | +12 / 24 / 40% area, heal 0.5 / 1 / 1.5 a planted beat after a bar without a hit |
 | 8-Bit | Combo streak (`combo`) | every beat without a hit (up to 16), reset by a hit | up to +25 / 50 / 80% damage |
-| Orchestra | Ride the swell (`swell`) | late in each 8-bar phrase (weak right after a fill, strong at the next) | x(1 ± 25 / 50 / 80%), mean 1 |
+| Orchestra | Ride the swell (`swell`) | late in each 8-bar phrase (x1 right after a fill, the full bonus at the next) | up to +20 / 35 / 50% damage |
 
 `g.stats.rules` holds the totals (`far, near, stillHeal, stillArea, combo, swell`, and `on`), `g.rules` the live
 state (`combo, planted, phrase, lastBeatX, lastBeatY`), and `g.lastHurtAt` the time of the last hit taken.
 An instrument may read them (an Orchestra sound that saves its big hit for `g.rules.phrase` near 1), but never
-multiplies its damage by them: `g.hit()` already does. Fusion (2+ sounds in three styles) is a genre name only.
+multiplies its damage by them: `g.hit()` already does. Read the live reach and swell through `g.nearR()`,
+`g.farR()` and `g.swellAt()`, never `RULES` directly: a crossover bends them.
+
+Exactly two styles with 2+ sounds each form their crossover (`crossoverOf`, the genre name too); it bends their two
+rules (pure math in `game.js`, numbers in `BALANCE.crossover`, sentences in `CROSS_TEXT`). Three styles at 2+ form
+Fusion, which plays every active rule one tier up (`ruleTiers`, cap 3) and bends nothing.
+
+| Crossover | Styles | What it bends |
+|---|---|---|
+| Industrial | Synth + Heavy | Mosh pit reaches out to Long throw's 240 px |
+| Grunge | Heavy + Live | planted, the Mosh pit's reach doubles |
+| Symphonic metal | Heavy + Orchestra | the Mosh pit's reach grows with the phrase, to double at the fill |
+| Indietronica | Synth + Live | planted, Long throw starts at the Mosh pit's 140 px |
+| Film score | Synth + Orchestra | Long throw closes in with the phrase, to 60% at the fill |
+| Electro chip | Synth + 8-Bit | at a full combo every hit counts as far |
+| Chip metal | Heavy + 8-Bit | a hit halves the combo instead of resetting it |
+| Lo-fi chip | Live + 8-Bit | a clean planted beat adds 2 to the combo |
+| Chamber pop | Live + Orchestra | planted, the swell holds at its peak |
+| Boss theme | 8-Bit + Orchestra | the fill's downbeat fills the combo |
 
 Every attack must be launched from `fire()` by a note. Never deal damage on a timer that is not a
 note. Persistent things (orbiters, mines) may exist between notes, but they strike on notes.

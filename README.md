@@ -26,6 +26,10 @@ server below. Sound on, headphones help.
   - **Live, In the pocket:** stand still for wider attacks and a heal on the beat.
   - **8-Bit, Combo streak:** every beat without a hit adds damage; a hit resets it.
   - **Orchestra, Ride the swell:** damage swells through each 8-bar phrase and peaks at the fill.
+
+  Two styles with two or more sounds each form a crossover (Grunge, Film score, Chip metal...) that bends their
+  two rules, named on the stamp over the mixer in one sentence. Three styles at two or more form Fusion: every rule
+  plays one tier up. A card that would form or break one shows a split disc beside its style gems.
 - **The song breathes.** Every section has its own texture: thin verses, full choruses, a drumless Bridge
   breakdown, a solo for your strongest part, a half-time Drop and a Finale that rises and falls. A quiet
   phrase is dangerous (the band plays thin and the mix goes dark), and the band slamming back in hits

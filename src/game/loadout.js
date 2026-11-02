@@ -1,8 +1,10 @@
 // Your band: one instrument per mixer channel plus a pedalboard. Also computes the stats that come
 // from pedals, and the play rules that come from style chemistry (how many sounds of a style you have).
 
-import { ROLES, STYLES, PLAYER_BASE, PEDAL_SLOTS } from '../config.js';
+import { ROLES, STYLES, PLAYER_BASE, PEDAL_SLOTS, BALANCE } from '../config.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
+
+const X = BALANCE.crossover;
 
 // Style chemistry is a play rule, not a stat: each style rewards one way of moving, for the whole band.
 // Two, four and six sounds of a style turn its rule up (tier values are totals, not steps). The rules run
@@ -13,7 +15,11 @@ import { PEDAL_BY_ID } from '../content/pedals.js';
 //          each beat heals stillHeal while planted and not hit for RULES.calm bars
 //   combo  8-Bit: +1 combo per beat without a hit (up to RULES.comboCap), a hit resets it,
 //          damage x(1 + combo * its share of the cap)
-//   swell  Orchestra: damage x(1 + swell * (2 * phrase - 1)), phrase 0..1 across each 8-bar phrase (mean 1)
+//   swell  Orchestra: damage x(1 + swell * phrase), phrase 0..1 across each 8-bar phrase: x1 after each fill, the
+//          full bonus at the next. A perfect Drop lands at the peak: the sequencer queues the downbeat's drop event
+//          before its beat event, so doDrop reads phrase 1 before _rulesOnBeat starts the next phrase at 0.
+// Crossovers (crossoverOf, CROSS_TEXT) bend two rules through Game.nearR/farR/swellAt and the combo lines; Fusion
+// plays every rule one tier up (ruleTiers).
 export const CHEMISTRY = {
   synth: {
     rule: 'far', name: 'Long throw', text: 'Hits far from you deal more damage.',
@@ -50,9 +56,9 @@ export const CHEMISTRY = {
   orchestra: {
     rule: 'swell', name: 'Ride the swell', text: 'Damage swells through every 8 bars and peaks at the fill.',
     tiers: [
-      { n: 2, swell: 0.2, text: '±20% with the swell' },
-      { n: 4, swell: 0.35, text: '±35% with the swell' },
-      { n: 6, swell: 0.5, text: '±50% with the swell' },
+      { n: 2, swell: 0.2, text: 'Up to +20% at the fill' },
+      { n: 4, swell: 0.35, text: 'Up to +35% at the fill' },
+      { n: 6, swell: 0.5, text: 'Up to +50% at the fill' },
     ],
   },
 };
@@ -70,8 +76,7 @@ export const RULES = {
 // The rule values computeStats writes into stats.rules (all 0 when no tier is on).
 export const RULE_KEYS = ['far', 'near', 'stillHeal', 'stillArea', 'combo', 'swell'];
 
-// Fusion: 2+ sounds in three different styles. A genre name only: it turns three rules on, nothing more.
-export const FUSION = { text: 'Fusion: two sounds each in three styles' };
+// Fusion: 2+ sounds in three different styles. It plays every rule on one tier up (ruleTiers).
 export const isFusion = (counts) => Object.values(counts).filter((n) => n >= 2).length >= 3;
 
 // remix: true once the instrument has been remixed (it stays at level 5 and plays its remix's attack).
@@ -139,9 +144,15 @@ export function chemistryTier(style, count) {
 }
 
 // Every style's active rule tier (0 to 3) for a band's style counts, including a band you do not have yet (a
-// card's preview). Every tier reader goes through here. xo: false measures without the crossover lift (sims).
+// card's preview). Every tier reader goes through here. A crossover lifts each of its rules by pairTier, Fusion by
+// fusionTier (BALANCE.crossover), up to the top tier. xo: false measures without the lift (sims).
 export function ruleTiers(counts, xo = true) {
-  return Object.fromEntries(Object.keys(CHEMISTRY).map((st) => [st, chemistryTier(st, counts[st] || 0)]));
+  const x = xo === false ? null : crossoverOf(counts);
+  const lift = x === 'Fusion' ? X.fusionTier : x ? X.pairTier : 0;
+  return Object.fromEntries(Object.keys(CHEMISTRY).map((st) => {
+    const t = chemistryTier(st, counts[st] || 0);
+    return [st, t && Math.min(CHEMISTRY[st].tiers.length, t + lift)];
+  }));
 }
 
 // xo: false leaves the crossover out (rules.x null and no lift): a sim's measurement, never play.
@@ -185,7 +196,7 @@ const LADDERS = {
   heavy: ['Riff', 'Garage rock', 'Hard rock', 'Hard rock', 'Heavy metal', 'Pure metal'],
   orchestra: ['Solo recital', 'Duet', 'Chamber orchestra', 'Chamber orchestra', 'Symphony', 'Full symphony'],
 };
-// Crossovers: the top two styles tied (3 and 3 in a full band). Keyed by the two style ids, sorted.
+// Crossovers: exactly two styles with 2+ sounds each (crossoverOf). Keyed by the two style ids, sorted.
 const CROSSOVERS = {
   'organic+synth': 'Indietronica', 'chip+synth': 'Electro chip', 'chip+organic': 'Lo-fi chip',
   'heavy+synth': 'Industrial', 'heavy+organic': 'Grunge', 'chip+heavy': 'Chip metal', 'heavy+orchestra': 'Symphonic metal',
@@ -199,18 +210,32 @@ export function crossoverOf(counts) {
   const two = Object.keys(counts).filter((st) => counts[st] >= 2);
   return two.length === 2 ? CROSSOVERS[two.sort().join('+')] : null;
 }
-// Crossover name -> the one sentence that says how it bends its two rules.
-export const CROSS_TEXT = {};
+// Crossover name -> the one sentence that says how it bends its two rules (Game.nearR, farR, swellAt, _hitRules,
+// _rulesOnBeat hold the math). Numbers come from BALANCE.crossover.
+const WORDS = ['no', 'one', 'two', 'three', 'four'];
+export const CROSS_TEXT = {
+  Industrial: 'Mosh pit reaches out to Long throw.',
+  Grunge: `Planted, the Mosh pit ${X.grunge === 2 ? 'doubles' : `grows ×${X.grunge}`}.`,
+  'Symphonic metal': 'The Mosh pit swells with the phrase.',
+  Indietronica: 'Planted, Long throw starts close in.',
+  'Film score': 'Long throw closes in with the swell.',
+  'Electro chip': 'Full combo: every hit counts as far.',
+  'Chip metal': 'A hit only halves your combo.',
+  'Lo-fi chip': `Planted beats add ${WORDS[X.lofi] ?? X.lofi} to your combo.`,
+  'Chamber pop': 'Planted, the swell holds at its peak.',
+  'Boss theme': 'The fill fills your combo.',
+  Fusion: `Every rule plays ${WORDS[X.fusionTier] ?? X.fusionTier} tier${X.fusionTier === 1 ? '' : 's'} up.`,
+};
 
-// A short name for the genre your band has become. Shown on the HUD and the end screen.
+// A short name for the genre your band has become. Shown on the HUD and the end screen. It always agrees with
+// crossoverOf: Fusion, else the crossover, else the top style's ladder.
 export function genreName(loadout) {
   const c = loadout.styleCounts();
   const total = Object.values(c).reduce((a, n) => a + n, 0);
   if (total === 0) return 'Silence';
-  if (isFusion(c)) return 'Fusion';
-  const top = Object.entries(c).sort((a, b) => b[1] - a[1]);
-  const [style, n] = top[0];
-  if (top[1][1] === n && total > 1) return CROSSOVERS[[style, top[1][0]].sort().join('+')] || 'Crossover';
+  const x = crossoverOf(c);
+  if (x) return x;
+  const [style, n] = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
   return LADDERS[style][Math.min(5, n - 1)];
 }
 

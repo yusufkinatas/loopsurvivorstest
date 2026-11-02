@@ -7,7 +7,7 @@
 import { ROLES, ROLE_INFO, STYLES, PEDAL_SLOTS, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, STEP_SEC, BALANCE } from '../config.js';
 import { rgba } from '../util.js';
 import { icon } from './icons.js';
-import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
+import { CHEMISTRY, CROSS_TEXT } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -312,18 +312,21 @@ export class Hud {
       slot.setAttribute('aria-label', slot.title);
     });
 
-    // Moments: a chemistry tier rising flashes that style's strips with a chime, a new genre stamps its name.
-    const counts = g.loadout.styleCounts();
-    const tiers = {};
-    for (const st of Object.keys(CHEMISTRY)) { try { tiers[st] = chemistryTier(st, counts[st] || 0); } catch (e) { tiers[st] = 0; } }
+    // Moments: a rule tier rising (a crossover's lift included) flashes that style's strips with a chime, a new genre
+    // stamps its name with one small line: the crossover's sentence, else the rule tier it turned on.
+    const R = g.stats.rules, tiers = R.tiers;
+    let rose = [];
     if (this._tiers && g.time > 0) {
-      const rose = Object.keys(tiers).filter((st) => tiers[st] > (this._tiers[st] || 0));
+      rose = Object.keys(tiers).filter((st) => tiers[st] > (this._tiers[st] || 0));
       for (const st of rose) for (const role of ROLES) if (g.loadout.channels[role]?.def.style === st) kick(this.strips[role].el, 'tierflash');
       if (rose.length) this.onChime(rose[0]);
     }
     this._tiers = tiers;
     if (this._genre !== null && g.genre !== this._genre && g.time > 0) {
+      const st = rose.sort((a, b) => tiers[b] - tiers[a])[0], line = el('small');
+      line.textContent = R.x === g.genre ? CROSS_TEXT[R.x] : st ? `${CHEMISTRY[st].name} · ${CHEMISTRY[st].tiers[tiers[st] - 1].text}` : '';
       this.stamp.textContent = g.genre;
+      if (line.textContent) this.stamp.append(line);
       kick(this.stamp, 'show');
     }
     this._genre = g.genre;
