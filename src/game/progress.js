@@ -121,7 +121,7 @@ export function normalizeMeta(raw) {
     songSel: int(m.songSel, SONGS.length - 1),
     // Only the bits of songs this version knows; every run before the setlist played the loop.
     played: (Number.isInteger(m.played) && m.played > 0 ? m.played & PLAYED : 0) | (runs > 0 ? 1 : 0),
-    seen: Object.fromEntries(Object.entries(obj(m.seen)).filter(([id, v]) => v === 1 && (BY_ID[id] || PEDAL_BY_ID[id]))),
+    seen: Object.fromEntries(Object.entries(obj(m.seen)).filter(([id, v]) => v === 1 && (Object.hasOwn(BY_ID, id) || Object.hasOwn(PEDAL_BY_ID, id)))),
   };
 }
 
@@ -154,8 +154,8 @@ export function applyRun(meta, sum, { now }) {
   meta.secs += Math.round(num(sum.time));
   meta.played |= 1 << SONGS.findIndex((t) => t.id === songOf(sum.songId));
   // Every sound (retired ones too) and pedal the run took is no longer new.
-  for (const r of Array.isArray(sum.instruments) ? sum.instruments : []) if (BY_ID[r?.id]) meta.seen[r.id] = 1;
-  for (const p of Array.isArray(sum.pedals) ? sum.pedals : []) if (PEDAL_BY_ID[p?.id]) meta.seen[p.id] = 1;
+  for (const r of Array.isArray(sum.instruments) ? sum.instruments : []) if (Object.hasOwn(BY_ID, r?.id)) meta.seen[r.id] = 1;
+  for (const p of Array.isArray(sum.pedals) ? sum.pedals : []) if (Object.hasOwn(PEDAL_BY_ID, p?.id)) meta.seen[p.id] = 1;
   for (const r of Array.isArray(sum.remixes) ? sum.remixes : []) {
     if (BY_ID[r?.id]?.remix && !meta.remixes[r.id]) { meta.remixes[r.id] = now; out.remixes.push(r.id); }
   }

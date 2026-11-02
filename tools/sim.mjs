@@ -182,7 +182,8 @@ function aggregate(rs) {
 // The aggregate's measurements of the band's moments, the deal and the music (after the balance line above).
 function momentsLine(ms) {
   const led = (m) => (m.ledger || []).filter(Boolean);
-  const total = (m, k) => led(m).reduce((a, L) => a + (L[k] ?? 0), 0);
+  // A ledger field summed over the run's sections, '-' when no section has it.
+  const total = (m, k) => { const Ls = led(m).filter((L) => L[k] != null); return Ls.length ? Ls.reduce((a, L) => a + L[k], 0) : '-'; };
   const lastX = (m) => led(m).at(-1)?.x ?? null;
   const xWins = {};
   for (const m of ms) if (m.state === 'victory' || m.bossKills?.includes('whitenoise')) { const x = lastX(m) || 'none'; xWins[x] = (xWins[x] || 0) + 1; }
