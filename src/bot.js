@@ -1,5 +1,4 @@
 import { rng } from './util.js';
-import { RULES } from './game/loadout.js';
 
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It plays roughly like a careful but ordinary human: a few times a second it tries a handful of
@@ -56,6 +55,7 @@ function plan(g) {
   // The style rules it plays (see RULES_ON). On a Combo streak it watches more shots and gives them a wider berth.
   const rules = RULES_ON ? g.stats.rules : null;
   const mosh = rules?.near > 0, kite = rules?.far > 0, plant = rules?.stillHeal > 0, careful = rules?.combo > 0;
+  const nearR = g.nearR(), farR = g.farR();   // the rules' reach as the game reads it
   const focus = careful ? FOCUS + 3 : FOCUS, berth = careful ? 30 : 14, missW = careful ? 2.2 : 1.2, shotW = careful ? 1.4 : 1;
 
   // What it is watching: the closest shots that can reach it within the horizon, enemies close enough to touch.
@@ -136,7 +136,7 @@ function plan(g) {
     }
     if (arr.length > 60) { arr.sort((a, b) => a[0] - b[0]); arr.length = 60; }
     crowdNear = arr.map((x) => x[1]);
-    for (const e of crowdNear) if (Math.hypot(e.x - p.x, e.y - p.y) - e.r < RULES.near) closeNow++;
+    for (const e of crowdNear) if (Math.hypot(e.x - p.x, e.y - p.y) - e.r < nearR) closeNow++;
   }
   // How close it walks in before it stops closing on the nearest enemy.
   const approach = mosh ? 110 : kite ? 280 : 170;
@@ -221,8 +221,8 @@ function plan(g) {
       let inNear = 0, inFar = 0;
       for (const e of crowdNear) {
         const gap = Math.hypot(e.x - endX, e.y - endY) - e.r;
-        if (gap < RULES.near) inNear++;
-        if (gap < RULES.far) inFar++;
+        if (gap < nearR) inNear++;
+        if (gap < farR) inFar++;
       }
       if (mosh) cost -= 0.1 * Math.min(inNear, 10);
       if (kite) cost += 0.08 * Math.min(inFar, 12);

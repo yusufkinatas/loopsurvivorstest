@@ -2,7 +2,7 @@
 // and Gain unlocks.
 //   node tools/progress-check.mjs
 import assert from 'node:assert/strict';
-import { DEFAULT_STARTS, GOALS, RECORDS, newMeta, normalizeMeta, unlockedStarts, unlocksOf, unlockLabel, applyRun } from '../src/game/progress.js';
+import { DEFAULT_STARTS, GOALS, RECORDS, newMeta, normalizeMeta, unlockedStarts, unlocksOf, unlockLabel, applyRun, nextGoal } from '../src/game/progress.js';
 import { BY_ID, INSTRUMENTS } from '../src/content/instruments/index.js';
 import { genreName, isFusion } from '../src/game/loadout.js';
 import { STYLES } from '../src/config.js';
@@ -34,10 +34,23 @@ assert.equal(odd.gainMax, 8);
 assert.equal(odd.gainSel, 8);
 assert.deepEqual(Object.keys(odd.records), ['Synthwave', 'Live band']);
 assert.equal(odd.records.Synthwave.sh.length, 1);
-assert.deepEqual(odd.records['Live band'], { s: 10, k: '', kp: 0, w: 0, g: 0, sh: odd.records['Live band'].sh, d: '' });
+assert.deepEqual(odd.records['Live band'], { s: 10, k: '', kp: 0, w: 0, g: 0, sh: odd.records['Live band'].sh, d: '', sg: 'loop' });
 assert.equal(odd.records['Live band'].sh.length, 9);
 assert.deepEqual(normalizeMeta(JSON.parse(JSON.stringify(odd))), odd);
 assert.equal(normalizeMeta({ gainMax: 3, gainSel: 5 }).gainSel, 3);
+
+// The setlist and first-run fields: songSel stays a song this version has, played keeps only known songs' bits (a
+// career with runs has played the loop), seen keeps known sound and pedal ids marked 1, a record's song is known or
+// the loop.
+const sel = normalizeMeta({ runs: 0, songSel: 7, played: 2 | 4, seen: { kick808: 1, reverb: 1, nope: 1, upright: 2, flute: true }, records: { Duet: { s: 1, sg: 'kazoo' }, Riff: { s: 2, sg: 'loop' } } });
+assert.equal(sel.songSel, 0);
+assert.equal(sel.played, 0);
+assert.deepEqual(sel.seen, { kick808: 1, reverb: 1 });
+assert.deepEqual([sel.records.Duet.sg, sel.records.Riff.sg], ['loop', 'loop']);
+for (const played of ['x', -1, 1.5, null]) assert.equal(normalizeMeta({ played }).played, 0);
+assert.equal(normalizeMeta({ runs: 3 }).played, 1);
+assert.equal(normalizeMeta({ songSel: -2 }).songSel, 0);
+assert.deepEqual(normalizeMeta(JSON.parse(JSON.stringify(sel))), sel);
 
 // The 17 goals unlock 27 distinct real sounds (one each, and all six of a style for Heavy and Orchestra), none
 // of them a default start, so all 30 open up.
@@ -100,7 +113,7 @@ news = applyRun(m, run({ won: true, sectionIndex: 8, genre: 'Pure Synthwave', sc
 assert.deepEqual(news.record, { genre: 'Pure Synthwave', fresh: true, gold: true, upgraded: false });
 assert.ok(ids(news).includes('win') && ids(news).includes('concept') && ids(news).includes('synth4'));
 assert.ok(!ids(news).includes('drone'), 'a goal is new only once');
-assert.deepEqual(m.records['Pure Synthwave'], { s: 200000, k: 'A minor', kp: 9, w: 1, g: 0, sh: sheet, d: '2026-10-19' });
+assert.deepEqual(m.records['Pure Synthwave'], { s: 200000, k: 'A minor', kp: 9, w: 1, g: 0, sh: sheet, d: '2026-10-19', sg: 'loop' });
 assert.equal(news.gain, 1, 'the first win at Gain 0 opens Gain 1');
 assert.equal(m.gainMax, 1);
 
@@ -137,6 +150,17 @@ assert.ok(!m.goals.crate);
 news = applyRun(m, rx('chiparp'), { now });
 assert.ok(ids(news).includes('crate'));
 
+// A run marks its song played and every sound (retired ones too) and pedal it took as seen; nextGoal is the first
+// goal not met yet.
+m = newMeta();
+assert.equal(nextGoal(m).name, 'Soundcheck');
+applyRun(m, run({ songId: 'loop', bossKills: ['drone'], instruments: [{ id: 'kick808' }, { id: 'taiko' }, { id: 'nope' }, null], pedals: [{ id: 'delay' }, { id: 'kazoo' }] }), { now });
+assert.equal(m.played, 1);
+assert.deepEqual(m.seen, { kick808: 1, taiko: 1, delay: 1 });
+assert.equal(nextGoal(m).name, 'Full band');
+for (const g of GOALS) m.goals[g.id] = now;
+assert.equal(nextGoal(m), null);
+
 // A summary with fields missing never throws and earns nothing it cannot show.
 for (const sum of [{}, { won: true }, { sectionIndex: 8 }, { remixes: [null, { id: 'nope' }] }, { band: 'x', peak: null, bossKills: 7 }]) {
   m = newMeta();
@@ -170,7 +194,7 @@ const old = {
   records: { Synthwave: { s: 90000, k: 'A minor', kp: 9, w: 1, g: 0, sh: sheet, d: '2026-10-01' } }, remixes: { flute: 5 },
 };
 const loaded = normalizeMeta(JSON.parse(JSON.stringify(old)));
-assert.deepEqual(loaded, old);
+assert.deepEqual(loaded, { ...old, songSel: 0, played: 1, seen: {}, records: { Synthwave: { ...old.records.Synthwave, sg: 'loop' } } });
 assert.deepEqual(unlockedStarts(loaded), [...DEFAULT_STARTS, 'taiko', 'supersaw', 'musicbox']);
 const later = normalizeMeta({ ...old, goals: { ...old.goals, heavy4: 4, kazoo9: 5 }, remixes: { flute: 5, doublekick: 6, kazoo: 7 } });
 assert.deepEqual(Object.keys(later.goals), ['drone', 'synth4', 'fusion', 'heavy4']);

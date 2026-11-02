@@ -146,11 +146,16 @@ node tools/parity.mjs --ids timpani,harp [--no-remix]   # one sound solo at L1, 
 node tools/check.mjs                                    # render every instrument level: level, clipping, spectrum
 node tools/check.mjs --arrange                          # the texture chart in Node: who plays, notes a bar, energy
 node tools/check.mjs --audit                            # every note in every key, texture and remix: in key, on the grid
+node tools/check.mjs --rules                            # the game's rules as asserts in Node (crossovers, tiers, key degrees)
 node tools/check.mjs --mixall [--remix]                 # whole bands through the real desk
 node tools/check.mjs --mix a,b,c --start N --bars M     # a band bar by bar (also --remixAt N, --boss, --stopAt)
 node tools/drop-check.mjs                               # the perfect Drop lands on the phrase downbeat you heard
 node tools/shots.mjs shots/ [--mobile]                  # drive the real UI, save screenshots, count visible words
 node tools/progress-check.mjs                           # the career rules in Node (no browser)
+node tools/dummy.mjs mode=one give=sawlead:5 pedals=overdrive:3   # damage per second on unkillable dummies (Node)
+node tools/fitcheck.mjs                                 # the pedals' fit lists against the measured matrix (Node)
+node tools/perf.mjs a,b,c [pedal,pedal] [bodies] [rx]   # logic ms per frame for a band at 480 bodies (Node)
+node tools/deal.mjs                                     # the card deal's shares over 20,000 screens per band (Node)
 ```
 
 `sim.mjs --summary` prints one line per song section from the game's ledger (damage taken by cause,
@@ -166,4 +171,7 @@ Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god`
 records what would have hit), `solo` (no level-ups), `seed`, `start=<id>`, `give=id:level,...`,
 `pedals=id:level,...`, `remix=id,...`, `tapes=N`, `gain=N`, `minutes`, `key`, `botrules=0` (the bot
 ignores the style rules), `botskill=1` (the sharper bot), `realpick` (level-ups through the real pause path) and `chaos` (random pauses,
-and with `realpick` also rerolls, banishes and skips). Sims never read or write the career.
+and with `realpick` also rerolls, banishes and skips). For measurement: `start=rotate` (sim.mjs starts each run on
+the next default first sound), `song=N`, `god=2` (god mode where a hit still resets the rules it touches), `xo=0`
+(no crossovers), `sig=0` (no Signatures) and `tex=role:transform,...` (a transform on every full phrase of that
+role). Sims never read or write the career.

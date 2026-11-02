@@ -206,6 +206,8 @@ export const BALANCE = {
     radius: 460,           // shots are erased only inside it
     kb: 260, stun: 0.6,
     perfectDmg: 1.5, perfectRadius: 1.25, phrase: 8,
+    // A Double Drop: a perfect drop on one of the song's own impact downbeats, x doubleDmg damage and x doubleRadius reach.
+    doubleDmg: 1.5, doubleRadius: 1.15,
   },
   // The song's own impacts (the band slams back in): damage is a share of the Drop's base, never staggers a boss,
   // erases enemy shots inside `erase` of the radius.
@@ -222,7 +224,23 @@ export const BALANCE = {
     tapes: 3, tapeLife: 16, tapeBlink: 2, tapeReach: 46, tapeUp: 0.85,
     lead: 2, line: 4,
     damage: 0.5, perLevel: 0.05, radius: 520, kb: 220, stun: 0.5, dur: 0.5,
+    // minLevel: the level a channel needs before a tape can remix it (finished to level 5 as it lands). sig: a remix's
+    // damage with its own remix pedal on the board (the Signature).
+    minLevel: 3, sig: 1.5,
   },
+  // The deal (upgrades.js buildOffers): new cards x (1 + mom x sounds of their style), level cards upA - upB x level
+  // (the top channel's at least topFloor), one level card on upSlot of screens, pedal weights (pedalNew2 once two are
+  // owned, x pedalDud when the pedal powers none of the band), swap x swapGain when it gains a tier or a crossover,
+  // x swapLoss when it loses one, x swapSide when it moves away from the band's styles, and Fader cards in the pool.
+  offers: { mom: 0.35, upA: 0.95, upB: 0.12, topFloor: 0.75, upSlot: 0.75, pedalUp: 0.8, pedalNew: 0.75, pedalNew2: 0.5, pedalDud: 0.3,
+    swap: 0.32, swapGain: 3, swapLoss: 0.25, swapSide: 0.4, fader: 0.45 },
+  // Crossovers (loadout.js crossoverOf): two styles at 2+ sounds bend their two rules, three form Fusion. pairTier and
+  // fusionTier: rule tiers a pair or Fusion adds (cap 3). grunge: the Mosh pit's reach while planted, symphonic: its
+  // growth with the phrase, film: Long throw's shrink with the phrase, lofi: combo a clean planted beat adds.
+  crossover: { pairTier: 0, fusionTier: 1, grunge: 2, symphonic: 1, film: 0.4, lofi: 2 },
+  // Moments: a kill run when one channel silences at least max(multiKill, multiShare x the section's floor) bodies in
+  // a beat; the camera leans in while a boss you can still silence is under bossLean of its health.
+  feel: { multiKill: 10, multiShare: 0.25, bossLean: 0.05 },
 };
 
 // The Drop's numbers (kept as their own export for the code that already reads DROP).

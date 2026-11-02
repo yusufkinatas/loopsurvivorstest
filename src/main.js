@@ -4,6 +4,9 @@
 // Also: speed=N (sim steps per frame), bot=1, autopick=smart|random|first, god=1, seed=N,
 // start=<instrumentId>, give=id:level,id:level, pedals=id:level, remix=id,id (remix given instruments),
 // tapes=N (Master Tapes banked at the start), gain=N (Gain tier), minutes=N (stop the sim), key=N, solo=1 (no level-ups).
+// Measurement: song=N (index into the setlist), sig=0 (no Signatures), xo=0 (no crossovers or Fusion lift), god=2
+// (god mode where a hit still resets the rules it touches), tex=role:transform,... (that transform in place of each
+// of the role's full phrases).
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
@@ -33,7 +36,7 @@ function parseOpts() {
     speed: Math.max(1, Number(get('speed')) || 1),
     bot: get('bot') === '1',
     autopick: get('autopick') || (get('sim') === '1' ? 'smart' : null),
-    god: get('god') === '1',
+    god: get('god') === '2' ? 2 : get('god') === '1' ? 1 : 0,
     seed: get('seed') !== null ? Number(get('seed')) : undefined,
     start: get('start'),
     give: list(get('give')),
@@ -46,6 +49,10 @@ function parseOpts() {
     solo: get('solo') === '1',
     realpick: get('realpick') === '1',   // sim: level-ups go through the real pause path
     chaos: get('chaos') === '1',         // sim: pause and resume at random moments; with realpick, also reroll, banish and skip
+    song: Number(get('song')) || 0,
+    sig: get('sig') !== '0',
+    xo: get('xo') !== '0',
+    tex: get('tex') ? Object.fromEntries(get('tex').split(',').filter(Boolean).map((x) => x.split(':'))) : null,
   };
 }
 
@@ -56,6 +63,7 @@ const audio = new AudioEngine();
 audio.volume = settings.volume;
 const clock = opts.sim ? { sim: true, t: 0, now() { return this.t; } } : { sim: false, now: () => audio.now() };
 const seq = new Sequencer(clock, audio);
+seq.forceTex = opts.tex;
 
 const canvas = document.getElementById('game');
 const renderer = new Renderer(canvas);
@@ -489,6 +497,8 @@ window.__LS = {
       // Per section: damage by cause and by enemy, healing by source, lowest health, levels, picks, kills and how
       // close they died, the crowd, hearts, Drops and Snare marks (Game._led; tools/sim.mjs --summary prints it).
       ledger: game.ledger || [], maxHp: game.player?.maxHp,
+      // The song played, Double Drops, and live notes heard from a quote or a groove.
+      song: game.tune?.id ?? null, doubleDrops: game.doubleDrops || 0, heard: { ...seq.heard },
     };
   },
 };
@@ -499,7 +509,7 @@ if (opts.sim) {
   mode = 'run';
   hudRoot.hidden = false;
   screens.hide();
-  game.newRun({ start: opts.start || 'kick808', keyIndex: opts.key, seed: opts.seed ?? 1, gain: opts.gain });
+  game.newRun({ start: opts.start || 'kick808', keyIndex: opts.key, seed: opts.seed ?? 1, gain: opts.gain, song: opts.song });
   hud.refreshLoadout(game);
 } else {
   showTitle();

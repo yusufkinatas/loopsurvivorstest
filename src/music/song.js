@@ -32,6 +32,17 @@ export const SECTIONS = [
 
 export const FINALE_BAR = SECTIONS.slice(0, -1).reduce((s, x) => s + x.bars, 0);
 
+// The setlist. A song is the same nine sections, bosses and chart with its own harmony and tune: id, name, hook (the
+// pickup chimes' tune in key degrees, null: they climb the chord) and home (the degree it ends on). Never drawn from
+// rng(): the lobby picks it, sims pass song=N.
+const LOOP = { id: 'loop', name: 'Loop Survivors', hook: null, home: 0 };
+export const SONGS = [LOOP];
+
+// A song's sections: SECTIONS with that song's progressions and parts.
+export function sectionsOf(tune) {
+  return SECTIONS;
+}
+
 // ---------------------------------------------------------------------------- the texture chart
 //
 // Every section is a list of 8-bar phrases (the Finale cycles its list). A phrase gives each channel a
@@ -198,9 +209,12 @@ function arrangement(section, b) {
 }
 
 export class Song {
-  constructor(keyPc, sections = SECTIONS) {
+  constructor(keyPc, sections = SECTIONS, tune = LOOP) {
     this.keyPc = keyPc;
     this.sections = sections;
+    this.tune = tune;
+    this.home = tune.home;   // the degree the song ends on (its stop-time and last chord)
+    this.hook = tune.hook;
     this.chordCache = new Map();
     this.posCache = new Map();
   }

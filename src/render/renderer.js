@@ -476,12 +476,12 @@ export class Renderer {
       c.strokeStyle = rgba(RULE_COLOR.far, 0.2 + 0.12 * pulse);
       c.lineWidth = 2;
       c.setLineDash([2, 12]);
-      circle(c, p.x, p.y, RULES.far); c.stroke();
+      circle(c, p.x, p.y, g.farR()); c.stroke();
       c.setLineDash([]);
     }
     if (R.near) {
       c.fillStyle = rgba(RULE_COLOR.near, 0.03 + 0.03 * pulse);
-      circle(c, p.x, p.y, RULES.near); c.fill();
+      circle(c, p.x, p.y, g.nearR()); c.fill();
       c.strokeStyle = rgba(RULE_COLOR.near, 0.26);
       c.lineWidth = 2;
       c.stroke();
@@ -504,8 +504,9 @@ export class Renderer {
       }
     }
     if (R.swell) {
+      const sw = g.swellAt();
       c.globalCompositeOperation = 'lighter';
-      this.drawGlow(p.x, p.y, 36 + 54 * S.phrase, RULE_COLOR.swell, 0.08 + 0.3 * S.phrase);
+      this.drawGlow(p.x, p.y, 36 + 54 * sw, RULE_COLOR.swell, 0.08 + 0.3 * sw);
       c.globalCompositeOperation = 'source-over';
     }
   }

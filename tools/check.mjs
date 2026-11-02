@@ -8,6 +8,8 @@
 //   node tools/check.mjs --arrange             # the arrangement phrase by phrase in Node: who plays, notes a bar,
 //                                              # damage against the full band, textures (see arrangeReport)
 //   node tools/check.mjs --replay ["speed=12&bot=1&minutes=9"]   # play a sim run's track sheet as a radio edit
+//   node tools/check.mjs --rules               # the game's rules as asserts in Node, no browser (crossovers, tiers,
+//                                              # key degrees and every later rule; one named block per area)
 // A band bar by bar (with --mix): --start N [--bars M] [--key pc] prints RMS, peak, clipping and
 // brightness for each bar from song bar N, with the arrangement (phrase and bar in it, its class, and
 // the bar's impact, break, fill or roll). Add --boss drone|clipper|glitchking|
@@ -60,6 +62,97 @@ if (args.includes('--arrange')) {
   for (const [band, s] of Object.entries(r.similar)) console.log(`texture similarity (1.00 = the same) ${band.padEnd(8)} ` + Object.entries(s).map(([k, v]) => `${k} ${v.toFixed(2)}`).join('  '));
   if (r.failures.length) console.log('\n!! FAIL\n' + r.failures.join('\n'));
   process.exit(r.failures.length ? 1 : 0);
+}
+
+// Rules as asserts (Node only, a second or two). Each block adds named checks; a failure prints and the rest still run.
+if (args.includes('--rules')) {
+  const { default: assert } = await import('node:assert/strict');
+  const { STYLES } = await import('../src/config.js');
+  const { CHEMISTRY, GENRES, Loadout, chemistryTier, computeStats, crossoverOf, emptyCounts, isFusion, ruleTiers } = await import('../src/game/loadout.js');
+  const { KEYS, makeChord, keyTone } = await import('../src/music/theory.js');
+  const { BY_ID } = await import('../src/content/instruments/index.js');
+  const checks = [];
+  const check = (name, fn) => checks.push({ name, fn });
+  const styles = Object.keys(STYLES);
+  const counts = (o) => ({ ...emptyCounts(), ...o });
+  // Every band of 0 to 6 sounds, as style counts.
+  const bands = [];
+  const fill = (i, left, c) => {
+    if (i === styles.length) { bands.push(c); return; }
+    for (let n = 0; n <= left; n++) fill(i + 1, left - n, { ...c, [styles[i]]: n });
+  };
+  fill(0, 6, {});
+  const plain = (c) => Object.fromEntries(Object.keys(CHEMISTRY).map((st) => [st, chemistryTier(st, c[st])]));
+
+  // Lane 0: contracts
+  check('crossoverOf: exactly two styles at 2+ name their crossover, three or more Fusion, else none', () => {
+    for (const [pair, name] of Object.entries(GENRES.crossovers)) {
+      const [a, b] = pair.split('+');
+      for (const [na, nb] of [[2, 2], [3, 3], [4, 2], [2, 4]]) assert.equal(crossoverOf(counts({ [a]: na, [b]: nb })), name, pair);
+      for (const c of styles.filter((x) => x !== a && x !== b)) {
+        assert.equal(crossoverOf(counts({ [a]: 3, [b]: 2, [c]: 1 })), name, `${pair}+1`);
+        assert.equal(crossoverOf(counts({ [a]: 2, [b]: 2, [c]: 2 })), 'Fusion', `${pair}+${c}`);
+      }
+    }
+    assert.equal(Object.keys(GENRES.crossovers).length, (styles.length * (styles.length - 1)) / 2);
+    for (const o of [{}, { heavy: 6 }, { synth: 1, organic: 1 }, { chip: 4, heavy: 1, orchestra: 1 }, { synth: 5, organic: 1 }]) assert.equal(crossoverOf(counts(o)), null, JSON.stringify(o));
+    for (const c of bands) {
+      const two = styles.filter((st) => c[st] >= 2).length;
+      assert.equal(crossoverOf(c) === 'Fusion', isFusion(c));
+      assert.equal(crossoverOf(c) === null, two < 2);
+    }
+  });
+  check('ruleTiers: plain tiers without the crossover lift, and with it wherever no crossover forms', () => {
+    for (const c of bands) {
+      assert.deepEqual(ruleTiers(c, false), plain(c));
+      if (!crossoverOf(c)) assert.deepEqual(ruleTiers(c), plain(c));
+    }
+    assert.deepEqual(ruleTiers(counts({ heavy: 6 })), { ...plain(emptyCounts()), heavy: 3 });
+  });
+  check('computeStats writes rules.tiers and rules.x (none with xo off)', () => {
+    const L = new Loadout();
+    for (const id of ['kick808', 'hats909', 'upright', 'rhodes']) L.set(BY_ID[id], 1);
+    const c = L.styleCounts();
+    assert.equal(crossoverOf(c), 'Indietronica');
+    const s = computeStats(L);
+    assert.deepEqual(s.rules.tiers, ruleTiers(c));
+    assert.equal(s.rules.x, 'Indietronica');
+    assert.equal(computeStats(L, null, false).rules.x, null);
+    assert.equal(computeStats(new Loadout()).rules.x, null);
+  });
+  check('keyTone: every key degree on its scale step in all 9 tonics, an octave every 7 degrees', () => {
+    const mod = (n, m) => ((n % m) + m) % m;
+    const tonics = new Set(KEYS.flatMap((k) => [k.pc, (k.pc + 2) % 12]));
+    assert.equal(tonics.size, 9);
+    for (const pc of tonics) for (let deg = 0; deg < 7; deg++) for (const h of [false, true]) {
+      const chord = makeChord(pc, deg, h);
+      assert.equal(chord.keyPc, pc);
+      // The chord's own degrees land on its tones (over a harmonic V, degree 6 is the raised leading tone).
+      for (let k = 0; k < 4; k++) assert.equal(mod(keyTone(chord, deg + 2 * k, 60), 12), chord.pcs[k], `tonic ${pc} deg ${deg} tone ${k}`);
+      for (const low of [48, 63, 74]) for (let n = -7; n <= 14; n++) {
+        const m = keyTone(chord, n, low);
+        assert.equal(mod(m - pc, 12), chord.scale[mod(n, 7)], `tonic ${pc} deg ${deg} n ${n}`);
+        assert.ok(m >= low - 12 && m < low + 36, `tonic ${pc} n ${n} at ${m}`);
+        assert.equal(keyTone(chord, n + 7, low), m + 12);
+        if (n === 0) assert.ok(m >= low && m < low + 12);
+      }
+    }
+  });
+
+  // Lane 1: deal and tapes
+
+  // Lane 2: rules, crossovers and the pick moment
+
+  // Lane 3: pedals and Signature
+
+  // Lane 6: grooves and figures
+
+  let failed = 0;
+  for (const { name, fn } of checks) {
+    try { await fn(); console.log(`ok    ${name}`); } catch (e) { failed++; console.log(`FAIL  ${name}\n      ${e.message.split('\n').join('\n      ')}`); }
+  }
+  console.log(`rules: ${checks.length - failed} of ${checks.length} ok${failed ? '  !! FAIL' : ''}`);
+  process.exit(failed ? 1 : 0);
 }
 
 const { server, url } = await serve();

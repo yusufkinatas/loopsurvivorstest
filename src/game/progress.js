@@ -3,12 +3,15 @@
 // Pure: no DOM and no storage (storage.js keeps `meta`, main.js folds each finished run in with applyRun).
 //
 // meta = { v: 1, runs, wins, kills, secs, goals: { [goalId]: firstMs }, records: { [genre]: rec },
-//          remixes: { [instrumentId]: firstMs }, gainMax: 0-8, gainSel: 0-gainMax }
-// rec  = { s: score, k: key name, kp: key pitch class, w: 0|1, g: gain, sh: track sheet, d: 'YYYY-MM-DD' }
+//          remixes: { [instrumentId]: firstMs }, gainMax: 0-8, gainSel: 0-gainMax,
+//          songSel: the song picked (index into SONGS), played: bit i set once song i was played,
+//          seen: { [instrument or pedal id]: 1 } every sound and pedal ever taken }
+// rec  = { s: score, k: key name, kp: key pitch class, w: 0|1, g: gain, sh: track sheet, d: 'YYYY-MM-DD', sg: song id }
 
 import { GAIN, STYLES } from '../config.js';
-import { SECTIONS } from '../music/song.js';
+import { SECTIONS, SONGS } from '../music/song.js';
 import { BY_ID } from '../content/instruments/index.js';
+import { PEDAL_BY_ID } from '../content/pedals.js';
 
 export const DEFAULT_STARTS = ['kick808', 'upright', 'squarelead'];
 
@@ -83,7 +86,7 @@ const FINALE = SECTIONS.findIndex((s) => s.id === 'finale');
 const SHEET_MAX = SECTIONS.length;
 
 export function newMeta() {
-  return { v: 1, runs: 0, wins: 0, kills: 0, secs: 0, goals: {}, records: {}, remixes: {}, gainMax: 0, gainSel: 0 };
+  return { v: 1, runs: 0, wins: 0, kills: 0, secs: 0, goals: {}, records: {}, remixes: {}, gainMax: 0, gainSel: 0, songSel: 0, played: 0, seen: {} };
 }
 
 const num = (x) => (Number.isFinite(x) && x >= 0 ? x : 0);
@@ -93,6 +96,9 @@ const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
 // Keep the entries of `o` whose key passes `ok` and whose value is a time.
 const stamps = (o, ok) => Object.fromEntries(Object.entries(obj(o)).filter(([k, t]) => ok(k) && Number.isFinite(t) && t >= 0));
 const sheetOf = (sh) => (Array.isArray(sh) ? sh.filter((e) => e && Number.isInteger(e.index) && SECTIONS[e.index] && Array.isArray(e.band)).slice(0, SHEET_MAX) : []);
+// A song id this version knows, else the loop (a record from before the setlist, or from a later version).
+const songOf = (id) => (SONGS.some((t) => t.id === id) ? id : SONGS[0].id);
+const PLAYED = (1 << SONGS.length) - 1;
 
 // Anything read from storage comes through here: every field is coerced, malformed records are dropped,
 // and gainSel <= gainMax <= 8. Never throws.
@@ -103,14 +109,19 @@ export function normalizeMeta(raw) {
     if (!r || !Number.isFinite(r.s)) continue;
     records[genre] = {
       s: r.s, k: typeof r.k === 'string' ? r.k : '', kp: pc(r.kp), w: r.w === 1 ? 1 : 0, g: int(r.g, GAIN.length),
-      sh: sheetOf(r.sh), d: typeof r.d === 'string' ? r.d : '',
+      sh: sheetOf(r.sh), d: typeof r.d === 'string' ? r.d : '', sg: songOf(r.sg),
     };
   }
   const gainMax = int(m.gainMax, GAIN.length);
+  const runs = Math.floor(num(m.runs));
   return {
-    ...newMeta(), runs: Math.floor(num(m.runs)), wins: Math.floor(num(m.wins)), kills: num(m.kills), secs: num(m.secs),
+    ...newMeta(), runs, wins: Math.floor(num(m.wins)), kills: num(m.kills), secs: num(m.secs),
     goals: stamps(m.goals, (id) => GOALS.some((g) => g.id === id)), records,
     remixes: stamps(m.remixes, (id) => !!BY_ID[id]?.remix), gainMax, gainSel: int(m.gainSel, gainMax),
+    songSel: int(m.songSel, SONGS.length - 1),
+    // Only the bits of songs this version knows; every run before the setlist played the loop.
+    played: (Number.isInteger(m.played) && m.played > 0 ? m.played & PLAYED : 0) | (runs > 0 ? 1 : 0),
+    seen: Object.fromEntries(Object.entries(obj(m.seen)).filter(([id, v]) => v === 1 && (BY_ID[id] || PEDAL_BY_ID[id]))),
   };
 }
 
@@ -129,6 +140,9 @@ export function unlockedStarts(meta) {
   return [...DEFAULT_STARTS, ...GOALS.filter((g) => meta.goals[g.id]).flatMap(unlocksOf)];
 }
 
+// The liner-note goal to go for next: the first one not met yet, or null once all are.
+export const nextGoal = (meta) => GOALS.find((g) => !meta.goals[g.id]) || null;
+
 // Fold one finished run into meta (mutates it). Returns what is new, for the end screen:
 // { goals: [goal...], record: { genre, fresh, gold, upgraded } | null, remixes: [ids], gain: n | null }.
 // A summary field that is missing counts as not done.
@@ -138,12 +152,16 @@ export function applyRun(meta, sum, { now }) {
   meta.wins += sum.won ? 1 : 0;
   meta.kills += num(sum.kills);
   meta.secs += Math.round(num(sum.time));
+  meta.played |= 1 << SONGS.findIndex((t) => t.id === songOf(sum.songId));
+  // Every sound (retired ones too) and pedal the run took is no longer new.
+  for (const r of Array.isArray(sum.instruments) ? sum.instruments : []) if (BY_ID[r?.id]) meta.seen[r.id] = 1;
+  for (const p of Array.isArray(sum.pedals) ? sum.pedals : []) if (PEDAL_BY_ID[p?.id]) meta.seen[p.id] = 1;
   for (const r of Array.isArray(sum.remixes) ? sum.remixes : []) {
     if (BY_ID[r?.id]?.remix && !meta.remixes[r.id]) { meta.remixes[r.id] = now; out.remixes.push(r.id); }
   }
   if (sum.sectionIndex >= FINALE && typeof sum.genre === 'string' && Number.isFinite(sum.score)) {
     const old = meta.records[sum.genre];
-    const rec = { s: sum.score, k: String(sum.key ?? ''), kp: pc(sum.keyPc), w: sum.won ? 1 : 0, g: int(sum.gain, GAIN.length), sh: sheetOf(sum.sheet), d: new Date(now).toISOString().slice(0, 10) };
+    const rec = { s: sum.score, k: String(sum.key ?? ''), kp: pc(sum.keyPc), w: sum.won ? 1 : 0, g: int(sum.gain, GAIN.length), sh: sheetOf(sum.sheet), d: new Date(now).toISOString().slice(0, 10), sg: songOf(sum.songId) };
     if (!old || rec.w > old.w || (rec.w === old.w && rec.s > old.s)) {
       meta.records[sum.genre] = rec;
       out.record = { genre: sum.genre, fresh: !old, gold: !!rec.w, upgraded: !!old && rec.w > old.w };

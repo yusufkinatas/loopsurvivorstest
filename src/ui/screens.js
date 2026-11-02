@@ -59,6 +59,16 @@ function gemsHtml(gems) {
   }).join('');
 }
 
+// The card foot's glyphs beside the gems: a gold reel (tape: this card brings a channel to where the banked Master
+// Tape remixes it), the remix's partner pedal (pair: { glyph, on }, lit once it is on the board), and the band's
+// sounds a pedal powers (fit: [{ glyph, role, on, pair }], dim where it does nothing, gold-ringed for a remix partner).
+function footHtml(d) {
+  const tape = d.tape ? `<span class="reel">${icon('tape')}</span>` : '';
+  const pair = d.pair ? `<span class="pair${d.pair.on ? ' on' : ''}">${icon(d.pair.glyph)}</span>` : '';
+  const fit = d.fit?.length ? `<span class="fit">${d.fit.map((f) => `<i class="${f.on === false ? 'off' : ''}${f.pair ? ' pair' : ''}">${icon(f.glyph, f.role)}</i>`).join('')}</span>` : '';
+  return tape + pair + fit + gemsHtml(d.gems);
+}
+
 export function cardHtml(d, index) {
   const [badge, word] = KIND[d.kind] || [null, ''];
   const role = d.slot?.role;
@@ -77,7 +87,7 @@ export function cardHtml(d, index) {
     ${badgeHtml}${hero}
     <span class="card-title">${esc(d.title)}</span>
     ${pipsHtml(d)}${stepsHtml(d.cells)}
-    <span class="card-foot" aria-hidden="true">${gemsHtml(d.gems)}</span>
+    <span class="card-foot" aria-hidden="true">${footHtml(d)}</span>
     <span class="card-info" id="card-info-${index}">${(d.info || []).map((l) => `<span>${esc(l)}</span>`).join('')}</span>
   </button>`;
 }

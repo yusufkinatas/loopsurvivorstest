@@ -5,7 +5,7 @@
 // song moves, and an auditioned card always plays its plain part.
 
 import { STEPS_PER_BAR, STEP_SEC, BAR_SEC, ROLE_HIGH } from '../config.js';
-import { chordTone, scaleTone, voiceChord, mtof } from './theory.js';
+import { chordTone, scaleTone, keyTone, voiceChord, mtof } from './theory.js';
 import { clamp } from '../util.js';
 
 const NO_CUES = [];
@@ -32,7 +32,7 @@ export function chimeMidi(chord, idx) {
 // gets s = the pattern step it sounds on ((bar * 16 + sib) % P), so s === 0 is still the pattern's downbeat.
 const at = (bar, sib, P) => (bar * STEPS_PER_BAR + sib) % P;
 const moved = (ns, s, fn) => (ns ? ns.map((n) => fn({ ...n, s })) : null);
-const pitched = (n) => n.ct !== undefined || n.sc !== undefined || !!n.chord;
+const pitched = (n) => n.ct !== undefined || n.sc !== undefined || n.kd !== undefined || !!n.chord;
 
 export const TRANSFORMS = {
   // The part as written.
@@ -144,6 +144,7 @@ export class Sequencer {
     // At the start of a solo phrase: the instrument that takes it, or { inst, gain } (gain: how hard it
     // hits against its full part, SOLO_GAIN by default), or null to let the sequencer pick.
     this.getFeatured = () => null;
+    this.forceTex = null;   // role -> a transform played in place of each of its 'full' phrases (sims: tex=)
     this._errors = new Set();
     this.reset(null);
   }
@@ -182,6 +183,7 @@ export class Sequencer {
     this._impactBar = -1;      // the bar whose downbeat had an impact (the desk opens up for that bar)
     this._vamped = false;      // a held downbeat set the desk to the vamp: the first step the song moves again resets it
     this._w = 1;
+    this.heard = { quote: 0, groove: 0 };   // live notes played from a quote and from a groove (sim coverage)
   }
 
   start(atTime) {
@@ -475,6 +477,7 @@ export class Sequencer {
     }
     const t = arr.tex?.[role] || FULL_TEX;
     if (t.tf === 'out' && (inst.remix || band <= 3)) return SPARSE_TEX;
+    if (t.tf === 'full' && this.forceTex?.[role]) return { ...t, tf: this.forceTex[role] };
     return t;
   }
 
@@ -531,7 +534,11 @@ export class Sequencer {
       if (part === def.remix) tf = 'sparse';
       else { part = def.levels[Math.min(inst.level, n) - 1]; tf = 'full'; }
     }
-    return part?._byStep ? TRANSFORMS[tf]?.(part._byStep, stepsOf(def, part), bar, sib) ?? null : null;
+    if (!part?._byStep) return null;
+    // A texture with no transform would silence the channel without a word: say so (a sim counts it as an error).
+    const fn = TRANSFORMS[tf];
+    if (!fn) { this._report(`texture ${tf}`, new Error(`no transform ${tf}`)); return null; }
+    return fn(part._byStep, stepsOf(def, part), bar, sib) ?? null;
   }
 
   _play(inst, t, sib, chord, emit, A, arr, band) {
@@ -584,6 +591,8 @@ export class Sequencer {
         const pc = ((midi % 12) + 12) % 12;
         if (chord.pcs.slice(0, 3).some((c) => (pc - c + 12) % 12 === 1)) midi -= 1;
       }
+    } else if (n.kd !== undefined) {
+      midi = keyTone(chord, n.kd, (def.low ?? 48) + oct);   // a tune in key degrees: written as heard, no settling
     }
     const high = def.high ?? ROLE_HIGH[def.role];
     if (high) {

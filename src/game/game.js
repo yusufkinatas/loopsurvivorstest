@@ -4,7 +4,7 @@
 import { ROLES, ROLE_INFO, STYLES, STEP_SEC, BAR_SEC, ECHO_STEPS, PLAYER_BASE, DROP, BALANCE, REROLLS_PER_RUN, BANISHES_PER_RUN, FADER, MAX_INSTRUMENT_LEVEL, CHANNEL_UNLOCKS, GAIN } from '../config.js';
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
-import { Song, SECTIONS, FINALE_BAR } from '../music/song.js';
+import { Song, SECTIONS, FINALE_BAR, SONGS, sectionsOf } from '../music/song.js';
 import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
@@ -21,10 +21,11 @@ const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
 // A shield blocks at most this many hits, however many charges a sound gives it.
 const SHIELD_MAX = 3;
 
-// A card taken: the sims' ledger counts picks per section and what the Breather card healed.
+// A card taken: the sims' ledger counts picks (by kind) per section and what the Breather card healed.
 function applyOffer(g, o) {
   const L = g._led(), hp = g.player.hp;
   L.picks++;
+  L.taken[o.kind] = (L.taken[o.kind] || 0) + 1;
   applyCard(g, o);
   if (o.kind === 'heal') L.heal.card += g.player.hp - hp;
 }
@@ -53,7 +54,8 @@ export class Game {
 
   // ------------------------------------------------------------------ run lifecycle
 
-  newRun({ start, keyIndex, seed, gain = 0 } = {}) {
+  // song: an index into SONGS (the setlist), never drawn from rng(), so a seed plays the same in every song.
+  newRun({ start, keyIndex, seed, gain = 0, song = 0 } = {}) {
     if (seed !== undefined) seedRng(seed);
     // Gain: every tier up to this one multiplies its combat numbers. Set before the director resets and
     // anything spawns.
@@ -61,7 +63,9 @@ export class Game {
     this.mods = { hp: 1, drop: 1, dmgIn: 1, xp: 1, density: 1, bossHp: 1, shotSpeed: 1, wnPhase: 1, elite: 1 };
     for (const t of GAIN.slice(0, this.gain)) Object.assign(this.mods, t.mods);
     this.key = KEYS[keyIndex ?? Math.floor(rng() * KEYS.length)];
-    this.song = new Song(this.key.pc);
+    this.tune = SONGS[song] || SONGS[0];
+    this.songIndex = SONGS.indexOf(this.tune);
+    this.song = new Song(this.key.pc, sectionsOf(this.tune), this.tune);
     this.seq.reset(this.song);
     this.seq.getInstruments = () => (this.loadout ? this.loadout.instruments() : []);
     this.seq.getFeatured = () => this.featured();
@@ -93,6 +97,7 @@ export class Game {
     this._godUntil = -1;     // god mode (?god=1): the ledger's own i-frames
     this._downbeat = -1;     // the last bar whose downbeat ran (onBeat)
     this.perfectDrops = 0;   // Drops that landed on a phrase downbeat
+    this.doubleDrops = 0;    // perfect Drops that landed on one of the song's own impact downbeats
     this.perfectFlash = 0;
     this.dropR = DROP.radius;
     this.lastHitBy = null;
@@ -108,7 +113,7 @@ export class Game {
     this.fx.reset();
     this.director.reset();
     this.loadout = new Loadout();
-    this.stats = computeStats(this.loadout);
+    this.stats = computeStats(this.loadout, null, this.opts.xo);
     this.time = 0;
     this.kills = 0;
     this.level = 1;
@@ -208,6 +213,10 @@ export class Game {
       heal: { regen: 0, inst: 0, drop: 0, card: 0 }, hearts: 0, heartsTaken: 0,
       minHp: 1, kills: 0, nd: 0, killDist: 0, near120: 0, alive: 0, frames: 0,
       drops: 0, perfect: 0, marks: 0, markHits: 0, faded: 0,
+      // doubles: Double Drops. multi: kill runs. bx: [damage, damage x the band's multiplier (rules, Lullaby marks,
+      // Signature; no crits or pedals)] over every hit, before the overkill cap. x: the crossover in play (as the
+      // section ends). sig: Signatures formed. offered / taken: cards dealt / picked, by kind.
+      doubles: 0, multi: 0, bx: [0, 0], x: null, sig: 0, offered: {}, taken: {},
     };
   }
 
@@ -218,6 +227,7 @@ export class Game {
     L.minHp = Math.min(L.minHp, p.hp / p.maxHp);
     L.alive += this.enemies.length;
     L.frames++;
+    L.x = this.stats.rules.x;
   }
 
   // A heart on the floor (a breather, a timed elite, a silenced boss).
@@ -235,14 +245,7 @@ export class Game {
     inst.since = this.time;
     this._setupInst(inst);
     this.onLoadoutChanged();
-    // A sound that joins mid-song gets a ring in its channel color and pops its strip on the HUD, once play
-    // resumes after the pick.
-    if (this.time > 0) {
-      this.later.push({ at: this.time, fn: () => {
-        this.hooks.onJoin?.(def.role);
-        this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 14, r1: 200, dur: 0.6, damage: 0, kb: 0, width: 6, color: this.color(def.role) });
-      } });
-    }
+    this._pickMoment(def.role, true);
     return inst;
   }
 
@@ -250,6 +253,18 @@ export class Game {
     inst.level = clamp(level, 1, MAX_INSTRUMENT_LEVEL);
     this._setupInst(inst);
     this.onLoadoutChanged();
+    this._pickMoment(inst.def.role);
+  }
+
+  // A pick's one moment on the floor, once play resumes after it (never at time 0: the start sound and give=).
+  // join: a sound joined (a new card or a swap): a ring in its channel color, and its strip pops on the HUD. A
+  // level pick (join false) has none.
+  _pickMoment(role, join = false) {
+    if (this.time <= 0 || !join) return;
+    this.later.push({ at: this.time, fn: () => {
+      this.hooks.onJoin?.(role);
+      this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 14, r1: 200, dur: 0.6, damage: 0, kb: 0, width: 6, color: this.color(role) });
+    } });
   }
 
   // ------------------------------------------------------------------ Master Tapes and remixes
@@ -415,7 +430,7 @@ export class Game {
   // quiet: the HUD waits (a remix flips its strip when its downbeat is heard, landRemix).
   onLoadoutChanged(quiet = false) {
     const oldMax = this.player?.maxHp ?? PLAYER_BASE.maxHp;
-    this.stats = computeStats(this.loadout);
+    this.stats = computeStats(this.loadout, null, this.opts.xo);
     if (this.player) {
       this.player.maxHp = this.stats.maxHp;
       if (this.player.maxHp > oldMax) this.player.hp += this.player.maxHp - oldMax;
@@ -538,11 +553,14 @@ export class Game {
   // Deal damage. o: kb (knockback strength), fx/fy (where the push comes from), stun (s), slow (0..1), src.
   hit(e, dmg, o = {}) {
     if (!e || e.dead || !(dmg > 0) || this.state !== 'playing') return;
-    let crit = false;
+    let crit = false, mul = 1;
+    const d0 = dmg;
     if (rng() < this.stats.crit) { dmg *= this.stats.critMult; crit = true; }
-    if (e.vulnUntil > this.time) dmg *= 1 + e.vuln;   // marked by Lullaby: takes more from every source
-    if (this.stats.rules.on) dmg *= this.ruleMul(e);  // the band's play rules (echoes too)
+    if (e.vulnUntil > this.time) { dmg *= 1 + e.vuln; mul *= 1 + e.vuln; }   // marked by Lullaby: takes more from every source
+    if (this.stats.rules.on) { const r = this.ruleMul(e); dmg *= r; mul *= r; }   // the band's play rules (echoes too)
     const src = o.src || this.src;
+    const L = this.ledger?.[this.sectionIndex];   // never opens a section's entry (_ledFrame does)
+    if (L) { L.bx[0] += d0; L.bx[1] += d0 * mul; }
     if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
     // An enemy under fire tints in the color of the channel hitting it. Bosses are hit constantly, so they
@@ -579,13 +597,19 @@ export class Game {
     let m = 1;
     if (R.far || R.near) {
       const d2 = dist2(e.x, e.y, this.player.x, this.player.y);
-      if (R.far && d2 > (RULES.far + e.r) ** 2) m *= 1 + R.far;
-      if (R.near && d2 < (RULES.near + e.r) ** 2) m *= 1 + R.near;
+      if (R.far && d2 > (this.farR() + e.r) ** 2) m *= 1 + R.far;
+      if (R.near && d2 < (this.nearR() + e.r) ** 2) m *= 1 + R.near;
     }
     if (R.combo) m *= 1 + R.combo * Math.min(1, S.combo / RULES.comboCap);
-    if (R.swell) m *= 1 + R.swell * (2 * S.phrase - 1);
+    if (R.swell) m *= 1 + R.swell * (2 * this.swellAt() - 1);
     return m;
   }
+
+  // The rules' live reach and swell, as every reader sees them (ruleMul, the floor tells, the autopilot): Mosh pit's
+  // radius, Long throw's radius (px) and Ride the swell's place in the phrase (0..1).
+  nearR() { return RULES.near; }
+  farR() { return RULES.far; }
+  swellAt() { return this.rules.phrase; }
 
   kill(e, src) {
     if (e.dead) return;
@@ -636,6 +660,7 @@ export class Game {
   // from: the enemy body that touched the player (null for a shot). shotFrom: the enemy that fired the shot.
   // kind: the cause when it is neither (a Snare's 'mark'). With god=1 nothing is taken, but the ledger still
   // records what would have been (with the usual invulnerability window), so one run maps the whole threat curve.
+  // god=2 also lets the hit reach the play rules (_hitRules), so a rule that reads hits can be measured.
   hurt(dmg, from, shotFrom, kind) {
     const p = this.player;
     if (this.state !== 'playing' || this.won) return;
@@ -649,10 +674,9 @@ export class Game {
     L.dmg[cause] = (L.dmg[cause] || 0) + taken;
     L.hits++;
     if (by) L.by[by] = (L.by[by] || 0) + taken;
-    if (god) { this._godUntil = this.time + PLAYER_BASE.iframes; return; }
+    if (god) { if (god === 2) this._hitRules(); this._godUntil = this.time + PLAYER_BASE.iframes; return; }
     p.hp -= taken;
-    this.lastHurtAt = this.time;
-    this.rules.combo = 0;
+    this._hitRules();
     this.damageTaken[cause] = (this.damageTaken[cause] || 0) + taken;
     if (by) { this.damageBy[by] = (this.damageBy[by] || 0) + taken; this.lastHitBy = by; }
     p.iframes = PLAYER_BASE.iframes;
@@ -665,6 +689,12 @@ export class Game {
       from.kbx += (dx / d) * 260; from.kby += (dy / d) * 260;
     }
     if (p.hp <= 0) { p.hp = 0; this._die(); }
+  }
+
+  // What a hit does to the play rules: In the pocket's calm restarts and the Combo streak resets.
+  _hitRules() {
+    this.lastHurtAt = this.time;
+    this.rules.combo = 0;
   }
 
   collect(gm) {
@@ -739,6 +769,8 @@ export class Game {
     return late >= 0 ? late : s.bar + 2 + (s.pendingStop || this._remixDue() ? 1 : 0);
   }
   dropPerfectNow() { return this.dropLandsOn() % DROP.phrase === 0; }
+  // A Drop pressed now would land as a Double Drop (on one of the song's own impact downbeats).
+  dropDoubleNow() { return false; }
 
   // A remix whose dropout is playing lands on the next downbeat, and a Drop pressed meanwhile waits a bar for
   // it (Sequencer._step): queued now, it builds on the bar after the remix and lands on the one after that.
@@ -1094,7 +1126,8 @@ export class Game {
 
   // Banners are for moments only: section names, remix names (style 'gold') and the Encore.
   // compact: a short line under the boss bar instead of the big center banner (for mid-fight messages).
-  banner(title, sub = '', compact = false, style = '') {
+  // prio: a compact moment's rank (3 Double Drop, 2 Signature, 1 a rule tier, 0 anything else).
+  banner(title, sub = '', compact = false, style = '', prio = 0) {
     if (!title) return;
     this.sectionBanner = { title, sub, t: 0 };
     this.hooks.onBanner?.(title, sub, compact, style);
@@ -1265,6 +1298,8 @@ export class Game {
   // Deal a new set of cards. Screens with no real choice are counted for the sim metrics.
   _deal() {
     this.offers = buildOffers(this, 3);
+    const L = this._led();
+    for (const o of this.offers) L.offered[o.kind] = (L.offered[o.kind] || 0) + 1;
     this.cardScreens++;
     if (deadScreen(this.offers)) this.deadScreens++;
     return this.offers;
@@ -1432,6 +1467,7 @@ export class Game {
       // What the career's goals read (src/game/progress.js).
       drops: this.drops, perfectDrops: this.perfectDrops, sectionIndex: this.sectionIndex, bossKills: this.bossKills, staggers: this.staggers, peak: this.peak,
       fullBand: this.fullBand, fused: this.fused, maxedAll: this.maxedAll, band: snap.band, pedalLv: snap.pedals,
+      songId: this.tune.id, doubleDrops: this.doubleDrops,
     };
   }
 

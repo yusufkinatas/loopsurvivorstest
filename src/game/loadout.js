@@ -138,7 +138,14 @@ export function chemistryTier(style, count) {
   return tier;
 }
 
-export function computeStats(loadout, override = null) {
+// Every style's active rule tier (0 to 3) for a band's style counts, including a band you do not have yet (a
+// card's preview). Every tier reader goes through here. xo: false measures without the crossover lift (sims).
+export function ruleTiers(counts, xo = true) {
+  return Object.fromEntries(Object.keys(CHEMISTRY).map((st) => [st, chemistryTier(st, counts[st] || 0)]));
+}
+
+// xo: false leaves the crossover out (rules.x null and no lift): a sim's measurement, never play.
+export function computeStats(loadout, override = null, xo = true) {
   const s = {
     damage: 1, area: 1, amount: 0, projSpeed: 1, moveSpeed: 1, pickup: 1, armor: 0,
     maxHp: PLAYER_BASE.maxHp, regen: 0, xpGain: 1, crit: 0.05, critMult: 2, knockback: 1,
@@ -151,16 +158,19 @@ export function computeStats(loadout, override = null) {
     const def = PEDAL_BY_ID[id];
     if (def && levels[id] > 0) add(def.levels[levels[id] - 1]);
   }
-  // The play rules at their active tier. rules.on: any rule at all.
+  // The play rules at their active tier. rules.on: any rule at all; tiers: style -> tier; x: the crossover or null.
   const counts = loadout.styleCounts();
   const rules = Object.fromEntries(RULE_KEYS.map((k) => [k, 0]));
+  const tiers = ruleTiers(counts, xo);
   for (const style in CHEMISTRY) {
-    const tier = chemistryTier(style, counts[style]);
+    const tier = tiers[style];
     if (!tier) continue;
     const t = CHEMISTRY[style].tiers[tier - 1];
     for (const k of RULE_KEYS) if (t[k]) rules[k] += t[k];
   }
   rules.on = RULE_KEYS.some((k) => rules[k] > 0);
+  rules.tiers = tiers;
+  rules.x = xo === false ? null : crossoverOf(counts);
   s.rules = rules;
   s.pickup = PLAYER_BASE.pickup * s.pickup;
   s.speed = PLAYER_BASE.speed * s.moveSpeed;
@@ -182,6 +192,15 @@ const CROSSOVERS = {
   'orchestra+synth': 'Film score', 'orchestra+organic': 'Chamber pop', 'chip+orchestra': 'Boss theme',
 };
 export const GENRES = { ladders: LADDERS, crossovers: CROSSOVERS };
+
+// The crossover a band forms: exactly two styles with 2+ sounds name theirs, three or more form Fusion, else null.
+export function crossoverOf(counts) {
+  if (isFusion(counts)) return 'Fusion';
+  const two = Object.keys(counts).filter((st) => counts[st] >= 2);
+  return two.length === 2 ? CROSSOVERS[two.sort().join('+')] : null;
+}
+// Crossover name -> the one sentence that says how it bends its two rules.
+export const CROSS_TEXT = {};
 
 // A short name for the genre your band has become. Shown on the HUD and the end screen.
 export function genreName(loadout) {
