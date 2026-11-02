@@ -53,9 +53,10 @@ server below. Sound on, headphones help.
 - **Three songs.** Loop Survivors, Ode (Beethoven's Ninth) and Korobeiniki (the Russian folk song) have the
   same nine sections, bosses and length, each with its own chords and its own crowd (Ode's verses march in
   heavy, Korobeiniki's swarm). After your first run you pick the song on the first-sound screen. The tune
-  comes to your band: in the second phrase of each chorus your Lead (else your Sparkle) plays it, and a Lead
-  or Sparkle that takes the Bridge solo or a Finale solo plays it again, every note still one of its attacks.
-  The original's Finale solo plays the Dies irae. Collected notes spell the song's tune on the pickup bells.
+  comes to your band: in the second phrase of each chorus your Lead (else your Sparkle) plays it in its own
+  rhythm, and a Lead or Sparkle that takes the Bridge solo or a Finale solo plays it again, every note still one
+  of its attacks. The original's Finale solo plays the Dies irae. Collected notes spell the song's tune on the
+  pickup bells.
 - **Keep your songs.** The end screen plays your run back as a one-minute radio edit. The Discography
   keeps what you have done across runs: 17 liner-note goals that unlock first sounds (two of them open a
   whole style), 30 record sleeves for the genres a band can become, and the crate of 30 remixes.

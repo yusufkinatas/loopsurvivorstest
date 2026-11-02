@@ -4,7 +4,7 @@
 //                                                               # tools/data/pedal-fit.json, see tools/fitcheck.mjs)
 //   node tools/dummy.mjs mode=one give=sawlead:5 remix=sawlead pedals=overdrive:3 [faders=lead:2]
 //   node tools/dummy.mjs mode=move                              # standing vs walking a slow circle
-//   node tools/dummy.mjs mode=quote [ids=sawlead,harp] [keys=0,2,4]   # each Lead and Sparkle on the song quotes
+//   node tools/dummy.mjs mode=quote [ids=sawlead,harp] [keys=0,2,4] [level=5]   # each Lead and Sparkle on the quotes
 // Args: secs=40 (game seconds per run), n=160 (dummies), spread=460 (px).
 import { Game } from '../src/game/game.js';
 import { Sequencer } from '../src/music/sequencer.js';
@@ -101,19 +101,19 @@ if (mode === 'move') {
   for (const r of rows) console.log(r.map(String).map((s, i) => (i < 3 ? s.padEnd(13) : s.padStart(6))).join(' '));
 }
 if (mode === 'quote') {
-  // Each Lead and Sparkle at level 5 and remixed on the song quotes against its full part (1.00: as hard; see QUOTE_TRIM
-  // in src/music/sequencer.js), summed over keys 0, 2 and 4 (keys=). forced: the quote on every full phrase of the
-  // Intro (bars 0-15, tex=); chorus: the two chorus quote phrases (bars 56-63, 120-127) over the same with the quote
-  // off. The loop's quote, the Dies irae, plays only in the Finale solo.
-  const ids = args.ids?.split(',');
+  // Each Lead and Sparkle at level 5 (level=; remixed too at 5) on the song quotes against its full part (1.00: as
+  // hard; see the q_ transforms in src/music/sequencer.js), summed over keys 0, 2 and 4 (keys=). forced: the quote on
+  // every full phrase of the Intro (bars 0-15, tex=); chorus: the two chorus quote phrases (bars 56-63, 120-127) over
+  // the same with the quote off. The loop's quote, the Dies irae, plays only in the Finale solo.
+  const ids = args.ids?.split(','), level = Number(args.level || 5);
   const defs = INSTRUMENTS.filter((d) => (d.role === 'lead' || d.role === 'arp') && (!ids || ids.includes(d.id)));
   const span = (r, a, b) => r.atBar[b] - r.atBar[a];
   for (const [song, q] of ['q_dies', 'q_ode', 'q_koro'].entries()) {
     const out = [];
-    for (const def of defs) for (const rx of [false, true]) {
+    for (const def of defs) for (const rx of level === 5 ? [false, true] : [false]) {
       const t = [0, 0, 0, 0];
       for (const keyIndex of (args.keys || '0,2,4').split(',').map(Number)) {
-        const o = { give: L5(def.id), remix: rx ? [def.id] : [], song, keyIndex, secs: song ? 258 : 33 };
+        const o = { give: [{ id: def.id, level }], remix: rx ? [def.id] : [], song, keyIndex, secs: song ? 258 : 33 };
         const off = run({ ...o, quotes: false }), forced = run({ ...o, secs: 33, tex: { lead: q, arp: q } });
         t[0] += span(forced, 0, 16); t[1] += span(off, 0, 16);
         if (song) { const on = run(o); t[2] += span(on, 56, 64) + span(on, 120, 128); t[3] += span(off, 56, 64) + span(off, 120, 128); }

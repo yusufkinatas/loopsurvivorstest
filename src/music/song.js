@@ -7,7 +7,7 @@
 // and arrangement that many bars in) and end (the outro: one last downbeat on the song's home chord, then silence).
 
 import { ROLES } from '../config.js';
-import { makeChord } from './theory.js';
+import { makeChord, keyTone } from './theory.js';
 
 const V = { d: 4, h: true };                   // the major V (harmonic minor)
 const P = {
@@ -42,7 +42,7 @@ export const FINALE_BAR = SECTIONS.slice(0, -1).reduce((s, x) => s + x.bars, 0);
 //   home          the degree it ends on (its stop-time and last chord)
 //   prog          section id -> its progression (one chord per bar, up to 32 bars: a quote phrase gets its own 8)
 //   quote         section id -> { at, part }: the phrase (an index, or 'solo' for the solo phrase) where the band's
-//                 Lead (else its Sparkle) plays QUOTES[part] in its own sound, every note still an attack
+//                 Lead (else its Sparkle) traces QUOTES[part] with its own notes, each still an attack
 //   fig           section id -> { role: figure }: an accompaniment figure (an id of src/music/grooves.js FIGURES) in
 //                 place of that role's full part
 //   waves         section id -> the enemy mix in place of BALANCE.waves (its own crowd)
@@ -50,12 +50,12 @@ export const FINALE_BAR = SECTIONS.slice(0, -1).reduce((s, x) => s + x.bars, 0);
 // Quotes are written in key degrees (kd: 0 the tonic, 2 the third, 4 the fifth, 7 the octave, negative goes down;
 // over the major V degree 6 is the leading tone), steps on the 16th grid from the phrase's downbeat, d in steps. They
 // sit only on bars whose chords the song sets for them, and tools/check.mjs --audit checks every note on every Lead
-// and Sparkle in every key: no fold under a ceiling, no held note a half step above a chord tone. Most quarters are
-// detached (d 2) and about a quarter of the notes are held (3 steps or more), as in a Lead's own part, since a held
-// note is a bigger attack on Saw Lead, Shred Guitar and French Horn. Public domain melodies only.
-const Q = (s, kd, d = 1, v = 1) => ({ s, kd, d, v });
-// Bars of [step, kd, d] from bar b0 on, the bar's first note accented.
-const bars = (b0, ...bs) => bs.flatMap((ns, i) => ns.map(([s, kd, d]) => Q((b0 + i) * 16 + s, kd, d, s ? 0.85 : 1)));
+// and Sparkle in every key: no fold under a ceiling, no held note a half step above a chord tone. A part traces a
+// quote in its own rhythm (sequencer.js q_), each of its notes taking the pitch of the tune note last struck, so d
+// only matters on a tune note a half step above a chord tone: a part holds that one no longer than 3 steps or d.
+// Public domain melodies only.
+// Bars of [step, kd, d] from bar b0 on.
+const bars = (b0, ...bs) => bs.flatMap((ns, i) => ns.map(([s, kd, d]) => ({ s: (b0 + i) * 16 + s, kd, d })));
 
 // Beethoven, Symphony No. 9, the "Ode to Joy" theme (Beethoven died 1827), in the relative major: major degree n is
 // kd n + 2.
@@ -78,20 +78,25 @@ const KORO = [
 const DIES = bars(0, [[0, 2, 2], [4, 1, 2], [8, 2, 2], [12, 0, 4]], [[0, 1, 2], [4, -1, 2], [8, 0, 8]],   // F E F D | E C D (in D minor)
   [[0, 2, 2], [4, 0, 2], [8, 2, 2], [12, 5, 4]], [[0, 1, 2], [4, -1, 2], [8, 1, 2], [12, 4, 4]]);         // F D F Bb | E C# E A
 
-// id -> { steps, pattern, by (notes by step), last (per step, the note last struck) }: the quotes (sequencer.js
-// plays QUOTES[id] as the transform q_<id>).
-const quote = (steps, pattern) => {
-  const by = [], last = [];
+const ODE_CHORDS = [2, 6, 2, 6, 2, 6, 2, 2];   // I V I V I V I I in the relative major
+const KORO_CHORDS = [V, 0, V, 0, 3, 0, V, 0];  // the folk song's own V i V i iv i V i
+// id -> { steps, pattern, by (notes by step), last (per step, the note last struck), held (per step: that note is no
+// half step above a tone of its bar's chord, one of chords, so a part may hold it) }: the quotes (sequencer.js plays
+// QUOTES[id] as the transform q_<id>).
+const quote = (steps, pattern, chords) => {
+  const by = [], last = [], held = [];
   for (const n of pattern) (by[n.s] ||= []).push(n);
-  for (let i = 0; i < steps; i++) last[i] = by[i] ? by[i][0] : last[i - 1];
-  return { steps, pattern, by, last };
+  for (let i = 0; i < steps; i++) {
+    last[i] = by[i] ? by[i][0] : last[i - 1];
+    const c = chords[i >> 4], ch = makeChord(0, c.d ?? c, !!c.h), m = keyTone(ch, last[i].kd, 60);
+    held[i] = !ch.pcs.slice(0, 3).some((pc) => (m - pc) % 12 === 1);
+  }
+  return { steps, pattern, by, last, held };
 };
-export const QUOTES = { ode: quote(128, ODE_THEME), koro: quote(128, KORO), dies: quote(64, DIES) };
+export const QUOTES = { ode: quote(128, ODE_THEME, ODE_CHORDS), koro: quote(128, KORO, KORO_CHORDS), dies: quote(64, DIES, P.finale) };
 
 // A 32-bar progression: a 4-bar loop with the quote's own 8 chords under phrase i.
 const around = (loop, i, tune) => [...Array(2 * i).fill(loop).flat(), ...tune, ...Array(2 * (3 - i)).fill(loop).flat()];
-const ODE_CHORDS = [2, 6, 2, 6, 2, 6, 2, 2];   // I V I V I V I I in the relative major
-const KORO_CHORDS = [V, 0, V, 0, 3, 0, V, 0];  // the folk song's own V i V i iv i V i
 
 const LOOP = { id: 'loop', name: 'Loop Survivors', credit: 'The original', hook: null, home: 0 };
 const ODE = {

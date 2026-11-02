@@ -77,36 +77,22 @@ export const TRANSFORMS = {
   }),
 };
 
-// Song quotes (src/music/song.js QUOTES): q_<id> plays the tune in place of the part, its notes in key degrees on
-// the part's own sound. A quote counts from its phrase's downbeat (pb, the bar in the 8-bar phrase, so a radio
-// edit's excerpt starts it there too). A part of one kind of note plays the tune's rhythm; a part of several kinds
-// (a remix's second voice, accents, a payout run) keeps its own rhythm and kinds, so each kind still fires as
-// written, and takes the pitch of the tune note last struck, held no longer than the tune holds it. A part with no
-// single pitch (drums, chord voicings) plays its full part.
+// Song quotes (src/music/song.js QUOTES): q_<id> traces the tune with the part's own notes. Each note of a single
+// pitch takes the pitch of the tune note last struck (a key degree) and keeps its step, sound and velocity, so the
+// part hits as hard as its own at every level and in any crowd (only where an attack aims by pitch does it move:
+// Harp strings, Coin Arp throws). It rings its own length unless that tune note is a half step above a tone of the
+// bar's chord (the quote's held): then no longer than 3 steps or the tune note, so it never holds a rub. A quote
+// counts from its phrase's downbeat (pb, the bar in the 8-bar phrase, so a radio edit's excerpt starts it there
+// too). Notes with no single pitch (drums, chord voicings) play as written.
 for (const [id, q] of Object.entries(QUOTES)) {
   TRANSFORMS['q_' + id] = (by, P, bar, sib, pb = bar & 7) => {
-    const k = quoteKind(by);
-    if (!k) return TRANSFORMS.full(by, P, bar, sib);
-    const i = (pb * STEPS_PER_BAR + sib) % q.steps, s = at(bar, sib, P);
-    const t = q.last[i];
-    if (k.own) return moved(by[s], s, (n) => (pitched(n) ? { s, v: n.v, d: clamp(t.s + t.d - i, 1, n.d || 1), k: n.k, kd: t.kd } : n));
-    return q.by[i]?.map((n) => ({ ...k.tpl, s, kd: n.kd, d: n.d, v: n.v })) ?? null;
+    const i = (pb * STEPS_PER_BAR + sib) % q.steps, s = at(bar, sib, P), t = q.last[i];
+    return moved(by[s], s, (n) => {
+      if (n.ct === undefined && n.sc === undefined && n.kd === undefined) return n;
+      const d = n.d || 1;
+      return { s, v: n.v, k: n.k, kd: t.kd, d: q.held[i] && sib + d <= STEPS_PER_BAR ? d : Math.min(d, Math.max(3, t.s + t.d - i)) };
+    });
   };
-}
-// How a part plays a quote: { tpl } (its one kind, for the tune's rhythm), { own } (several kinds: its own rhythm),
-// or null when no note of the part has a single pitch. Cached on the part's steps.
-function quoteKind(by) {
-  if (by._qk === undefined) {
-    const kinds = new Set();
-    let single = false;
-    for (const ns of by) for (const n of ns || NONE) {
-      single ||= n.ct !== undefined || n.sc !== undefined || n.kd !== undefined;
-      kinds.add(n.k || '');
-    }
-    const [k] = kinds;
-    by._qk = !single ? null : kinds.size > 1 ? { own: true } : { tpl: k ? { k } : {} };
-  }
-  return by._qk;
 }
 
 // lvN plays level N's authored part (levels are supersets, so it is the simpler part), never above the
@@ -161,32 +147,6 @@ function soloShape(part, P) {
     part._solo = { tf, ratio: full > 0 ? velocity(by, P, tf, bars) / full : 1 };
   }
   return part._solo;
-}
-
-// The weight that makes a part under transform tf hit like its full part over a phrase (8 bars): the full part's
-// velocity over the transform's, clamped to 0.5-4. Cached on the part.
-export function reW(part, P, tf) {
-  const c = (part._reW ||= {});
-  if (c[tf] === undefined) {
-    const v = velocity(part._byStep, P, tf, 8);
-    c[tf] = v > 0 ? clamp(velocity(part._byStep, P, 'full', 8) / v, 0.5, 4) : 1;
-  }
-  return c[tf];
-}
-// How hard a channel's notes hit under song quote q (a q_ transform): reW, times a trim for a part whose damage its
-// velocity does not tell (mostly a held note that fires wider, longer or more often). Each trim brings the part's
-// quote, forced on the Intro, within 5% of its full part's damage on training dummies (node tools/dummy.mjs
-// mode=quote, which also measures the chorus quote phrases; a remix by its id).
-// ponytail: trims measured at level 5; re-measure when a Lead or Sparkle part or a quote changes.
-const QUOTE_TRIM = {
-  q_dies: { screamer: 1.1, chiparp: 1.12, jackpot: 1.06, shred: 1.05, windmill: 1.23, horn: 1.19, fanfare: 1.35, harp: 0.89 },
-  q_ode: { sawlead: 0.84, screamer: 0.93, arpsynth: 1.06, windmill: 1.12, horn: 1.11, fanfare: 1.3 },
-  q_koro: { screamer: 0.88, chiparp: 1.08, shred: 0.88, windmill: 1.06, horn: 1.09, fanfare: 1.22 },
-};
-function quoteW(inst, q) {
-  const part = partOf(inst);
-  if (!part?._byStep || !TRANSFORMS[q]) return 1;
-  return reW(part, stepsOf(inst.def, part), q) * (QUOTE_TRIM[q]?.[part.id ?? inst.def.id] ?? 1);
 }
 
 export function pickFeatured(band) {
@@ -543,11 +503,10 @@ export class Sequencer {
     if (arr.solo) {
       const f = this._featured(arr, bar, peek);
       if (f?.role === role) return this._soloTex(inst, f.gain, arr.quote);
-    } else if (arr.quote && role === this._quoteRole(bar)) return { tf: arr.quote, w: quoteW(inst, arr.quote) };
+    } else if (arr.quote && role === this._quoteRole(bar)) return { tf: arr.quote, w: 1 };
     const t = arr.tex?.[role] || FULL_TEX;
     if (t.tf === 'out' && (inst.remix || band <= 3)) return SPARSE_TEX;
-    const tf = t.tf === 'full' && this.forceTex?.[role];
-    if (tf) return { ...t, tf, w: tf.startsWith('q_') ? t.w * quoteW(inst, tf) : t.w };
+    if (t.tf === 'full' && this.forceTex?.[role]) return { ...t, tf: this.forceTex[role] };
     return t;
   }
 
@@ -573,11 +532,11 @@ export class Sequencer {
     return out;
   }
 
-  // A solo phrase with a song quote: a featured Lead or Sparkle plays the tune, gain times as hard as its full part.
+  // A solo phrase with a song quote: a featured Lead or Sparkle traces the tune, gain times as hard as its full part.
   _soloTex(inst, gain, quote = null) {
     const part = partOf(inst);
     if (!part?._byStep) return FULL_TEX;
-    if (quote && (inst.def.role === 'lead' || inst.def.role === 'arp')) return { tf: quote, w: gain * quoteW(inst, quote), solo: true };
+    if (quote && (inst.def.role === 'lead' || inst.def.role === 'arp')) return { tf: quote, w: gain, solo: true };
     const s = soloShape(part, stepsOf(inst.def, part));
     return { tf: s.tf, w: clamp(gain / s.ratio, 0.5, 2), solo: true };
   }
@@ -620,9 +579,9 @@ export class Sequencer {
     // A texture with no transform would silence the channel without a word: say so (a sim counts it as an error).
     const fn = TRANSFORMS[tf];
     if (!fn) { this._report(`texture ${tf}`, new Error(`no transform ${tf}`)); return null; }
-    const notes = fn(part._byStep, stepsOf(def, part), bar, sib, arr.pb) ?? null;
-    if (live && notes && tf.startsWith('q_')) this.heard.quote += notes.length;
-    return notes;
+    const out = fn(part._byStep, stepsOf(def, part), bar, sib, arr.pb) ?? null;
+    if (live && out && tf.startsWith('q_')) this.heard.quote += out.length;
+    return out;
   }
 
   _play(inst, t, sib, chord, emit, A, arr, band) {
