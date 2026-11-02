@@ -7,7 +7,8 @@ import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer, banKey, chemTiers } from '../game/upgrades.js';
 import { CHEMISTRY } from '../game/loadout.js';
-import { SECTIONS } from '../music/song.js';
+import { SECTIONS, SONGS } from '../music/song.js';
+import { makeChord, NOTE_NAMES } from '../music/theory.js';
 import { songMapHtml, songFraction, SONG_BARS, heardBar, drawSeq, styleColor, styleName } from './hud.js';
 import { GOALS, RECORDS, unlockLabel, unlocksOf } from '../game/progress.js';
 import { INSTRUMENTS, BY_ID } from '../content/instruments/index.js';
@@ -20,6 +21,11 @@ const kick = (node, cls) => { if (!node) return; node.classList.remove(cls); voi
 const kbd = (key, pad) => `${key ? `<kbd class="k-key" data-k="${esc(key)}"></kbd>` : ''}${pad ? `<kbd class="k-pad" data-k="${esc(pad)}"></kbd>` : ''}`;
 const dots = (n, max) => `<span class="uses" aria-hidden="true">${Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
 const pipsRow = (n, max) => `<span class="pips-sm" aria-hidden="true">${Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
+
+// The setlist: a song by id (a record or run from before it, or an unknown one: the loop), and its key named for
+// the chord it comes home to (Ode, at home on III, sits in the run's relative major), never split over two lines.
+const tuneOf = (id) => SONGS.find((t) => t.id === id) || SONGS[0];
+const keyName = (kp, tune) => { const c = makeChord(kp, tune.home); return `${NOTE_NAMES[c.rootPc]}\u00a0${c.quality === 'maj' ? 'major' : 'minor'}`; };
 
 // A level-up ignores picks and button presses this long after it opens, so a Drop press or the second
 // half of a double tap never takes a card blind.
@@ -115,7 +121,7 @@ function recordsHtml(meta) {
   const sleeve = (genre, rec, hint) => (rec
     ? `<button class="sleeve ${rec.w ? 'gold' : 'demo'}" type="button" data-genre="${esc(genre)}" ${rec.sh.length ? '' : 'disabled'}>
         <i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>
-        <span>${rec.w ? 'Gold' : 'Demo'} · ${esc(rec.k)}${rec.g ? ` <em>G${rec.g}</em>` : ''}</span></button>`
+        <span>${rec.w ? 'Gold' : 'Demo'} · ${esc(keyName(rec.kp, tuneOf(rec.sg)))}${rec.g ? ` <em>G${rec.g}</em>` : ''}</span></button>`
     : `<div class="sleeve empty"><i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b><span>${esc(hint)}</span></div>`);
   const hidden = Object.keys(meta.records).filter((g) => !RECORDS.some((r) => r.genre === g));
   return `<p class="now-playing" aria-live="polite"></p>
@@ -323,7 +329,7 @@ export class Screens {
       el.querySelectorAll('button.sleeve').forEach((sl) => sl.addEventListener('click', () => {
         if (sl.classList.contains('playing')) { this.h.onStopTrack(); return; }
         const genre = sl.dataset.genre, rec = meta.records[genre];
-        this.h.onPlayTrack(rec.sh, rec.kp, (name, n) => { np.textContent = `Now playing: ${genre} · ${name} · ${plural(n, 'sound')}`; }, () => { sl.classList.remove('playing'); np.textContent = ''; });
+        this.h.onPlayTrack(rec.sh, rec.kp, rec.sg, (name, n) => { np.textContent = `Now playing: ${genre} · ${tuneOf(rec.sg).name} · ${name} · ${plural(n, 'sound')}`; }, () => { sl.classList.remove('playing'); np.textContent = ''; });
         sl.classList.add('playing');
       }));
     };
@@ -338,7 +344,8 @@ export class Screens {
   // defs: the three featured first sounds. chips: the other sounds the career has unlocked, picked and
   // auditioned like the cards (glyphs with a style edge). Every other sound shows as a dim locked
   // silhouette (its goal in a tooltip). meta: the career when a Gain is open (the stepper), else null.
-  select(defs, chips, meta) {
+  // song: the song picked (an index into SONGS) when the song stepper shows (after the first run), else null.
+  select(defs, chips, meta, song = null) {
     const descs = defs.map((def) => ({
       kind: 'new', title: def.name, color: ROLE_INFO[def.role].color, style: def.style, glyph: def.id, from: null, level: 1, maxLevel: MAX_INSTRUMENT_LEVEL,
       cells: def.levels[0].pattern.reduce((cells, n) => { if (cells[n.s]) cells[n.s] = { on: true, v: n.v ?? 1 }; return cells; }, Array.from({ length: def.steps || 16 }, () => ({ on: false }))),
@@ -352,27 +359,35 @@ export class Screens {
     const shown = new Set([...defs, ...chips].map((d) => d.id));
     const locked = INSTRUMENTS.map((def) => [def, GOALS.find((g) => unlocksOf(g).includes(def.id))]).filter(([def, goal]) => goal && !shown.has(def.id))
       .map(([def, goal]) => `<span class="chip locked" style="--c:${ROLE_INFO[def.role].color}" title="${esc(`${goal.name}: ${goal.text}`)}">${icon(def.id, def.role)}<i>${icon('lock')}</i></span>`).join('');
+    const songRow = song !== null ? `
+      <div class="song">
+        <button class="ibtn ibtn-sm" type="button" data-song="-1" aria-label="Previous song">${icon('back')}${kbd(',', 'LT')}</button>
+        <span class="song-name" aria-live="polite"></span>
+        <button class="ibtn ibtn-sm flip" type="button" data-song="1" aria-label="Next song">${icon('back')}${kbd('.', 'RT')}</button>
+      </div>` : '';
     const gain = meta ? `
       <div class="gain">
         <span class="gain-name"></span>
         <button class="ibtn ibtn-sm" type="button" data-gain="-1" aria-label="Less Gain">${icon('back')}${kbd('[', 'LB')}</button>
         <button class="ibtn ibtn-sm flip" type="button" data-gain="1" aria-label="More Gain">${icon('back')}${kbd(']', 'RB')}</button>
         <span class="gain-score"></span>
-      </div>
-      <p class="gain-mods"></p>` : '';
+      </div>` : '';
     const all = [...defs, ...chips];
     const el = this._mount('select', `
       <div class="cards-wrap">
         <div class="cards">${cards}</div>
         <div class="chips">${chipHtml}${locked}</div>
-        ${gain}
+        ${songRow || gain ? `<div class="dials">${songRow}${gain}</div>` : ''}
+        ${meta ? '<p class="gain-mods"></p>' : ''}
         <div class="row-actions">
           <button class="btn btn-ghost" type="button" data-act="back">Back</button>
           <button class="ibtn" type="button" data-act="info" aria-label="Card details" title="Card details" aria-pressed="${this.info}">${icon('info')}${kbd('I', 'Y')}</button>
         </div>
       </div>`);
     el.querySelectorAll('[data-gain]').forEach((b) => b.addEventListener('click', () => this.h.onGain(Number(b.dataset.gain))));
+    el.querySelectorAll('[data-song]').forEach((b) => b.addEventListener('click', () => this.h.onSong(Number(b.dataset.song))));
     if (meta) this.setGain(meta.gainSel);
+    if (song !== null) this.setSong(song);
     this.descs = descs;
     this._wireCards(el, (i) => this.h.onPickStart(all[i].id), (i) => this.h.onPreviewStart(i === null ? null : all[i].id));
     el.querySelector('[data-act=back]').addEventListener('click', () => { this.h.onPreviewStart(null); this.h.onShowTitle(); });
@@ -389,6 +404,16 @@ export class Screens {
   }
 
   stopAttract() { clearInterval(this._attract); this._attract = null; }
+
+  // The song stepper: "◂ Ode ▸" over its credit. The arrows dim at the ends of the setlist.
+  setSong(i) {
+    const el = this.root.querySelector('.song');
+    if (!el) return;
+    const t = SONGS[i];
+    el.querySelector('.song-name').innerHTML = `<b>${esc(t.name)}</b><small>${esc(t.credit || '')}</small>`;
+    el.querySelector('[data-song="-1"]').disabled = i <= 0;
+    el.querySelector('[data-song="1"]').disabled = i >= SONGS.length - 1;
+  }
 
   // The Gain stepper: "Gain 2 ◂ ▸ ×1.2". Its name and modifiers sit in the info layer.
   setGain(n) {
@@ -567,7 +592,7 @@ export class Screens {
           <span class="pause-time">${fmtTime(g.time)}</span>
         </div>
         ${songMapHtml(g.sectionIndex, [{ at: songFraction(g.seq.bar), cls: 'head' }])}
-        <p class="pause-meta"><b>${esc(g.genre)}</b> · ${esc(g.key.name)} · ${g.kills.toLocaleString('en-US')} silenced · HP ${Math.ceil(p.hp)}/${Math.round(p.maxHp)} · Lv ${g.level}</p>
+        <p class="pause-meta"><b>${esc(g.genre)}</b> · ${esc(g.tune.name)} · ${esc(keyName(g.key.pc, g.tune))} · ${g.kills.toLocaleString('en-US')} silenced · HP ${Math.ceil(p.hp)}/${Math.round(p.maxHp)} · Lv ${g.level}</p>
         <div class="pause-cols">
           <div>
             <ul class="pause-band">${band}</ul>
@@ -608,6 +633,7 @@ export class Screens {
       </li>`).join('');
     const pedals = sum.pedals.map((p) => `<span class="end-pedal" style="--c:${PEDAL_BY_ID[p.id]?.color || '#fff'}" title="${esc(`${p.name} · Lv ${p.level}`)}">${icon(p.id, 'pedal')}${pipsRow(p.level, MAX_PEDAL_LEVEL)}</span>`).join('');
     const lines = news?.saved ? [
+      ...(news.songs ? [`New songs in the lobby: ${new Intl.ListFormat('en').format(SONGS.slice(1).map((t) => t.name))}.`] : []),
       ...(news.record ? [`Record pressed: ${news.record.genre}, ${news.record.gold ? 'gold' : 'demo'}.`] : []),
       ...(news.gain ? [`Gain ${news.gain} unlocked: ${GAIN[news.gain - 1].name}.`] : []),
       ...news.goals.map((g) => `New first sound: ${unlockLabel(g)}.`),
@@ -626,7 +652,7 @@ export class Screens {
         </div>
         ${notes}
         ${songEndHtml(sum, isBest, prevBest)}
-        <p class="end-genre"><b>${esc(sum.genre)}</b> · ${esc(sum.key)}</p>
+        <p class="end-genre"><b>${esc(sum.genre)}</b> · ${esc(tuneOf(sum.songId).name)} · ${esc(keyName(sum.keyPc, tuneOf(sum.songId)))}</p>
         <p class="now-playing" aria-live="polite"></p>
         <ul class="end-rows">${rows || '<li>No instruments</li>'}</ul>
         ${pedals ? `<p class="end-pedals">${pedals}</p>` : ''}
@@ -642,7 +668,7 @@ export class Screens {
     const done = () => { listen.setAttribute('aria-pressed', 'false'); listen.textContent = 'Listen to your track'; np.textContent = ''; };
     listen.addEventListener('click', () => {
       if (listen.getAttribute('aria-pressed') === 'true') { this.h.onStopTrack(); return; }
-      this.h.onPlayTrack(sum.sheet, sum.keyPc, (name, n) => { np.textContent = `Now playing: ${name} · ${plural(n, 'sound')}`; }, done);
+      this.h.onPlayTrack(sum.sheet, sum.keyPc, sum.songId, (name, n) => { np.textContent = `Now playing: ${name} · ${plural(n, 'sound')}`; }, done);
       listen.setAttribute('aria-pressed', 'true');
       listen.textContent = 'Stop';
     });

@@ -10,9 +10,9 @@
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
-import { Song, SECTIONS } from './music/song.js';
+import { Song, SECTIONS, SONGS, sectionsOf } from './music/song.js';
 import { playSheet } from './music/replay.js';
-import { KEYS } from './music/theory.js';
+import { KEYS, makeChord } from './music/theory.js';
 import { Game } from './game/game.js';
 import { makeInst } from './game/loadout.js';
 import { Renderer } from './render/renderer.js';
@@ -21,7 +21,7 @@ import { Screens } from './ui/screens.js';
 import { Input } from './input.js';
 import { botMove, autopick } from './bot.js';
 import { loadSettings, saveSettings, loadBest, saveBest, loadMeta, saveMeta } from './storage.js';
-import { applyRun, unlockedStarts } from './game/progress.js';
+import { applyRun, unlockedStarts, lobbySong } from './game/progress.js';
 import { BY_ID, byRole, INSTRUMENTS } from './content/instruments/index.js';
 import { clamp } from './util.js';
 
@@ -76,6 +76,7 @@ let lobbyKey = 0;
 let lastStart = null;
 let lastEnd = null;        // the end screen's arguments, for Back from the Discography
 let lobbyGain = 0;         // the Gain the next run plays at (meta.gainSel)
+let lobbyTune = 0;         // the song the next run plays (an index into SONGS)
 
 const hooks = {
   onLevelUp: (offers) => { hud.hideBanner(); screens.levelUp(game, offers); },
@@ -129,9 +130,10 @@ const screens = new Screens(screensRoot, {
   },
   onDiscography: (back) => screens.discography(loadMeta(), back),
   onShowEnd: () => screens.end(...lastEnd),
-  onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
+  onPlayTrack: (sheet, keyPc, songId, onSection, onEnd) => playTrack(sheet, keyPc, songId, onSection, onEnd),
   onStopTrack: () => stopTrack(),
   onGain: (d) => stepGain(d),
+  onSong: (d) => stepSong(d),
   onRestart: () => enterLobby(),
   onSettings: (s) => applySettings(s),
   getSettings: () => settings,
@@ -172,7 +174,7 @@ function showTitle() {
 // at a time. Screens stop it whenever they change, and so does hiding the page. onEnd runs however it stops.
 let track = null;
 let trackId = 0;
-async function playTrack(sheet, keyPc, onSection, onEnd) {
+async function playTrack(sheet, keyPc, songId, onSection, onEnd) {
   stopTrack();
   const id = trackId;
   audio.init();
@@ -180,7 +182,7 @@ async function playTrack(sheet, keyPc, onSection, onEnd) {
   if (id !== trackId) { onEnd(); return; }   // stopped while the audio woke up
   audio.setVolume(settings.volume);
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
-  track = { player: playSheet({ seq, audio, sheet, keyPc, onSection, onEnd: () => stopTrack() }), onEnd };
+  track = { player: playSheet({ seq, audio, sheet, keyPc, songId, onSection, onEnd: () => stopTrack() }), onEnd };
 }
 
 function stopTrack() {
@@ -198,15 +200,38 @@ async function enterLobby() {
   game.state = 'idle';
   hudRoot.hidden = true;
   lobbyKey = opts.key ?? Math.floor(Math.random() * KEYS.length);
-  seq.reset(new Song(KEYS[lobbyKey].pc));
+  const meta = loadMeta();
+  lobbyTune = lobbySong(meta);
+  playLobbySong(null);
   seq.getInstruments = () => [];
   if (audio.ready) { audio.applyPedals({}); audio.setActiveCount(1); audio.setMuffle(false); audio.setPreviewRole(null); }
-  seq.start(clock.now() + 0.08);
   const featured = startOptions();
-  const meta = loadMeta();
   const open = unlockedStarts(meta);
   lobbyGain = meta.gainSel;
-  screens.select(featured, INSTRUMENTS.filter((d) => open.includes(d.id) && !featured.includes(d)), meta.gainMax ? meta : null);
+  // Run 1 has no song stepper: it plays the loop.
+  screens.select(featured, INSTRUMENTS.filter((d) => open.includes(d.id) && !featured.includes(d)), meta.gainMax ? meta : null, meta.runs && SONGS.length > 1 ? lobbyTune : null);
+}
+
+// The lobby plays the picked song from its first bar with an empty band, under the sound being auditioned.
+function playLobbySong(preview) {
+  const tune = SONGS[lobbyTune];
+  seq.reset(new Song(KEYS[lobbyKey].pc, sectionsOf(tune), tune));
+  seq.preview = preview;
+  seq.start(clock.now() + 0.08);
+}
+
+// The select screen's song stepper (, and ., pad LT and RT, or its buttons): the song starts over and its hook
+// rings once on the chimes over its own intro, which is how an empty lobby says what the song is. The choice is
+// kept in the career.
+function stepSong(d) {
+  const meta = loadMeta();
+  const sel = clamp(lobbyTune + d, 0, SONGS.length - 1);
+  if (!meta.runs || sel === lobbyTune) return;
+  lobbyTune = meta.songSel = sel;
+  saveMeta(meta);
+  playLobbySong(seq.preview);
+  seq.ping('hook');
+  screens.setSong(sel);
 }
 
 // The select screen's Gain stepper ([ and ], pad LB and RB, or its buttons). The choice is kept in the career.
@@ -228,7 +253,7 @@ function startRun(id) {
   mode = 'run';
   screens.hide();
   hudRoot.hidden = false;
-  game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain });
+  game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain, song: lobbyTune });
   hud.reset();
   hud.refreshLoadout(game);
   hud.setBoss(null);
@@ -257,10 +282,11 @@ function endRun(sum) {
   const news = recordRun(sum);
   lastEnd = [sum, best, prevBest, news];
   screens.end(...lastEnd);
-  // Something new for the career: the level-up chime in the key the run ended in.
-  if (news?.saved && (news.goals.length || news.record || news.remixes.length || news.gain) && audio.ready) {
-    const root = 72 + ((sum.keyPc + (SECTIONS[sum.sectionIndex]?.lift || 0)) % 12);
-    audio.levelUpChime([root, root + 3, root + 7, root + 12]);
+  // Something new for the career: the level-up chime on the chord the song ends on, in the key the run ended in.
+  if (news?.saved && (news.goals.length || news.record || news.remixes.length || news.gain || news.songs) && audio.ready) {
+    const c = makeChord((sum.keyPc + (SECTIONS[sum.sectionIndex]?.lift || 0)) % 12, game.song.home);
+    const root = 72 + c.rootPc;
+    audio.levelUpChime([root, root + c.intervals[1], root + c.intervals[2], root + 12]);
   }
   if (opts.sim) window.__LS.done = true;
 }
@@ -305,6 +331,7 @@ function onKey(k) {
     if (k === 'x' && screens.current === 'levelup') { screens.toggleBanish(); return true; }
     if (k === 'q' && screens.current === 'levelup') { skipLevel(); return true; }
     if (screens.current === 'select' && (k === '[' || k === ']' || k === 'gain-down' || k === 'gain-up')) { stepGain(k === '[' || k === 'gain-down' ? -1 : 1); return true; }
+    if (screens.current === 'select' && (k === ',' || k === '.' || k === 'song-down' || k === 'song-up')) { stepSong(k === ',' || k === 'song-down' ? -1 : 1); return true; }
     if (k === 'pad-a') {
       // A presses what has focus: a card or a button under the cards. With nothing focused it only focuses card 1.
       const a = document.activeElement;

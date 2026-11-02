@@ -2,7 +2,10 @@
 // and Gain unlocks.
 //   node tools/progress-check.mjs
 import assert from 'node:assert/strict';
-import { DEFAULT_STARTS, GOALS, RECORDS, newMeta, normalizeMeta, unlockedStarts, unlocksOf, unlockLabel, applyRun, nextGoal } from '../src/game/progress.js';
+import { DEFAULT_STARTS, GOALS, RECORDS, newMeta, normalizeMeta, unlockedStarts, unlocksOf, unlockLabel, applyRun, nextGoal, lobbySong } from '../src/game/progress.js';
+import { SONGS, sectionsOf } from '../src/music/song.js';
+import { Sequencer } from '../src/music/sequencer.js';
+import { playSheet } from '../src/music/replay.js';
 import { BY_ID, INSTRUMENTS } from '../src/content/instruments/index.js';
 import { genreName, isFusion } from '../src/game/loadout.js';
 import { STYLES } from '../src/config.js';
@@ -43,14 +46,43 @@ assert.equal(normalizeMeta({ gainMax: 3, gainSel: 5 }).gainSel, 3);
 // career with runs has played the loop), seen keeps known sound and pedal ids marked 1 (not Object.prototype names),
 // a record's song is known or the loop.
 const sel = normalizeMeta({ runs: 0, songSel: 7, played: 2 | 4, seen: { kick808: 1, reverb: 1, nope: 1, upright: 2, flute: true, constructor: 1, toString: 1, hasOwnProperty: 1 }, records: { Duet: { s: 1, sg: 'kazoo' }, Riff: { s: 2, sg: 'loop' } } });
-assert.equal(sel.songSel, 0);
-assert.equal(sel.played, 0);
+assert.equal(sel.songSel, SONGS.length - 1);
+assert.equal(sel.played, (2 | 4) & ((1 << SONGS.length) - 1));
 assert.deepEqual(sel.seen, { kick808: 1, reverb: 1 });
 assert.deepEqual([sel.records.Duet.sg, sel.records.Riff.sg], ['loop', 'loop']);
 for (const played of ['x', -1, 1.5, null]) assert.equal(normalizeMeta({ played }).played, 0);
 assert.equal(normalizeMeta({ runs: 3 }).played, 1);
 assert.equal(normalizeMeta({ songSel: -2 }).songSel, 0);
 assert.deepEqual(normalizeMeta(JSON.parse(JSON.stringify(sel))), sel);
+
+// The lobby's song: run 1 plays the loop (no stepper), and its end screen names the other songs once. Then the lobby
+// starts on the first song not played yet (after the loop Ode, after Ode Korobeiniki), and once every song has been
+// played on the one picked last.
+{
+  const m = newMeta();
+  assert.equal(lobbySong(m), 0);
+  SONGS.forEach((t, k) => {
+    assert.equal(applyRun(m, { songId: t.id }, { now: 1 }).songs, k === 0 && SONGS.length > 1);
+    assert.equal(lobbySong(m), k + 1 < SONGS.length ? k + 1 : m.songSel);
+  });
+  m.songSel = SONGS.length - 1;
+  assert.equal(lobbySong(m), SONGS.length - 1);
+  // A career that skipped a song (a stepper pick) still gets the first one it has not played.
+  assert.equal(lobbySong(normalizeMeta({ runs: 2, played: 1 | (1 << (SONGS.length - 1)) })), SONGS.length > 2 ? 1 : 0);
+}
+
+// A record replays in the song it was made in (its sections, ending on its home chord); one without a song, or with
+// a song this version does not know, replays in the loop.
+{
+  const seq = new Sequencer({ now: () => 0 }, null), desk = { applyPedals() {}, setActiveCount() {} };
+  const bare = normalizeMeta({ records: { Duet: { s: 1, sh: [{ index: 0, band: [['kick808', 1, 0]] }] } } }).records.Duet;
+  for (const [sg, tune] of [[bare.sg, SONGS[0]], ['kazoo', SONGS[0]], [undefined, SONGS[0]], ...SONGS.map((t) => [t.id, t])]) {
+    playSheet({ seq, audio: desk, sheet: [{ index: 0, band: [] }, { index: 2, band: [] }], keyPc: 9, songId: sg }).stop();
+    const S = seq.song.sections, own = sectionsOf(tune);
+    assert.equal(seq.song.tune, tune, String(sg));
+    assert.deepEqual([S[0].prog, S[1].prog, S[2].prog], [own[0].prog, own[2].prog, [tune.home]], String(sg));
+  }
+}
 
 // The 17 goals unlock 27 distinct real sounds (one each, and all six of a style for Heavy and Orchestra), none
 // of them a default start, so all 30 open up.

@@ -2,8 +2,8 @@
 // The device used last is kept on body[data-input] (key, mouse, touch or pad), so prompts can match it.
 
 // Gamepad buttons (W3C standard mapping) and the keys they send. LB and RB step the Gain on the
-// first-sound screen. Y toggles the card info layer.
-const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 3: 'pad-y', 4: 'gain-down', 5: 'gain-up', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
+// first-sound screen, LT and RT the song. Y toggles the card info layer.
+const PAD_MAP = { 0: 'pad-a', 1: 'pad-b', 2: 'r', 3: 'pad-y', 4: 'gain-down', 5: 'gain-up', 6: 'song-down', 7: 'song-up', 9: 'Escape', 12: 'pad-up', 13: 'pad-down', 14: 'pad-left', 15: 'pad-right' };
 
 export class Input {
   constructor(canvas, stickEl, onKey) {
