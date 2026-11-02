@@ -221,8 +221,8 @@ function playLobbySong(preview) {
 }
 
 // The select screen's song stepper (, and ., pad LT and RT, or its buttons): the song starts over and its hook
-// rings once on the chimes over its own intro, which is how an empty lobby says what the song is. The choice is
-// kept in the career.
+// rings once on the chimes over its own intro (cutting the last song's), which is how an empty lobby says what the
+// song is. The choice is kept in the career.
 function stepSong(d) {
   const meta = loadMeta();
   const sel = clamp(lobbyTune + d, 0, SONGS.length - 1);
@@ -230,6 +230,7 @@ function stepSong(d) {
   lobbyTune = meta.songSel = sel;
   saveMeta(meta);
   playLobbySong(seq.preview);
+  audio.cutChimes();
   seq.ping('hook');
   screens.setSong(sel);
 }
@@ -253,6 +254,7 @@ function startRun(id) {
   mode = 'run';
   screens.hide();
   hudRoot.hidden = false;
+  audio.cutChimes();   // a lobby hook still ringing stops with the lobby
   game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain, song: lobbyTune });
   hud.reset();
   hud.refreshLoadout(game);

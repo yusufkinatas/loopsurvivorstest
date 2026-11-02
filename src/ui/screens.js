@@ -405,14 +405,17 @@ export class Screens {
 
   stopAttract() { clearInterval(this._attract); this._attract = null; }
 
-  // The song stepper: "◂ Ode ▸" over its credit. The arrows dim at the ends of the setlist.
+  // The song stepper: "◂ Ode ▸" over its credit. The arrows dim at the ends of the setlist; a pad or arrow-key
+  // focus on the one that dims moves to the other, so it stays in the row.
   setSong(i) {
     const el = this.root.querySelector('.song');
     if (!el) return;
-    const t = SONGS[i];
+    const t = SONGS[i], [prev, next] = el.querySelectorAll('[data-song]'), a = document.activeElement;
     el.querySelector('.song-name').innerHTML = `<b>${esc(t.name)}</b><small>${esc(t.credit || '')}</small>`;
-    el.querySelector('[data-song="-1"]').disabled = i <= 0;
-    el.querySelector('[data-song="1"]').disabled = i >= SONGS.length - 1;
+    prev.disabled = i <= 0;
+    next.disabled = i >= SONGS.length - 1;
+    if (a === prev && prev.disabled) next.focus();
+    if (a === next && next.disabled) prev.focus();
   }
 
   // The Gain stepper: "Gain 2 ◂ ▸ ×1.2". Its name and modifiers sit in the info layer.
@@ -546,7 +549,7 @@ export class Screens {
     // Arrow keys only: A and D are movement keys and would move focus while strafing.
     if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
       const a = document.activeElement;
-      const rows = [...this.root.querySelectorAll('.cards, .chips, .gain, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
+      const rows = [...this.root.querySelectorAll('.cards, .chips, .song, .gain, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
       const r = rows.findIndex((row) => row.includes(a));
       if (r < 0) this.cards[0].focus();   // first press lands on the first card
       else if (key === 'ArrowDown' || key === 'ArrowUp') {
