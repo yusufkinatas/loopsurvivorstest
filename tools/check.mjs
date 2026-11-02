@@ -217,6 +217,18 @@ if (args.includes('--rules')) {
       c.g.landRemix({ inst: c.inst, bar: 40 });
       assert.equal(c.banners.at(-1).title, 'Screamer');
     });
+    check('Signature: one pedal pick that forms two Signatures is one moment (one ring, one line naming both)', () => {
+      const { g, banners } = game({ start: 'upright', give: [{ id: 'sawlead', level: 5 }], remix: true });
+      g.loadout.channels.lead.remix = true;
+      g.onLoadoutChanged();
+      const n = g.later.length, rings = g.fx.rings.length;
+      addPedal(g, 'overdrive');
+      assert.equal(g._led().sig, 2);
+      assert.equal(g.later.length, n + 1);
+      g.later.splice(n).forEach((l) => l.fn());
+      assert.equal(g.fx.rings.length, rings + 1);
+      assert.deepEqual(banners, [{ title: `Slap Bass and Screamer ×${SIG}`, compact: true, style: '' }]);
+    });
     check('Signature: the band multiplier (ledger bx) counts it', () => {
       const { g, inst } = game({ remix: true, pedals: ['overdrive'] });
       g.stats.crit = 0;
@@ -236,9 +248,16 @@ if (args.includes('--rules')) {
         assert.deepEqual(d.pair, { glyph: 'overdrive', on });
         assert.equal(d.info.at(-1), on ? `Overdrive is on your board: this remix deals ×${SIG}.` : `Add Overdrive later for ×${SIG}.`);
       }
+      // A full board without it can never take it (pedals never leave): no glyph, no promise.
+      const { g, inst } = game({ pedals: ['reverb', 'delay', 'chorus', 'bitcrusher'] });
+      inst.level = 5;
+      const d = describeOffer(g, { kind: 'remix', def: inst.def, role: inst.def.role, inst, level: 5 });
+      assert.equal(d.pair, null);
+      assert.ok(!d.info.some((l) => l.includes(`×${SIG}`)), d.info.at(-1));
     });
     check('Pedal cards: a row of the band lit where pedalFits, gold where it is a remix partner, "Powers n of your N sounds." last', () => {
-      const { g, inst } = game({ start: 'taiko', give: [{ id: 'subbass', level: 1 }, { id: 'sawlead', level: 3 }, { id: 'hats909', level: 2 }] });
+      const M = BALANCE.remix.minLevel;
+      const { g, inst } = game({ start: 'taiko', give: [{ id: 'subbass', level: 1 }, { id: 'sawlead', level: M }, { id: 'hats909', level: Math.max(1, M - 1) }] });
       const band = g.loadout.instruments();
       for (const pd of Object.values(PEDAL_BY_ID)) {
         for (const kind of ['pedal-new', 'pedal-up']) {
@@ -248,7 +267,8 @@ if (args.includes('--rules')) {
           assert.deepEqual(d.fit.map((f) => f.on), band.map((i) => pedalFits(pd, i)), pd.id);
           const lit = band.filter((i) => pedalFits(pd, i)).length;
           assert.equal(d.info.at(-1), `Powers ${lit} of your ${band.length} sounds.`, pd.id);
-          // Saw Lead at level 3 is far enough along for a tape: Overdrive is its partner. Taiko (level 1) is not yet.
+          // Saw Lead at minLevel is far enough along for a tape: Overdrive is its partner. Taiko (level 1) and 909 Hats
+          // (one under) are not yet.
           assert.deepEqual(d.fit.filter((f) => f.pair).map((f) => f.glyph), pd.id === 'overdrive' ? ['sawlead'] : [], pd.id);
         }
       }
@@ -256,6 +276,11 @@ if (args.includes('--rules')) {
       inst.level = 5; inst.remix = true;   // remixed, Taiko reads its remix (Thunder Hall) and partners Hall Reverb
       const d = describeOffer(g, { kind: 'pedal-new', pedal: PEDAL_BY_ID.reverb, level: 1 });
       assert.deepEqual(d.fit[0], { glyph: 'taiko', role: 'beat', on: true, pair: true });
+      // A pedal that powers you shows only its remix partners, lit: Sub Bass remixed finds Auto-Wah.
+      g.loadout.channels.bass.level = 5; g.loadout.channels.bass.remix = true;
+      const w = describeOffer(g, { kind: 'pedal-new', pedal: PEDAL_BY_ID.wah, level: 1 });
+      assert.deepEqual(w.fit, [{ glyph: 'subbass', role: 'bass', on: null, pair: true }]);
+      assert.ok(!w.info.some((l) => l.startsWith('Powers')));
     });
   }
 

@@ -331,8 +331,8 @@ Every sound should also hurt bosses. Sounds that aim somewhere other than at the
 on a grid, at a crowd, along your facing) send the bar's first hit (step 0) at a boss in range with
 `g.bossInRange`, a visible rule instead of a hidden boss multiplier. Solo at level 5 against The Drone, every sound lands 1.9k to 2.1k damage in its chorus.
 
-A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>` (and `sig=0`, so
-the Signature does not count):
+A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>`, with `sig=0` on
+both sides so the Signature never counts (a level 5 run can win a tape and remix late):
 
 ```
 node tools/sim.mjs "speed=16&bot=1&minutes=2.2&god=1&solo=1&start=<id>&give=<id>:5&pedals=<pedal>:3&remix=<id>&sig=0&seed=7" --summary

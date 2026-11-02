@@ -215,14 +215,16 @@ export function describeOffer(g, o) {
     const out = { ...base, title: def.name, color: role.color, style: def.style, glyph: def.id, level: o.level, maxLevel: MAX_INSTRUMENT_LEVEL, slot: { role: def.role } };
     if (o.kind === 'remix') {
       // A tape's remix card: its own part where it has one (else the level 5 part), a new attack, and its pedal
-      // opened up on the strip. The foot shows that pedal, lit when it is on the board (the Signature, last line).
+      // opened up on the strip. The foot shows that pedal, lit when it is on the board (the Signature, last line), and
+      // nothing once a full board can never take it (pedals never leave).
       const rm = def.remix, pd = PEDAL_BY_ID[rm.pedal], on = !!g.loadout.pedal(rm.pedal), x = `×${BALANCE.remix.sig}`;
+      const can = on || g.loadout.pedalSlotsFree() > 0;
       return {
         ...out, title: rm.name,
         cells: rm.pattern ? laneCells(rm.pattern, rm.steps || steps, null) : laneCells(lv.pattern, steps, null),
         info: [rm.text, `You hear it: ${rm.sound || `${pd?.name || 'Its pedal'} opens up on your ${role.name} channel.`}`,
-          on ? `${pd.name} is on your board: this remix deals ${x}.` : `Add ${pd.name} later for ${x}.`],
-        pair: { glyph: rm.pedal, on },
+          on ? `${pd.name} is on your board: this remix deals ${x}.` : can ? `Add ${pd.name} later for ${x}.` : ''].filter(Boolean),
+        pair: can ? { glyph: rm.pedal, on } : null,
       };
     }
     out.cells = laneCells(lv.pattern, steps, prev?.pattern);
@@ -246,17 +248,18 @@ export function describeOffer(g, o) {
     const st = pd.levels[o.level - 1];
     const own = g.loadout.pedals.indexOf(o.own);
     const free = g.loadout.pedalSlotsFree();
-    // The band's sounds this pedal powers (none for a pedal that powers you), gold-ringed where it is that sound's
-    // remix partner (remixed, or far enough along for a tape).
-    const band = pd.fits ? g.loadout.instruments() : [];
-    const fit = band.map((i) => ({ glyph: i.def.id, role: i.def.role, on: pedalFits(pd, i), pair: i.def.remix.pedal === pd.id && (i.remix || i.level >= BALANCE.remix.minLevel) }));
+    // The band's sounds this pedal powers, gold-squared where it is that sound's remix partner (remixed, or far enough
+    // along for a tape). A pedal that powers you (no fits) shows its partners only, lit (on: null).
+    const band = g.loadout.instruments();
+    const pair = (i) => i.def.remix.pedal === pd.id && (i.remix || i.level >= BALANCE.remix.minLevel);
+    const fit = band.filter((i) => pd.fits || pair(i)).map((i) => ({ glyph: i.def.id, role: i.def.role, on: pedalFits(pd, i), pair: pair(i) }));
     const lit = fit.filter((f) => f.on).length;
     return {
       ...base, title: pd.name, color: pd.color, glyph: pd.id, level: o.level, maxLevel: MAX_PEDAL_LEVEL,
       slot: { pedal: o.kind === 'pedal-new' ? g.loadout.pedals.length : Math.max(0, own) },
       fit,
       info: [pd.text(st), pd.sound, o.kind === 'pedal-new' ? `New pedal · ${free} slot${free === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`,
-        ...(band.length ? [`Powers ${lit} of your ${band.length} sound${band.length === 1 ? '' : 's'}.`] : [])],
+        ...(pd.fits && band.length ? [`Powers ${lit} of your ${band.length} sound${band.length === 1 ? '' : 's'}.`] : [])],
     };
   }
   if (o.kind === 'fader') {

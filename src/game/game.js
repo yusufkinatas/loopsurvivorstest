@@ -441,14 +441,17 @@ export class Game {
     // Instruments that depend on stats (orbiter counts, etc.) re-read them.
     for (const inst of this.loadout.instruments()) this._setupInst(inst);
     // The Signature: a remix with its own remix pedal on the board deals BALANCE.remix.sig (dmg). Formed as a remix
-    // lands (quiet), the remix banner carries the number; formed by the pedal coming later, it gets its own moment.
+    // lands (quiet), the remix banner carries the number; formed by the pedal coming later, it gets its own moment,
+    // one per pick even when the pedal partners two remixes (Overdrive: Slap Bass and Screamer).
+    const formed = [];
     for (const inst of this.loadout.instruments()) {
       const was = inst.sig;
       inst.sig = !!(inst.remix && this.loadout.pedal(inst.def.remix.pedal) && this.opts.sig !== false);
       if (!inst.sig || was || this.time <= 0) continue;
       this._led().sig++;
-      if (!quiet) this.later.push({ at: this.time, fn: () => this._sigMoment(inst) });
+      formed.push(inst);
     }
+    if (formed.length && !quiet) this.later.push({ at: this.time, fn: () => this._sigMoment(formed) });
     if (this.audio?.ready) {
       this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost());
       // The desk levels by the channels actually playing in the bar (the sequencer re-levels every downbeat).
@@ -466,13 +469,12 @@ export class Game {
     if (!quiet) this.hooks.onLoadout?.();
   }
 
-  // A Signature formed by its pedal joining the board: a ring in the pedal's color, the strip pops, and the remix's
-  // name with its number on the compact line.
-  _sigMoment(inst) {
-    const pd = PEDAL_BY_ID[inst.def.remix.pedal];
-    this.hooks.onJoin?.(inst.def.role);
-    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 260, dur: 0.6, damage: 0, kb: 0, width: 8, color: pd.color });
-    this.banner(`${inst.def.remix.name} ×${BALANCE.remix.sig}`, '', true, '', 2);
+  // Signatures formed by their pedal joining the board (one pedal, so one color): one ring in it, each strip pops, and
+  // the remixes' names with the number on the compact line.
+  _sigMoment(insts) {
+    for (const inst of insts) this.hooks.onJoin?.(inst.def.role);
+    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 260, dur: 0.6, damage: 0, kb: 0, width: 8, color: PEDAL_BY_ID[insts[0].def.remix.pedal].color });
+    this.banner(`${new Intl.ListFormat('en').format(insts.map((i) => i.def.remix.name))} ×${BALANCE.remix.sig}`, '', true, '', 2);
   }
 
   // ------------------------------------------------------------------ API for instruments

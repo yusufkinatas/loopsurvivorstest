@@ -283,7 +283,7 @@ export class Hud {
       s.el.classList.toggle('empty', !inst);
       s.el.classList.toggle('locked', !inst && !free);
       s.el.classList.toggle('remix', !!inst?.remix);
-      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}:${inst.sig ? 1 : 0}` : free ? 'free' : 'locked';
+      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}:${inst.sig ? 1 : 0}:${g.loadout.pedalSlotsFree() ? 1 : 0}` : free ? 'free' : 'locked';
       if (s.last === key) continue;
       s.last = key;
       if (inst) {
@@ -292,8 +292,9 @@ export class Hud {
         s.el.dataset.style = inst.def.style;
         s.glyph.innerHTML = icon(inst.def.id, role);
         s.pips.innerHTML = pips(inst.level, MAX_INSTRUMENT_LEVEL);
-        // A remixed strip wears its partner pedal: dim until that pedal is on the board, then gold with its number.
-        const pd = inst.remix ? PEDAL_BY_ID[inst.def.remix.pedal] : null, x = `×${BALANCE.remix.sig}`;
+        // A remixed strip wears its partner pedal: dim until that pedal is on the board, then gold with its number. No
+        // tab once a full board can never take it (pedals never leave).
+        const pd = inst.remix && (inst.sig || g.loadout.pedalSlotsFree() > 0) ? PEDAL_BY_ID[inst.def.remix.pedal] : null, x = `×${BALANCE.remix.sig}`;
         const sig = pd ? (inst.sig ? `${pd.name} ${x}` : `Add ${pd.name} for ${x}`) : '';
         s.sig.className = `strip-sig${inst.sig ? ' on' : ''}`;
         s.sig.innerHTML = pd ? icon(pd.id, 'pedal') + (inst.sig ? `<b>${x}</b>` : '') : '';
