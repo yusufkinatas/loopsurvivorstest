@@ -171,6 +171,7 @@ export class Game {
     this.preview = null;
     this.sectionBanner = null;
     this._tierSnap = null;   // the rules as the last pick left them (_pickMoment)
+    this._momentAt = -Infinity;   // when the last pick's moment plays (_pickMoment)
     this.ruleBloom = null;   // { styles, t }: rule tells blooming out from the speaker (renderer _ruleTells)
     const startDef = BY_ID[start] || BY_ID.kick808 || Object.values(BY_ID)[0];
     if (startDef) this.addInstrument(startDef, 1);
@@ -262,16 +263,19 @@ export class Game {
   // strip pops on the HUD and exactly one kind of ring plays. A crossover that forms (or Fusion) rings in its styles'
   // colors and blooms their floor tells (the genre stamp is its line). Else a rule tier that rises rings in its
   // style's color, blooms its tell and names itself on the compact line, unless the genre changed (the stamp
-  // speaks). Else the channel rings: a sound that joins (a new card or a swap), smaller for a level pick.
+  // speaks). Else the channel rings: a sound that joins (a new card or a swap), smaller for a level pick. Breaking
+  // Fusion into a pair drops every rule a tier, so it is no crossover formed: the channel rings. Picks chained in
+  // one pause (several levels, a remix after a level-up) play a beat apart, so no frame stacks two moments.
   // Only addInstrument changes style counts, so every tier and crossover change passes through here.
   _pickMoment(role, join = false) {
     const R = this.stats.rules, prev = this._tierSnap;
     this._tierSnap = { tiers: R.tiers, x: R.x, genre: this.genre };
     if (this.time <= 0 || !prev) return;
     const rose = Object.keys(R.tiers).filter((st) => R.tiers[st] > (prev.tiers[st] || 0)).sort((a, b) => R.tiers[b] - R.tiers[a]);
-    const formed = R.x && R.x !== prev.x ? Object.keys(R.tiers).filter((st) => R.tiers[st] > 0) : null;
+    const formed = R.x && R.x !== prev.x && prev.x !== 'Fusion' ? Object.keys(R.tiers).filter((st) => R.tiers[st] > 0) : null;
     const st = rose[0], line = st && !formed && this.genre === prev.genre ? `${CHEMISTRY[st].name} · ${CHEMISTRY[st].tiers[R.tiers[st] - 1].text}` : null;
-    this.later.push({ at: this.time, fn: () => {
+    this._momentAt = Math.max(this.time, this._momentAt + 4 * STEP_SEC);
+    this.later.push({ at: this._momentAt, fn: () => {
       const p = this.player, L = this._led();
       const ring = (o) => this.fx.ring({ x: p.x, y: p.y, follow: true, dur: 0.6, damage: 0, kb: 0, ...o });
       this.hooks.onJoin?.(role);

@@ -113,8 +113,10 @@ export function applyOffer(g, o) {
 }
 
 // How a card changes the band's play rules, as short lines: a rule tier gained ("Heavy x2: Mosh pit, +20% up
-// close", the tier a crossover lifts it to), lost, or a step toward the next one, then a crossover formed ("Forms
-// Grunge: ...") or broken. Each tier line carries its style and rule for the card's gems.
+// close", the tier a crossover lifts it to), dropped ("Synth x5: Long throw drops to +40% far away") or lost, or a
+// step toward the next one, then a crossover broken ("Breaks Grunge") and one formed ("Forms Grunge: ..."). A
+// style whose count stays still gets a line when Fusion lifts or drops its tier. Each tier line carries its style
+// and rule for the card's gems.
 export function chemistryLine(g, style, delta) {
   const c = g.loadout.styleCounts();
   const before = { ...c };
@@ -123,13 +125,12 @@ export function chemistryLine(g, style, delta) {
   const t0 = ruleTiers(before), t1 = ruleTiers(c);
   const lines = [];
   for (const st of Object.keys(CHEMISTRY)) {
-    if (c[st] === before[st]) continue;
+    if (c[st] === before[st] && t1[st] === t0[st]) continue;
     const { tiers, name, rule } = CHEMISTRY[st];
-    const base = { style: st, rule };
-    const tierText = (t) => { const s = tiers[t - 1].text; return `${STYLES[st].name} x${c[st]}: ${name}, ${s[0].toLowerCase()}${s.slice(1)}`; };
-    if (t1[st] > t0[st]) lines.push({ ...base, good: true, text: tierText(t1[st]) });
-    // A tier lost: the rule goes, or (Fusion broken) drops back to its own tier.
-    else if (t1[st] < t0[st]) lines.push({ ...base, good: false, text: t1[st] ? tierText(t1[st]) : `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
+    const base = { style: st, rule }, head = `${STYLES[st].name} x${c[st]}: ${name}`;
+    const tierText = (t) => { const s = tiers[t - 1].text; return s[0].toLowerCase() + s.slice(1); };
+    if (t1[st] > t0[st]) lines.push({ ...base, good: true, text: `${head}, ${tierText(t1[st])}` });
+    else if (t1[st] < t0[st]) lines.push({ ...base, good: false, text: t1[st] ? `${head} drops to ${tierText(t1[st])}` : `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
     else if (c[st] > before[st]) {
       const next = tiers.find((t) => t.n > c[st]);
       const goal = next && (next === tiers[0] ? name : next.text);
@@ -137,7 +138,8 @@ export function chemistryLine(g, style, delta) {
     }
   }
   const x0 = crossoverOf(before), x1 = crossoverOf(c);
-  if (x1 !== x0) lines.push(x1 ? { good: true, text: `Forms ${x1}: ${CROSS_TEXT[x1]}` } : { good: false, text: `Breaks ${x0}` });
+  if (x0 && x1 !== x0) lines.push({ good: false, text: `Breaks ${x0}` });
+  if (x1 && x1 !== x0) lines.push({ good: true, text: `Forms ${x1}: ${CROSS_TEXT[x1]}` });
   return lines;
 }
 
@@ -167,9 +169,9 @@ function statDiff(a, b) {
 export const chemTiers = (style) => { const c = CHEMISTRY[style]; return (Array.isArray(c) ? c : c?.tiers) || []; };
 
 // How a card moves the style counts, as gems for the card's foot row: one entry per style whose count
-// changes, { style, n (count after), delta (+1 or -1), tier (+1 gained, -1 lost, 0) }, then { style: 'fusion' }
-// when the card turns Fusion on (2+ sounds in three different styles), or { style: 'cross', a, b, name, tier }
-// when it forms a pair's crossover (tier +1) or breaks one (tier -1).
+// changes, { style, n (count after), delta (+1 or -1), tier (+1 gained, -1 lost, 0) }, then the crossover it
+// breaks (tier -1) and the one it forms (tier +1): { style: 'cross', a, b, name, tier } for a pair, { style:
+// 'fusion', tier } for Fusion (2+ sounds in three different styles).
 function styleGems(g, add, remove) {
   const before = g.loadout.styleCounts();
   const after = { ...before };
@@ -182,11 +184,13 @@ function styleGems(g, add, remove) {
     gems.push({ style: st, n: after[st], delta: Math.sign(after[st] - (before[st] || 0)), tier: Math.sign(t1[st] - t0[st]) });
   }
   const x0 = crossoverOf(before), x1 = crossoverOf(after);
-  const cross = (c, name, tier) => { const [a, b] = Object.keys(c).filter((st) => c[st] >= 2); return { style: 'cross', a, b, name, tier }; };
-  if (x1 === x0) return gems;
-  if (x1 === 'Fusion') gems.push({ style: 'fusion', n: 0, delta: 0, tier: 1 });
-  else if (x1) gems.push(cross(after, x1, 1));
-  else gems.push(cross(before, x0, -1));   // one pick never takes Fusion to no crossover
+  const cross = (c, name, tier) => {
+    if (name === 'Fusion') return { style: 'fusion', n: 0, delta: 0, tier };
+    const [a, b] = Object.keys(c).filter((st) => c[st] >= 2);
+    return { style: 'cross', a, b, name, tier };
+  };
+  if (x0 && x1 !== x0) gems.push(cross(before, x0, -1));
+  if (x1 && x1 !== x0) gems.push(cross(after, x1, 1));
   return gems;
 }
 

@@ -146,7 +146,7 @@ if (args.includes('--rules')) {
     const { genreName, CROSS_TEXT, RULES } = await import('../src/game/loadout.js');
     const { Game } = await import('../src/game/game.js');
     const { describeOffer } = await import('../src/game/upgrades.js');
-    const { BALANCE } = await import('../src/config.js');
+    const { BALANCE, BEAT_SEC } = await import('../src/config.js');
     const genre = (o) => genreName({ styleCounts: () => counts(o) });
     // A bare game for the rule math: stats, rule state and a player at the origin, no run.
     const ruleGame = (o, S = {}) => {
@@ -227,19 +227,32 @@ if (args.includes('--rules')) {
       assert.equal(beat(ruleGame(['chipdrums', 'chiphat', 'cellos', 'strings'], { combo: 3 }), 7, 0), RULES.comboCap);
       assert.equal(beat(ruleGame(['chipdrums', 'chiphat', 'cellos', 'strings'], { combo: 3 }), 6, 0), 4);
     });
-    check('cards: a split gem and a line for a crossover formed or broken, the fusion gem for Fusion', () => {
+    check('cards: a split gem and a line for a crossover formed or broken, the fusion gem for Fusion, a loss word on a tier dropped', () => {
       const card = (ids, o) => { const L = new Loadout(); for (const id of ids) L.set(BY_ID[id], 1); return describeOffer({ loadout: L }, { level: 1, ...o, from: o.from && L.channels[o.from] }); };
-      const cross = (d) => d.gems.find((gm) => gm.style === 'cross' || gm.style === 'fusion');
+      const xs = (d) => d.gems.filter((gm) => gm.style === 'cross' || gm.style === 'fusion').map((gm) => [gm.name || gm.style, gm.tier]);
+      const has = (d, ...lines) => { for (const l of lines) assert.ok(d.info.includes(l), `"${l}" in ${d.info.join(' | ')}`); };
       let d = card(['kick808', 'hats909', 'dropd'], { kind: 'new', def: BY_ID.shred });
-      assert.deepEqual(cross(d), { style: 'cross', a: 'synth', b: 'heavy', name: 'Industrial', tier: 1 });
-      assert.ok(d.info.includes(`Forms Industrial: ${CROSS_TEXT.Industrial}`), d.info.join(' | '));
+      assert.deepEqual(d.gems.find((gm) => gm.style === 'cross'), { style: 'cross', a: 'synth', b: 'heavy', name: 'Industrial', tier: 1 });
+      has(d, `Forms Industrial: ${CROSS_TEXT.Industrial}`);
       d = card(['kick808', 'hats909', 'dropd', 'powerchords'], { kind: 'swap', def: BY_ID.chiphat, from: 'perc' });
-      assert.equal(cross(d).tier, -1);
-      assert.ok(d.info.includes('Breaks Industrial'), d.info.join(' | '));
+      assert.deepEqual(xs(d), [['Industrial', -1]]);
+      has(d, 'Breaks Industrial');
+      // A pair that turns into Fusion: the pair breaks, Fusion forms, and every style it lifts says so.
       d = card(['kick808', 'hats909', 'dropd', 'powerchords', 'flute'], { kind: 'new', def: BY_ID.musicbox });
-      assert.equal(cross(d).style, 'fusion');
-      assert.ok(d.info.includes(`Forms Fusion: ${CROSS_TEXT.Fusion}`) && d.info.some((l) => l.startsWith('Live x2: In the pocket, +24% area')), d.info.join(' | '));
-      assert.equal(cross(card(['kick808', 'hats909', 'dropd'], { kind: 'new', def: BY_ID.flute })), undefined, 'no crossover moves: no gem');
+      assert.deepEqual(xs(d), [['Industrial', -1], ['fusion', 1]]);
+      has(d, 'Breaks Industrial', `Forms Fusion: ${CROSS_TEXT.Fusion}`, 'Live x2: In the pocket, +24% area, heal 1 a beat', 'Synth x2: Long throw, +40% far away', 'Heavy x2: Mosh pit, +40% up close');
+      // Fusion broken into a pair: a cracked fusion gem, the new pair, and every rule that drops a tier.
+      d = card(['kick808', 'hats909', 'dropd', 'powerchords', 'flute', 'musicbox'], { kind: 'swap', def: BY_ID.chiphat, from: 'perc' });
+      assert.deepEqual(xs(d), [['fusion', -1], ['Grunge', 1]]);
+      has(d, 'Breaks Fusion', `Forms Grunge: ${CROSS_TEXT.Grunge}`, 'Loses Synth x2: Long throw', 'Heavy x2: Mosh pit drops to +20% up close', 'Live x2: In the pocket drops to +12% area, heal 0.5 a beat');
+      // One pair into another: both lines and both discs.
+      d = card(['doublekick', 'ride', 'upright', 'supersaw', 'sawlead', 'chiparp'], { kind: 'swap', def: BY_ID.taiko, from: 'beat' });
+      assert.deepEqual(xs(d), [['Industrial', -1], ['Indietronica', 1]]);
+      has(d, 'Breaks Industrial', `Forms Indietronica: ${CROSS_TEXT.Indietronica}`);
+      // A tier stepped down that keeps a tier reads as a loss.
+      d = card(['kick808', 'hats909', 'subbass', 'supersaw', 'sawlead', 'arpsynth'], { kind: 'swap', def: BY_ID.squarelead, from: 'lead' });
+      has(d, 'Synth x5: Long throw drops to +40% far away');
+      assert.deepEqual(xs(card(['kick808', 'hats909', 'dropd'], { kind: 'new', def: BY_ID.flute })), [], 'no crossover moves: no gem');
     });
     check('the pick moment: nothing at time 0, then one ring per pick (crossover > rule tier > channel), one line at most', () => {
       const clock = { sim: true, t: 0, now() { return this.t; } };
@@ -271,6 +284,16 @@ if (args.includes('--rules')) {
       assert.equal(g.stats.rules.x, 'Fusion');
       assert.equal(lines.length, 1);
       assert.equal(g._led().rings, 1 + 2 + 1 + 1 + 1 + 3);
+      // Breaking Fusion into Grunge drops every rule a tier: the channel's ring, no bloom, no line.
+      g.time = 20;
+      assert.deepEqual(pick(() => g.addInstrument(BY_ID.chiphat, 1)), [[g.color('perc'), 200]]);
+      assert.equal(g.stats.rules.x, 'Grunge');
+      assert.equal(g.ruleBloom.t, 10);
+      // Picks chained in one pause play a beat apart.
+      g.time = 30;
+      g.setInstrumentLevel(g.loadout.channels.beat, 3);
+      g.setInstrumentLevel(g.loadout.channels.beat, 4);
+      assert.deepEqual(g.later.map((l) => l.at), [30, 30 + BEAT_SEC]);
     });
   }
 

@@ -481,7 +481,9 @@ export class Renderer {
       c.strokeStyle = rgba(RULE_COLOR.far, 0.2 + 0.12 * pulse + up);
       c.lineWidth = 2;
       c.setLineDash([2, 12]);
-      circle(c, p.x, p.y, g.farR() * k); c.stroke();
+      // Electro chip's full combo counts every hit as far (farR 0): the circle hugs the speaker (just outside In the
+      // pocket's ring) instead of vanishing.
+      circle(c, p.x, p.y, Math.max(g.farR(), p.r + 40) * k); c.stroke();
       c.setLineDash([]);
     }
     if (R.near) {

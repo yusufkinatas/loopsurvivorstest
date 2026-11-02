@@ -46,10 +46,10 @@ function pipsHtml(d) {
 
 // Style gems: one dot per sound of a style the card changes (larger at its chemistry tiers), a sparkle when
 // the card gains a tier, a crack when it loses one. A crossover the card forms is a disc split in its two style
-// colors (cracked apart when the card breaks it).
+// colors, Fusion the six-color gem (each cracked apart when the card breaks it).
 function gemsHtml(gems) {
   return (gems || []).map((gm) => {
-    if (gm.style === 'fusion') return '<span class="gems fusion" title="Fusion"><i class="big new up"></i></span>';
+    if (gm.style === 'fusion') return `<span class="gems fusion${gm.tier < 0 ? ' broke' : ''}" title="Fusion"><i class="big${gm.tier > 0 ? ' new up' : ''}"></i></span>`;
     if (gm.style === 'cross') return `<span class="gems cross${gm.tier < 0 ? ' broke' : ''}" style="--s:${styleColor(gm.a)};--s2:${styleColor(gm.b)}" title="${esc(gm.name)}"><i class="${gm.tier > 0 ? 'new up' : ''}"></i></span>`;
     const th = new Set(chemTiers(gm.style).map((t) => t.n));
     if (!th.size) [2, 4, 6].forEach((n) => th.add(n));
