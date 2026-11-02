@@ -241,9 +241,9 @@ export const BALANCE = {
   // growth with the phrase, film: Long throw's shrink with the phrase, lofi: combo a clean planted beat adds.
   crossover: { pairTier: 0, fusionTier: 1, grunge: 2, symphonic: 1, film: 0.4, lofi: 2 },
   // Moments: a kill run when one channel silences at least max(multiKill, multiShare x the section's floor) bodies in
-  // a beat, once a bar (8 skilled rotated runs, median per section: 0-1 through Verse II, 2-5 from Chorus II on but 0
-  // in the Build-Up, single runs up to 14); the camera leans in while a boss you can still silence is under bossLean
-  // of its health.
+  // a beat, once a bar (8 skilled rotated runs after Lanes 1-4, median per section: 0-2 through Verse II, 2.5-5.5 from
+  // Chorus II on, at most 27 in one section of one run); the camera leans in while a boss you can still silence is
+  // under bossLean of its health.
   feel: { multiKill: 12, multiShare: 0.15, bossLean: 0.05 },
 };
 

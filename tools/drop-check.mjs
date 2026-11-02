@@ -144,13 +144,14 @@ for (const [what, bar, latency, steps] of [['fill press', 48, 0, 8], ['late pres
     g.time = t + 1; g.banner('tier', '', true, '', 1);
     assert.deepEqual(r.lines, ['Double Drop', 'Double Drop', 'tier']);
   });
-  // A card screen that opened over the line shows it again on resume, unless its 1.6 s were up.
+  // A card screen that opened over the line shows it again on resume while it still holds lower lines back (0.9 s);
+  // later, the pick's own line shows instead.
   if (what === 'fill press') check('a Double Drop under a card screen', () => {
     const g = r.game, t = g.time;
     r.lines.length = 0;
     g.banner('Double Drop', '', true, '', 3);
-    g.time = t + 1; g._resume();
-    g.time = t + 3; g._resume();
+    g.time = t + 0.5; g._resume();
+    g.time = t + 1.7; g._resume();   // 1.2 s after the re-shown line: the pick speaks
     assert.deepEqual(r.lines, ['Double Drop', 'Double Drop']);
   });
   console.log(`Double Drop, ${what.padEnd(10)} scheduled bar ${r.pressed?.schedBar}, heard ${r.pressed?.heard?.bar}:${r.pressed?.heard?.sib}  ->  Drop on bar ${d?.bar}, radius ${d?.R?.toFixed(1)}, damage x${d?.mul?.toFixed(3)} on ${d?.hits} bodies, impacts ${r.impacts.join(',') || '-'}`);

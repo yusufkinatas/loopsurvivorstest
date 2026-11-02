@@ -1519,8 +1519,9 @@ export class Game {
     const rb = this._remixBanner;   // the gold banner runs 1.9 s: show it again if a card screen covered it
     if (rb && this.time - rb.t < 1.9) this.banner(rb.name, '', false, 'gold');
     this._remixBanner = null;
-    const c = this._compact;        // and so is a Double Drop's line (1.6 s), which names the moment
-    if (c?.prio === 3 && this.time - c.t < 1.6) this.banner(c.title, '', true, '', 3);
+    // So is a Double Drop's line, while it still holds lower lines back (0.9 s): later, a pick's own tier line shows.
+    const c = this._compact;
+    if (c?.prio === 3 && this.time - c.t < 0.9) this.banner(c.title, '', true, '', 3);
   }
 
   // After a run the band keeps playing the song (muffled until you choose to listen). Notes are no
