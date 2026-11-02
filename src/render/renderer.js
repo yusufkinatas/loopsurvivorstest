@@ -35,6 +35,10 @@ const SHAPES = ['hex', 'stomp', 'ring', 'square', 'glitch', 'snare', 'diamond', 
 // Its dark rim is the same teardrop RIM_K times bigger, with a slightly longer tail.
 const TAIL = 2.3, TH = Math.acos(1 / TAIL);
 const RIM_K = 1.38, RIM_TAIL = (TAIL + 0.6) / RIM_K, RIM_TH = Math.acos(1 / RIM_TAIL);
+// A death pop flares 1 -> 1.35x over POP_LIFE s, faded in POP_STEPS alpha steps (one stroke per color and step).
+const POP_LIFE = 0.14, POP_STEPS = 3;
+// A damage number pops in over TEXT_POP s: a crit from 1.6x, the rest from 1.25x.
+const TEXT_POP = 0.12;
 
 export class Renderer {
   constructor(canvas) {
@@ -286,6 +290,7 @@ export class Renderer {
     // ENEMY: solid bodies on top of the attacks, the bosses over them, then you.
     this._enemies(c, g);
     this._bosses(c, g);
+    this._deathPops(c, g, inView);
     if (g.state === 'dying') this._shatter(c, g);
     else if (g.state !== 'gameover') { this._shield(c, g); this._player(c, g); }   // after the death beat the speaker is gone
     // DANGER, last: arrival rings, Snare marks, lanes and boss tells, then the enemy shots on top of everything.
@@ -1083,8 +1088,46 @@ export class Renderer {
     c.globalAlpha = fa;
   }
 
+  // Kills you can see: a dying body's own silhouette flares out in the color of the channel that silenced it, over
+  // the crowd and under you and the danger layer. One stroke per color and fade step. On a busy screen half of them
+  // (always the same half, keyed by where each died), like the sparks.
+  _deathPops(c, g, inView) {
+    const P = g.deathPops, by = this._popBy ||= new Map(), thin = this.load > 0.45;
+    if (!P?.length) return;
+    for (const a of by.values()) a.length = 0;
+    for (let i = P.length - 1; i >= 0; i--) {
+      const d = P[i], k = (g.time - d.t) / POP_LIFE;
+      if (k >= 1) break;   // pushed in time order: the rest are older
+      if (!inView(d.x, d.y, d.r * 2) || (thin && ((d.x * 977) | 0) & 1)) continue;
+      let a = by.get(d.color);
+      if (!a) by.set(d.color, a = []);
+      a.push(d, k);
+    }
+    c.lineJoin = 'round';
+    c.lineWidth = 1.8 / this.scale;
+    for (const [color, a] of by) {
+      if (!a.length) continue;
+      c.strokeStyle = color;
+      for (let step = 0; step < POP_STEPS; step++) {
+        c.beginPath();
+        let n = 0;
+        for (let i = 0; i < a.length; i += 2) {
+          const k = a[i + 1];
+          if (Math.min(POP_STEPS - 1, (k * POP_STEPS) | 0) !== step) continue;
+          body(c, a[i], a[i].r * (1 + 0.35 * (1 - (1 - k) * (1 - k))), this.time, true);   // eased out
+          n++;
+        }
+        if (!n) continue;
+        c.globalAlpha = 0.75 * (1 - step / POP_STEPS);
+        c.stroke();
+      }
+    }
+    c.globalAlpha = 1;
+    c.lineJoin = 'miter';
+  }
+
   // Damage numbers on top. On a busy screen only the big ones stay: crits on a boss or an elite (and the words, like
-  // Breather!).
+  // Breather!). A number pops in (a crit bigger and tilted) and pops again each time a hit adds into it.
   _texts(c, g, inView) {
     c.textAlign = 'center';
     c.textBaseline = 'middle';
@@ -1098,16 +1141,25 @@ export class Renderer {
       if (!inView(t.x, t.y)) continue;
       if (busy) {
         const ch = t.str.charCodeAt(0);
-        if (ch >= 48 && ch <= 57 && !(t.size >= 14 && onBig(t))) continue;
+        if (ch >= 48 && ch <= 57 && !(t.crit && onBig(t))) continue;
       }
       const k = 1 - t.age / t.life;
+      const u = Math.min(1, (t.age - t.popAt) / TEXT_POP);
+      const sc = 1 + ((t.crit ? 1.6 : 1.25) - 1) * (1 - u) * (1 - u);   // eased out
       c.globalAlpha = Math.min(1, k * 2);
-      c.font = `700 ${t.size}px "JetBrains Mono", ui-monospace, monospace`;
+      c.font = `700 ${(t.size * sc).toFixed(1)}px "JetBrains Mono", ui-monospace, monospace`;
       c.lineWidth = 3;
       c.strokeStyle = 'rgba(10,8,16,0.85)';
-      c.strokeText(t.str, t.x, t.y);
       c.fillStyle = t.color;
-      c.fillText(t.str, t.x, t.y);
+      if (t.tilt) {
+        c.save();
+        c.translate(t.x, t.y); c.rotate(t.tilt);
+        c.strokeText(t.str, 0, 0); c.fillText(t.str, 0, 0);
+        c.restore();
+      } else {
+        c.strokeText(t.str, t.x, t.y);
+        c.fillText(t.str, t.x, t.y);
+      }
     }
     c.globalAlpha = 1;
   }
@@ -1149,34 +1201,35 @@ function noteStem(c, x, y, r) {
   c.quadraticCurveTo(x + r * 2, y - r * 2, x + r * 1.7, y - r * 1.2);
 }
 
-// An enemy's silhouette as a fresh path, at radius r.
-function body(c, e, r, t) {
+// An enemy's silhouette as a fresh path, at radius r (sub: added to the current path instead). Each shape starts
+// with a moveTo, so a batch of them is one path. A death pop passes a plain record (no ai).
+function body(c, e, r, t, sub = false) {
   const x = e.x, y = e.y;
-  c.beginPath();
+  if (!sub) c.beginPath();
   switch (e.shape) {
     case 'square': c.rect(x - r, y - r, r * 2, r * 2); break;
     case 'tri': {
       const a = t * 3 + e.phase;
-      for (let i = 0; i < 3; i++) { const aa = a + (i / 3) * TAU; c.lineTo(x + Math.cos(aa) * r * 1.25, y + Math.sin(aa) * r * 1.25); }
+      for (let i = 0; i < 3; i++) { const aa = a + (i / 3) * TAU; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(aa) * r * 1.25, y + Math.sin(aa) * r * 1.25); }
       c.closePath();
       break;
     }
     case 'hex': {
-      for (let i = 0; i < 6; i++) { const aa = (i / 6) * TAU + e.phase; c.lineTo(x + Math.cos(aa) * r, y + Math.sin(aa) * r); }
+      for (let i = 0; i < 6; i++) { const aa = (i / 6) * TAU + e.phase; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(aa) * r, y + Math.sin(aa) * r); }
       c.closePath();
       break;
     }
     case 'diamond': c.moveTo(x, y - r * 1.3); c.lineTo(x + r, y); c.lineTo(x, y + r * 1.3); c.lineTo(x - r, y); c.closePath(); break;
-    case 'ring': case 'snare': c.arc(x, y, r, 0, TAU); break;
+    case 'ring': case 'snare': c.moveTo(x + r, y); c.arc(x, y, r, 0, TAU); break;
     case 'stomp': {
       // A speaker cabinet: a flat-sided octagon.
-      for (let i = 0; i < 8; i++) { const aa = ((i + 0.5) / 8) * TAU; c.lineTo(x + Math.cos(aa) * r * 1.08, y + Math.sin(aa) * r * 1.08); }
+      for (let i = 0; i < 8; i++) { const aa = ((i + 0.5) / 8) * TAU; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(aa) * r * 1.08, y + Math.sin(aa) * r * 1.08); }
       c.closePath();
       break;
     }
     case 'glitch': default: {
       // A torn block: its two halves slide apart, wider for a moment after a blink.
-      const o = r * (e.ai.glitchT ? 0.55 : 0.25);
+      const o = r * (e.ai?.glitchT ? 0.55 : 0.25);
       c.rect(x - r + o, y - r * 0.8, r * 2, r * 0.8);
       c.rect(x - r - o, y, r * 2, r * 0.8);
       break;

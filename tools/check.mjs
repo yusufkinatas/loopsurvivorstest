@@ -147,6 +147,36 @@ if (args.includes('--rules')) {
 
   // Lane 6: grooves and figures
 
+  // Lane 8: feel
+  check('feel: kill pops in the channel color (white without one), capped; numbers merge per enemy; words ignore the setting', async () => {
+    const { Game } = await import('../src/game/game.js');
+    const { Sequencer } = await import('../src/music/sequencer.js');
+    const { spawnEnemy } = await import('../src/game/enemies.js');
+    const { Effects, TEXT_MERGE } = await import('../src/game/effects.js');
+    const clock = { sim: true, t: 0, now() { return this.t; } };
+    const g = new Game({ audio: null, clock, seq: new Sequencer(clock, null), opts: { sim: true, solo: true }, hooks: {} });
+    g.newRun({ start: 'kick808', seed: 1, keyIndex: 0 });
+    const inst = g.loadout.instruments()[0], body = () => spawnEnemy(g, 'static', g.player.x + 40, g.player.y);
+    g.hit(body(), 1e9, { src: inst });
+    g.hit(body(), 1e9, { color: '#123456' });   // a Drop or an impact: no channel
+    assert.deepEqual(g.deathPops.map((d) => d.color), [g.color(inst), '#ffffff']);
+    for (let i = 0; i < 120; i++) g.hit(body(), 1e9, { src: inst });
+    assert.equal(g.deathPops.length, 90);
+    const fx = new Effects({ opts: {}, settings: { damageNumbers: false } }), e = {};
+    fx.text(0, 0, '12', '#fff', 10, { key: e, n: 12 });
+    fx.text(0, 0, 'Breather!', '#ff8fa3', 14, { word: true });
+    assert.deepEqual(fx.texts.map((t) => t.str), ['Breather!']);
+    fx.g.settings.damageNumbers = true;
+    fx.text(0, 0, '10', '#fff', 10, { key: e, n: 10 });
+    fx.updateCosmetics(TEXT_MERGE * 0.9);
+    fx.text(0, 0, '30', '#ffe066', 14, { key: e, n: 30, crit: true });   // merges, re-pops and turns crit
+    assert.equal(fx.texts.length, 2);
+    assert.deepEqual([e.num.str, e.num.crit, e.num.popAt], ['40', true, e.num.age]);
+    fx.updateCosmetics(TEXT_MERGE * 0.2);
+    fx.text(0, 0, '5', '#fff', 10, { key: e, n: 5 });   // too old to merge: a number of its own
+    assert.deepEqual(fx.texts.map((t) => t.str), ['Breather!', '40', '5']);
+  });
+
   let failed = 0;
   for (const { name, fn } of checks) {
     try { await fn(); console.log(`ok    ${name}`); } catch (e) { failed++; console.log(`FAIL  ${name}\n      ${e.message.split('\n').join('\n      ')}`); }
