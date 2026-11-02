@@ -37,11 +37,12 @@ function stepsHtml(cells) {
   return `<span class="steps${cells.length > 16 ? ' long' : ''}" aria-hidden="true">${cells.map((c, i) => `<i class="${c.on ? 'on' : ''}${c.isNew ? ' new' : ''}${i % 4 === 0 ? ' beat' : ''}" style="--v:${c.v || 0}"></i>`).join('')}</span>`;
 }
 
-// Level pips; the level the card brings pulses.
+// Level pips; the levels the card brings pulse (a remix card's jump from prev to level 5, else the one level).
 function pipsHtml(d) {
   if (!d.maxLevel) return '';
-  const fresh = d.kind === 'new' || d.kind === 'up' || d.kind === 'pedal-new' || d.kind === 'pedal-up' || d.kind === 'fader';
-  return `<span class="pips" aria-hidden="true">${Array.from({ length: d.maxLevel }, (_, i) => `<i class="${i < d.level ? 'on' : ''}${fresh && i === d.level - 1 ? ' new' : ''}"></i>`).join('')}</span>`;
+  const fresh = d.kind === 'new' || d.kind === 'up' || d.kind === 'pedal-new' || d.kind === 'pedal-up' || d.kind === 'fader' || d.kind === 'remix';
+  const from = d.prev ?? d.level - 1;
+  return `<span class="pips" aria-hidden="true">${Array.from({ length: d.maxLevel }, (_, i) => `<i class="${i < d.level ? 'on' : ''}${fresh && i >= from && i < d.level ? ' new' : ''}"></i>`).join('')}</span>`;
 }
 
 // Style gems: one dot per sound of a style the card changes (larger at its chemistry tiers), a sparkle when
@@ -124,7 +125,7 @@ function recordsHtml(meta) {
 }
 
 // The remix crate: channels in rows, styles in columns. A remix is earned with a Master Tape on its sound at
-// level 5, so a tile is the sound's glyph: gold with the remix's name once found, dim with the sound's name in a
+// BALANCE.remix.minLevel or more, so a tile is the sound's glyph: gold with the remix's name once found, dim with the sound's name in a
 // tooltip until then.
 function remixesHtml(meta) {
   const styles = Object.keys(STYLES);

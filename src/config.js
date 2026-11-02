@@ -44,7 +44,8 @@ export const PEDAL_SLOTS = 4;
 export const REROLLS_PER_RUN = 3;
 export const BANISHES_PER_RUN = 3;
 
-// Fader cards, offered once the real cards run out: each push adds 8% damage to one channel, up to 5 pushes.
+// Fader cards: each push adds 8% damage to one channel, up to 5 pushes. Dealt for a channel at level 5 or remixed
+// (BALANCE.offers.fader), and for every channel once the real cards run out.
 export const FADER = { step: 0.08, max: 5 };
 
 export const WORLD = {
@@ -156,8 +157,9 @@ export const BALANCE = {
     breathers: { verse2: [0, 16], bridge: [0, 16], finale: [16, 32] },   // section -> bars in it that put a heart near you
     breatherDist: 300,      // px from the player, in a random direction
   },
-  // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp). Vinyls only come from featured elites.
-  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 340 },
+  // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp), flat from level 18 on so the late sections
+  // still deal cards. Vinyls only come from featured elites.
+  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 190 },
   // Notes left on the floor fade after `life` (8 bars) and blink through their last `blink` seconds.
   notes: { life: 18, blink: 2 },
   // A quiet phrase (the band plays thin): the floor x floor, the stream x stream, `upgrade` of the plain bodies come
@@ -214,18 +216,18 @@ export const BALANCE = {
   songImpact: { damage: 0.5, radius: 380, kb: 220, stun: 0.4, erase: 0.6 },
   // Remixes are earned with Master Tapes: a non-final boss silenced in its own section drops one where it fell.
   // A tape lies `tapeLife` (8 bars), blinks through its last `tapeBlink`, and is only picked up within `tapeReach`
-  // px (magnets and the boss pull-all never move it). Spent on a channel at level 5, the remix lands on the
-  // first 4-bar line (`line`) at least `lead` bars ahead: one bar of dropout and riser, then the impact ring.
-  // Its damage is `damage` x the Drop's base x (1 + perLevel x level) x the band's damage; it erases enemy shots
-  // inside it and knocks a boss in it off the beat. While a tape is banked, the level cards of the channels nearest a
-  // remix (the highest level not remixed yet) weigh at least `tapeUp` (a level 4 card alone weighs 0.1, a level 3
-  // one 0.35; 0 turns the pull off).
+  // px (magnets and the boss pull-all never move it). Spent on a channel at `minLevel` or more (finished to level 5
+  // as it lands), the remix lands on the first 4-bar line (`line`) at least `lead` bars ahead: one bar of dropout and
+  // riser, then the impact ring. Its damage is `damage` x the Drop's base x (1 + perLevel x level) x the band's
+  // damage; it erases enemy shots inside it and knocks a boss in it off the beat. While a tape is banked, the level
+  // cards of the channels it waits for (upgrades.js tapeTarget: the highest level below minLevel, not remixed) weigh
+  // at least `tapeUp` (0 turns the pull off).
   remix: {
     tapes: 3, tapeLife: 16, tapeBlink: 2, tapeReach: 46, tapeUp: 0.85,
     lead: 2, line: 4,
     damage: 0.5, perLevel: 0.05, radius: 520, kb: 220, stun: 0.5, dur: 0.5,
-    // minLevel: the level a channel needs before a tape can remix it (finished to level 5 as it lands). sig: a remix's
-    // damage with its own remix pedal on the board (the Signature).
+    // minLevel: the level a channel needs before a tape can remix it (every player-facing "level 3" reads it). sig: a
+    // remix's damage with its own remix pedal on the board (the Signature).
     minLevel: 3, sig: 1.5,
   },
   // The deal (upgrades.js buildOffers): new cards x (1 + mom x sounds of their style), level cards upA - upB x level

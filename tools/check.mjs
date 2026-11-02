@@ -140,6 +140,56 @@ if (args.includes('--rules')) {
   });
 
   // Lane 1: deal and tapes
+  {
+    const { buildOffers, describeOffer, remixReady, tapeTarget, bandMove } = await import('../src/game/upgrades.js');
+    const { BALANCE } = await import('../src/config.js');
+    const { PEDALS, PEDAL_BY_ID } = await import('../src/content/pedals.js');
+    const { INSTRUMENTS } = await import('../src/content/instruments/index.js');
+    const { seedRng } = await import('../src/util.js');
+    const mn = BALANCE.remix.minLevel;
+    // Enough of a Game for the deal: band [[id, level, remixed]], pedals [[id, level]].
+    const dealer = (band, { cap = 6, pedals = [], banked = 0 } = {}) => {
+      const L = new Loadout();
+      for (const [id, lv, rx] of band) L.set(BY_ID[id], lv).remix = !!rx;
+      for (const [id, lv] of pedals) L.pedals.push({ def: PEDAL_BY_ID[id], level: lv });
+      return { loadout: L, channelCap: () => cap, time: 200, banished: new Set(), tapes: { banked }, remixQueued: () => false, player: { hp: 100, maxHp: 120 } };
+    };
+    check('a deal never shows two Faders for one channel: one L5 channel, pedals maxed, no real cards left (1,000 seeded deals)', () => {
+      for (const rx of [false, true]) {
+        const g = dealer([['kick808', 5, rx]], { cap: 1, pedals: PEDALS.slice(0, 4).map((p) => [p.id, 3]) });
+        for (const d of INSTRUMENTS) if (d.role === 'beat' && d.id !== 'kick808') g.banished.add(d.id);
+        seedRng(1);
+        for (let i = 0; i < 1000; i++) {
+          const f = buildOffers(g, 3).filter((c) => c.kind === 'fader');
+          assert.equal(f.length, 1, `remixed ${rx}, deal ${i}: ${f.length} Faders`);
+        }
+      }
+    });
+    check(`a tape remixes a sound at level ${mn} or more; it waits for every unremixed channel at the highest level below`, () => {
+      assert.equal(remixReady({ def: BY_ID.kick808, level: mn - 1 }), false);
+      assert.equal(remixReady({ def: BY_ID.kick808, level: mn }), true);
+      assert.equal(remixReady({ def: BY_ID.kick808, level: 5, remix: true }), false);
+      const g = dealer([['kick808', mn - 1], ['upright', mn - 1], ['sawlead', 1], ['rhodes', mn], ['shaker', 5, true]], { banked: 1 });
+      assert.deepEqual(tapeTarget(g).map((i) => i.def.id), ['kick808', 'upright']);
+      const card = (gg) => describeOffer(gg, { kind: 'up', def: BY_ID.kick808, role: 'beat', level: mn, inst: gg.loadout.channels.beat });
+      assert.equal(card(g).tape, true);
+      assert.ok(card(g).info.includes(`Reaches level ${mn}: your Master Tape remixes it.`));
+      g.tapes.banked = 0;
+      assert.equal(card(g).tape, false);
+      const rx = describeOffer(g, { kind: 'remix', def: BY_ID.rhodes, role: 'chords', level: 5, inst: g.loadout.channels.chords });
+      assert.equal(rx.prev, mn);
+      assert.ok(rx.info.includes(`Level ${mn} → 5`));
+    });
+    check('a swap gains when a tier or the crossover rises, loses when either falls, else moves sideways', () => {
+      assert.equal(bandMove(counts({ synth: 2, organic: 1, heavy: 1 }), 'heavy', 'organic'), 1);   // forms Industrial
+      assert.equal(bandMove(counts({ synth: 2, organic: 2, heavy: 1, chip: 1 }), 'heavy', 'chip'), 1);   // forms Fusion
+      assert.equal(bandMove(counts({ synth: 2, organic: 2 }), 'heavy', 'organic'), -1);   // breaks Indietronica
+      assert.equal(bandMove(counts({ synth: 2, organic: 2, heavy: 1 }), 'heavy', 'synth'), -1);   // Grunge, but Long throw falls
+      assert.equal(bandMove(counts({ synth: 3, organic: 1, heavy: 1 }), 'chip', 'organic'), 0);
+      assert.equal(bandMove(counts({ synth: 1 }), 'synth'), 1);
+      assert.equal(bandMove(counts({ synth: 1 }), 'heavy'), 0);
+    });
+  }
 
   // Lane 2: rules, crossovers and the pick moment
 

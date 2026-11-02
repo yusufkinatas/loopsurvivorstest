@@ -13,7 +13,10 @@ server below. Sound on, headphones help.
   the beat, and each note launches its attack at the exact moment you hear it.
 - **Level up** by collecting the notes the noise drops. Notes fade after a few bars, so you walk into the
   fight for them. Pick one of three cards: a new sound, a stronger version of one you have, a swap to a
-  different style, or an effect pedal. The first card plays in your mix as soon as the screen opens; hover
+  different style, an effect pedal, or the fader of a channel at level 5 or remixed (8% more damage a push).
+  The deal follows your band: new sounds lean toward the styles you play, your top channel's next level
+  comes up on about a third of screens, swaps mostly show when they gain a rule tier or form a crossover,
+  and a pedal that powers none of your sounds is rare. The first card plays in your mix as soon as the screen opens; hover
   (or press and hold) another to hear it. Cards show a glyph, a name, the level and the pattern; press I
   (Y on a gamepad, or the (i) button) for the words. You can also reroll (R), banish a sound or pedal for
   the run (X), or skip the level to charge the Drop (Q).
@@ -36,10 +39,13 @@ server below. Sound on, headphones help.
   all of the danger is bodies: being surrounded, not being shot. Your attack areas start small and grow with
   Hall Reverb and the Live rule.
 - **Bosses are on the clock.** A boss arrives with each chorus and with The Drop; a thin gold line under its
-  bar shows the time left in its section. Silence it in time and it drops a **Master Tape**.
-- **Remix.** A tape remixes a channel at level 5 (with two ready, you choose). The channel drops out for a
-  bar under a riser, then the remix slams in on the next 4-bar line: a new part, a new sound, a bigger
-  attack that reads how you move, and its pedal opened up on its strip. At most three a run.
+  bar, ending in a tape, shows the time left in its section. Silence it in time and it drops a **Master Tape**.
+- **Remix.** A tape remixes a channel at level 3 or more and finishes it to level 5 (with two ready, you
+  choose; the gold cards' pips show the jump). The channel drops out for a bar under a riser, then the remix
+  slams in on the next 4-bar line: a new part, a new sound, a bigger attack that reads how you move, and its
+  pedal opened up on its strip. With no channel at level 3 yet the tape waits: a gold reel sits on the strips
+  it could finish and on the level card that gets one there. While a tape lies on the floor, the strips it
+  would remix wear a gold rim. At most three a run.
 - **The Drop.** Collected notes fill the ring around your speaker. Press Space or E (A on a gamepad, the
   round button on a touch screen) when it is full: one bar of build, then a blast around you that erases
   the shots inside it. Press during the fill at the end of a phrase and it lands on the phrase downbeat:

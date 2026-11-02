@@ -9,6 +9,7 @@ import { rgba } from '../util.js';
 import { icon } from './icons.js';
 import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
+import { tapeTarget } from '../game/upgrades.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 const pips = (n, max, cls = '') => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}${cls && i === n ? ` ${cls}` : ''}"></i>`).join('');
@@ -119,9 +120,9 @@ export class Hud {
     [this.songHead, this.songOpen] = this.song.querySelectorAll('.songmap b');
     this.top.append(bars, this.song);
 
-    // The boss bar, and under it a thin clock line that drains with the bars left in the boss's section: a boss
-    // silenced before it runs out drops a Master Tape.
-    this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div><div class="bossbar-clock"><i></i></div>');
+    // The boss bar, and under it a thin clock line that drains with the bars left in the boss's section and ends in a
+    // tape glyph: a boss silenced before it runs out drops a Master Tape.
+    this.boss = el('div', 'bossbar', `<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div><div class="bossbar-clock"><i></i>${icon('tape')}</div>`);
     this.boss.hidden = true;
     this.bossClock = this.boss.querySelector('.bossbar-clock');
     this.banner = el('div', 'banner', '<div class="banner-title"></div>');
@@ -140,7 +141,7 @@ export class Hud {
       const s = el('div', 'strip empty');
       s.style.setProperty('--c', ROLE_INFO[role].color);
       s.setAttribute('role', 'img');
-      s.innerHTML = `<div class="strip-meter"><i></i></div><div class="strip-glyph"><span class="g-cur">${icon('plus')}</span><span class="g-ghost"></span></div><div class="strip-pips"></div>`;
+      s.innerHTML = `<div class="strip-meter"><i></i></div><div class="strip-glyph"><span class="g-cur">${icon('plus')}</span><span class="g-ghost"></span></div><div class="strip-pips"></div><span class="strip-reel">${icon('tape')}</span>`;
       this.strips[role] = { el: s, meter: s.querySelector('.strip-meter i'), glyph: s.querySelector('.g-cur'), ghost: s.querySelector('.g-ghost'), pips: s.querySelector('.strip-pips'), last: null };
       this.mixer.append(s);
     }
@@ -152,7 +153,7 @@ export class Hud {
       this.pedalSlots.push(p);
       this.pedals.append(p);
     }
-    // Master Tapes waiting for a channel at level 5: one gold reel each, by the mixer.
+    // Master Tapes waiting for a channel at BALANCE.remix.minLevel: one gold reel each, by the mixer.
     this.tapes = el('div', 'tapes');
     this.tapes.setAttribute('role', 'img');
     this.tapes.hidden = true;
@@ -358,11 +359,20 @@ export class Hud {
       this._tapesN = n;
       this.tapes.hidden = !n;
       this.tapes.innerHTML = icon('tape').repeat(n);
-      this.tapes.setAttribute('aria-label', `${n} Master Tape${n === 1 ? '' : 's'} waiting for a channel at level 5`);
+      this.tapes.setAttribute('aria-label', `${n} Master Tape${n === 1 ? '' : 's'} waiting for a channel at level ${BALANCE.remix.minLevel}`);
       if (more) kick(this.tapes, 'pop');
     });
+    // The strips a banked tape waits for wear its reel, pulsing on the beat (from the frame it is banked, not on the
+    // next loadout change), and while a tape lies on the floor the strips it would remix get a gold rim.
+    const toggle = (cls) => (s) => { const on = s ? s.split(',') : []; for (const r of ROLES) this.strips[r].el.classList.toggle(cls, on.includes(r)); };
+    const roles = (insts) => insts.map((i) => i.def.role).join(',');
+    const wait = banked > 0 ? roles(tapeTarget(g)) : '';
+    set('tapewait', wait, toggle('tape-wait'));
+    set('tapebeat', wait && cur ? cur.bar * 4 + (cur.sib >> 2) : -1, () => { if (wait) kick(this.mixer, 'beat'); });
+    const onFloor = g.tapes && g.tapes.dropped > g.tapes.collected + g.tapes.lost;
+    set('tapeready', onFloor ? roles(g.remixReady()) : '', toggle('tapeready'));
     const queued = [seq.remixAt?.inst, ...(g.remixQueue || [])].filter(Boolean).map((i) => i.def.role).join(',');
-    set('queued', queued, (s) => { const roles = s ? s.split(',') : []; for (const r of ROLES) this.strips[r].el.classList.toggle('queued', roles.includes(r)); });
+    set('queued', queued, toggle('queued'));
 
     if (this.bossEnemy) {
       const e = this.bossEnemy;
