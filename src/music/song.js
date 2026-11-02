@@ -118,10 +118,11 @@ const KOROBEINIKI = {
     finale: around([0, 6, 5, V], 2, KORO_CHORDS) },
   quote: { chorus1: { at: 1, part: 'koro' }, chorus2: { at: 1, part: 'koro' }, bridge: { at: 'solo', part: 'koro' }, finale: { at: 'solo', part: 'koro' } },
   fig: { verse1: { bass: 'oompah' }, verse2: { bass: 'oompah' }, chorus1: { bass: 'oompah' }, chorus2: { bass: 'oompah' } },
-  // The verses swarm: Buzz in place of Static.
+  // The verses swarm: Buzz in place of Static. Verse II keeps its loud Statics (a loud Buzz there cost the skilled
+  // bot 2 to 4 of 8 wins).
   waves: {
-    verse1: { static: 0.5, buzz: 0.44, 'buzz:loud': 0.04, stomp: 0.02 },
-    verse2: { static: 0.14, 'static:loud': 0.17, buzz: 0.32, 'buzz:loud': 0.04, glitch: 0.12, hum: 0.1, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
+    verse1: { static: 0.5, buzz: 0.44, 'static:loud': 0.02, 'buzz:loud': 0.02, stomp: 0.02 },
+    verse2: { static: 0.14, 'static:loud': 0.21, buzz: 0.32, glitch: 0.12, hum: 0.1, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
   },
 };
 export const SONGS = [LOOP, ODE, KOROBEINIKI];
