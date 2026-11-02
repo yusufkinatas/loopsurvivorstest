@@ -1,4 +1,6 @@
 import { rng } from './util.js';
+import { BALANCE } from './config.js';
+import { pedalFits } from './content/pedals.js';
 
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It plays roughly like a careful but ordinary human: a few times a second it tries a handful of
@@ -267,11 +269,13 @@ function focus(g) {
 
 // Card choice for autopilot runs. 'smart' fills the band, then plays a focused build: once four channels are
 // filled, level cards on its two highest channels come first (the third next), so a level 5 is ready for a Master
-// Tape by the second boss. 'random' is uniform. A tape's remix cards (all 'remix'): the channel with the most damage.
+// Tape by the second boss. 'random' is uniform. A tape's remix cards (all 'remix'): the channel with the most damage,
+// counting the Signature where its pedal is already on the board.
 export function autopick(offers, g, mode = 'smart') {
   if (offers.length && offers.every((o) => o.kind === 'remix')) {
+    const worth = (o) => (o.inst?.dmg || 0) * (o.inst && g.loadout.pedal(o.inst.def.remix.pedal) ? BALANCE.remix.sig : 1);
     let best = 0;
-    offers.forEach((o, i) => { if ((o.inst?.dmg || 0) > (offers[best].inst?.dmg || 0)) best = i; });
+    offers.forEach((o, i) => { if (worth(o) > worth(offers[best])) best = i; });
     return mode === 'random' ? Math.floor(rng() * offers.length) : best;
   }
   if (mode === 'random') return Math.floor(rng() * offers.length);
@@ -293,8 +297,17 @@ export function autopick(offers, g, mode = 'smart') {
         s = c[o.def.style] >= c[o.from.def.style] ? 2.5 : 0.5;
         break;
       }
-      case 'pedal-new': s = 3.5; break;
-      case 'pedal-up': s = 3.2; break;
+      case 'pedal-new':
+      case 'pedal-up': {
+        // By the band's sounds it powers (pedals.js fits), more for a remix partner (a remixed channel or one a tape
+        // can remix: a Signature). Compressor and Auto-Wah power the player, not a sound: flat, partner aside.
+        const band = g.loadout.instruments();
+        const lit = band.filter((i) => pedalFits(o.pedal, i)).length;
+        const partner = band.some((i) => i.def.remix.pedal === o.pedal.id && (i.remix || i.level >= BALANCE.remix.minLevel));
+        if (o.kind === 'pedal-up') s = lit >= 2 || partner ? 3.2 : o.pedal.fits ? 1.5 : 2.8;
+        else s = (o.pedal.fits ? 2.6 + 0.35 * lit : 2.8) + (partner ? 2 : 0);
+        break;
+      }
       case 'remix': s = 9; break;
       case 'fader': s = 3; break;
       default: s = 0.5;

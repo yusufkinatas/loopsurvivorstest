@@ -9,6 +9,7 @@ import { rgba } from '../util.js';
 import { icon } from './icons.js';
 import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
+import { PEDAL_BY_ID } from '../content/pedals.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 const pips = (n, max, cls = '') => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}${cls && i === n ? ` ${cls}` : ''}"></i>`).join('');
@@ -140,8 +141,8 @@ export class Hud {
       const s = el('div', 'strip empty');
       s.style.setProperty('--c', ROLE_INFO[role].color);
       s.setAttribute('role', 'img');
-      s.innerHTML = `<div class="strip-meter"><i></i></div><div class="strip-glyph"><span class="g-cur">${icon('plus')}</span><span class="g-ghost"></span></div><div class="strip-pips"></div>`;
-      this.strips[role] = { el: s, meter: s.querySelector('.strip-meter i'), glyph: s.querySelector('.g-cur'), ghost: s.querySelector('.g-ghost'), pips: s.querySelector('.strip-pips'), last: null };
+      s.innerHTML = `<div class="strip-meter"><i></i></div><div class="strip-glyph"><span class="g-cur">${icon('plus')}</span><span class="g-ghost"></span></div><div class="strip-pips"></div><span class="strip-sig"></span>`;
+      this.strips[role] = { el: s, meter: s.querySelector('.strip-meter i'), glyph: s.querySelector('.g-cur'), ghost: s.querySelector('.g-ghost'), pips: s.querySelector('.strip-pips'), sig: s.querySelector('.strip-sig'), last: null };
       this.mixer.append(s);
     }
     this.pedals = el('div', 'pedalboard');
@@ -282,7 +283,7 @@ export class Hud {
       s.el.classList.toggle('empty', !inst);
       s.el.classList.toggle('locked', !inst && !free);
       s.el.classList.toggle('remix', !!inst?.remix);
-      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}` : free ? 'free' : 'locked';
+      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}:${inst.sig ? 1 : 0}` : free ? 'free' : 'locked';
       if (s.last === key) continue;
       s.last = key;
       if (inst) {
@@ -291,9 +292,15 @@ export class Hud {
         s.el.dataset.style = inst.def.style;
         s.glyph.innerHTML = icon(inst.def.id, role);
         s.pips.innerHTML = pips(inst.level, MAX_INSTRUMENT_LEVEL);
-        s.el.title = `${name} · ${styleName(inst.def.style)} · Lv ${inst.level}`;
-        s.el.setAttribute('aria-label', `${ROLE_INFO[role].name}: ${name}, ${styleName(inst.def.style)}, level ${inst.level}${inst.remix ? ', remixed' : ''}`);
+        // A remixed strip wears its partner pedal: dim until that pedal is on the board, then gold with its number.
+        const pd = inst.remix ? PEDAL_BY_ID[inst.def.remix.pedal] : null, x = `×${BALANCE.remix.sig}`;
+        const sig = pd ? (inst.sig ? `${pd.name} ${x}` : `Add ${pd.name} for ${x}`) : '';
+        s.sig.className = `strip-sig${inst.sig ? ' on' : ''}`;
+        s.sig.innerHTML = pd ? icon(pd.id, 'pedal') + (inst.sig ? `<b>${x}</b>` : '') : '';
+        s.el.title = `${name} · ${styleName(inst.def.style)} · Lv ${inst.level}${sig ? ` · ${sig}` : ''}`;
+        s.el.setAttribute('aria-label', `${ROLE_INFO[role].name}: ${name}, ${styleName(inst.def.style)}, level ${inst.level}${inst.remix ? ', remixed' : ''}${sig ? `, ${sig}` : ''}`);
       } else {
+        s.sig.innerHTML = '';
         s.el.style.removeProperty('--s');
         delete s.el.dataset.style;
         s.glyph.innerHTML = icon(free ? 'plus' : 'lock');

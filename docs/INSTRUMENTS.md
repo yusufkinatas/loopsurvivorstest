@@ -238,7 +238,8 @@ line shows how many bars of its section are left. A tape spends on a channel at 
 - two or more: the run pauses on gold remix cards (name, glyph in a vinyl, the remix's step lane, auditioned on
   hover or hold; no reroll, banish or skip). The pick is queued.
 
-The paired pedal is not a requirement any more. It is what opens up on the channel's strip once the remix lands.
+The paired pedal is not a requirement any more. It is what opens up on the channel's strip once the remix lands,
+and the remix's Signature: with that pedal on the board the remix deals `BALANCE.remix.sig` (`g.dmg`).
 
 **The moment.** A queued remix lands on the first 4-bar line at least two bars ahead that is not a stop bar,
 the player's Drop (its build or impact), a Build-Up roll bar, an arrangement impact or a breakdown's first bar
@@ -330,10 +331,11 @@ Every sound should also hurt bosses. Sounds that aim somewhere other than at the
 on a grid, at a crowd, along your facing) send the bar's first hit (step 0) at a boss in range with
 `g.bossInRange`, a visible rule instead of a hidden boss multiplier. Solo at level 5 against The Drone, every sound lands 1.9k to 2.1k damage in its chorus.
 
-A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>`:
+A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>` (and `sig=0`, so
+the Signature does not count):
 
 ```
-node tools/sim.mjs "speed=16&bot=1&minutes=2.2&god=1&solo=1&start=<id>&give=<id>:5&pedals=<pedal>:3&remix=<id>&seed=7" --summary
+node tools/sim.mjs "speed=16&bot=1&minutes=2.2&god=1&solo=1&start=<id>&give=<id>:5&pedals=<pedal>:3&remix=<id>&sig=0&seed=7" --summary
 ```
 
 The spawn supply runs out before the strongest sounds do, so read kills and the boss
