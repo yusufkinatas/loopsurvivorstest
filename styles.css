@@ -181,6 +181,13 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 .strip.remix { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); border-top-color: var(--gold); }
 .strip.remix .strip-glyph::before { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px dashed var(--gold); background: radial-gradient(circle, rgba(255, 209, 102, 0.18), transparent 70%); animation: spin 3s linear infinite; }
 .strip.remix .strip-pips i.on { background: var(--gold); box-shadow: 0 0 5px var(--gold); }
+/* Its partner pedal on a tab over the strip's corner: dim until the pedal is on the board, then gold with the
+   Signature's number. */
+.strip-sig { position: absolute; top: -9px; right: -5px; display: flex; align-items: center; gap: 2px; height: 15px; padding: 0 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--dim); }
+.strip-sig:empty { display: none; }
+.strip-sig svg { width: 10px; height: 10px; }
+.strip-sig b { font: 700 9px/1 var(--f-mono); }
+.strip-sig.on { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 6px -1px var(--gold); }
 /* A remix queued on this channel waits for its 4-bar line: the strip breathes gold until it lands. */
 .strip.queued { border-color: var(--gold); animation: stripqueued 0.5s ease-in-out infinite alternate; }
 @keyframes stripqueued { from { box-shadow: 0 0 0 0 rgba(255, 209, 102, 0); } to { box-shadow: 0 0 14px -2px var(--gold); } }
@@ -441,10 +448,13 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .card-foot > .reel, .card-foot > .pair { display: inline-flex; width: 16px; height: 16px; color: var(--gold); }
 .card-foot > .pair { opacity: 0.35; }
 .card-foot > .pair.on { opacity: 1; filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
-.fit { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 3px; }
+.fit { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
 .fit i { display: block; width: 15px; height: 15px; border-radius: 50%; color: var(--text); }
 .fit i.off { opacity: 0.22; }
-.fit i.pair { box-shadow: 0 0 0 1.5px var(--gold); }
+/* A remix partner: a gold rounded square like a strip (a ring around a slanted glyph would read as "no"), kept at
+   full strength when the pedal does nothing for the sound itself (the Signature still pays). */
+.fit i.pair { padding: 1.5px; border-radius: 4px; box-shadow: 0 0 0 1.5px var(--gold); }
+.fit i.pair.off { opacity: 1; color: color-mix(in srgb, var(--text) 22%, transparent); }
 @keyframes sparkle { from { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--s), 0 0 4px var(--s); } to { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--s), 0 0 14px 3px var(--s); } }
 
 /* The info layer: every sentence a card used to show, on demand (I, pad Y or the (i) button). */

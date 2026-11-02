@@ -422,10 +422,12 @@ export class Game {
     for (const e of this.enemies) if (!e.dead) this.grid.insert(e);
     const b = this.bossInRange(p.x, p.y, K.radius);
     if (b) knockOffBeat(this, b, ev.bar);
-    this.banner(def.remix.name, '', false, 'gold');
+    // Landing with its own pedal on the board, the remix's name carries its Signature number.
+    const name = def.remix.name + (inst.sig ? ` ×${BALANCE.remix.sig}` : '');
+    this.banner(name, '', false, 'gold');
     // Cards wait for the ring to land, and a card screen that opens over the gold name shows it again on resume.
     this._remixHold = this.time + BALANCE.remix.dur;
-    this._remixBanner = { name: def.remix.name, t: this.time };
+    this._remixBanner = { name, t: this.time };
   }
 
   // A remixed instrument plays with its remix's stats, and its remix's fire/setup/update where it has them.
@@ -460,6 +462,18 @@ export class Game {
     }
     // Instruments that depend on stats (orbiter counts, etc.) re-read them.
     for (const inst of this.loadout.instruments()) this._setupInst(inst);
+    // The Signature: a remix with its own remix pedal on the board deals BALANCE.remix.sig (dmg). Formed as a remix
+    // lands (quiet), the remix banner carries the number; formed by the pedal coming later, it gets its own moment,
+    // one per pick even when the pedal partners two remixes (Overdrive: Slap Bass and Screamer).
+    const formed = [];
+    for (const inst of this.loadout.instruments()) {
+      const was = inst.sig;
+      inst.sig = !!(inst.remix && this.loadout.pedal(inst.def.remix.pedal) && this.opts.sig !== false);
+      if (!inst.sig || was || this.time <= 0) continue;
+      this._led().sig++;
+      formed.push(inst);
+    }
+    if (formed.length && !quiet) this.later.push({ at: this.time, fn: () => this._sigMoment(formed) });
     if (this.audio?.ready) {
       this.audio.applyPedals(this.loadout.pedalLevels(), this.loadout.remixBoost());
       // The desk levels by the channels actually playing in the bar (the sequencer re-levels every downbeat).
@@ -477,11 +491,19 @@ export class Game {
     if (!quiet) this.hooks.onLoadout?.();
   }
 
+  // Signatures formed by their pedal joining the board (one pedal, so one color): one ring in it, each strip pops, and
+  // the remixes' names with the number on the compact line.
+  _sigMoment(insts) {
+    for (const inst of insts) this.hooks.onJoin?.(inst.def.role);
+    this.fx.ring({ x: this.player.x, y: this.player.y, follow: true, r0: 20, r1: 260, dur: 0.6, damage: 0, kb: 0, width: 8, color: PEDAL_BY_ID[insts[0].def.remix.pedal].color });
+    this.banner(`${new Intl.ListFormat('en').format(insts.map((i) => i.def.remix.name))} ×${BALANCE.remix.sig}`, '', true, '', 2);
+  }
+
   // ------------------------------------------------------------------ API for instruments
 
   // Scaled damage: base x global damage multiplier x echo scale x the channel's fader (Fader cards) x the
-  // arrangement's weight for the note being fired (a thinner part hits harder, a solo hardest).
-  dmg(base) { return base * this.stats.damage * this.dmgScale * this.noteW * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)); }
+  // arrangement's weight for the note being fired (a thinner part hits harder, a solo hardest) x the Signature.
+  dmg(base) { return base * this.stats.damage * this.dmgScale * this.noteW * (1 + FADER.step * (this.loadout.faders[this.src?.def.role] || 0)) * (this.src?.sig ? BALANCE.remix.sig : 1); }
   // In the pocket (Live): a planted player's areas grow by the rule's stillArea.
   area(r) { return r * (this.stats.area + (this.rules?.planted ? this.stats.rules.stillArea : 0)) * BALANCE.player.area; }
   // Counts scale by a percentage (the Chorus pedal), so a one-shot weapon and a
@@ -582,7 +604,7 @@ export class Game {
     if (this.stats.rules.on) { const r = this.ruleMul(e); dmg *= r; mul *= r; }   // the band's play rules (echoes too)
     const src = o.src || this.src;
     const L = this.ledger?.[this.sectionIndex];   // never opens a section's entry (_ledFrame does)
-    if (L) { L.bx[0] += d0; L.bx[1] += d0 * mul; }
+    if (L) { const sg = src?.sig ? BALANCE.remix.sig : 1; L.bx[0] += d0 / sg; L.bx[1] += d0 * mul; }   // d0 carries the Signature (dmg)
     if (src) src.dmg += Math.min(dmg, Math.max(0, e.hp)); // count damage that landed, not overkill
     e.hp -= dmg;
     // An enemy under fire tints in the color of the channel hitting it. Bosses are hit constantly, so they

@@ -12,9 +12,9 @@
 // A flag (!) marks a number outside its channel's band (BANDS below) or a remix no better than its level 5.
 // Flags: --parallel N (pages at once, default 2; keep it at 2 on a shared machine), --timeout s (per run,
 // default 120), --seed N (default 7), --song N (a song of the setlist, default 0), --tex role:transform,... (that
-// transform in place of each of the role's full phrases, e.g. --tex lead:q_ode). Remix runs never count a
-// Signature (sig=0), so Rx compares the remix itself with L5+p. Exits 1 when a run errors, so it also works as a
-// smoke test.
+// transform in place of each of the role's full phrases, e.g. --tex lead:q_ode). L5+p and Rx runs never count a
+// Signature (sig=0; an L5+p run can win a tape and remix late), so Rx compares the remix itself with L5+p. Exits 1
+// when a run errors, so it also works as a smoke test.
 import { serve, launch } from './serve.mjs';
 
 const args = process.argv.slice(2);
@@ -68,7 +68,7 @@ for (const d of chosen) {
   jobs.push({ d, kind: 'l1', q: `${q}&minutes=3&give=${d.id}:1` });
   jobs.push({ d, kind: 'l5', q: `${q}&minutes=3&give=${d.id}:5` });
   if (remixToo && d.pedal) {
-    jobs.push({ d, kind: 'l5p', q: `${q}&minutes=2.2&give=${d.id}:5&pedals=${d.pedal}:3` });
+    jobs.push({ d, kind: 'l5p', q: `${q}&minutes=2.2&give=${d.id}:5&pedals=${d.pedal}:3&sig=0` });
     jobs.push({ d, kind: 'rx', q: `${q}&minutes=2.2&give=${d.id}:5&pedals=${d.pedal}:3&remix=${d.id}&sig=0` });
   }
 }

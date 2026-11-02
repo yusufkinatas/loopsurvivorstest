@@ -2,9 +2,10 @@
 // damage per second (no overkill cap) and which stat APIs each attack reads. Node only, no browser.
 //   node tools/dummy.mjs                                        # every sound and remix x each pedal at 3 (JSON;
 //                                                               # tools/data/pedal-fit.json, see tools/fitcheck.mjs)
-//   node tools/dummy.mjs mode=one give=sawlead:5 remix=sawlead pedals=overdrive:3 [faders=lead:2]
+//   node tools/dummy.mjs mode=one give=sawlead:5 remix=sawlead pedals=overdrive:3 [faders=lead:2] [sig=0]
 //   node tools/dummy.mjs mode=move                              # standing vs walking a slow circle
-// Args: secs=40 (game seconds per run), n=160 (dummies), spread=460 (px).
+// Args: secs=40 (game seconds per run), n=160 (dummies), spread=460 (px), sig=0 (no Signature: a remix with its own
+// pedal deals no BALANCE.remix.sig; the matrix always measures without it, so a fit is the pedal's own lift).
 import { Game } from '../src/game/game.js';
 import { Sequencer } from '../src/music/sequencer.js';
 import { spawnEnemy } from '../src/game/enemies.js';
@@ -15,10 +16,10 @@ const SECS = Number(args.secs || 40);
 const N = Number(args.n || 160);
 const SPREAD = Number(args.spread || 460);
 
-function run({ give = [], remix = [], pedals = [], faders = {}, secs = SECS, n = N, move = null, seed = 7 }) {
+function run({ give = [], remix = [], pedals = [], faders = {}, secs = SECS, n = N, move = null, seed = 7, sig = args.sig !== '0' }) {
   const clock = { sim: true, t: 0, now() { return this.t; } };
   const seq = new Sequencer(clock, null);
-  const g = new Game({ audio: null, clock, seq, opts: { sim: true, god: true, solo: true, give: give.slice(1), remix, givePedals: pedals }, hooks: {} });
+  const g = new Game({ audio: null, clock, seq, opts: { sim: true, god: true, solo: true, give: give.slice(1), remix, givePedals: pedals, sig }, hooks: {} });
   g.director.onBeat = () => {}; g.director.update = () => {}; g.director.onSection = () => {};
   const calls = {};
   for (const k of ['area', 'amount', 'speed', 'heal']) {
@@ -66,7 +67,7 @@ if (mode === 'matrix') {
       const row = { id: rx ? def.remix.id : def.id, style: def.style, role: def.role };
       let base = 0;
       for (const p of P) {
-        const r = run({ give: L5(def.id), remix: rx ? [def.id] : [], pedals: p ? [{ id: p, level: 3 }] : [] });
+        const r = run({ give: L5(def.id), remix: rx ? [def.id] : [], pedals: p ? [{ id: p, level: 3 }] : [], sig: false });
         const v = r.out[def.id]?.dps || 0;
         if (!p) { base = v; row.base = Math.round(v); row.calls = r.calls[def.id] || {}; }
         else row[p] = base ? +(v / base).toFixed(3) : 0;
