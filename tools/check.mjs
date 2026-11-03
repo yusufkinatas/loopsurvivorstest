@@ -599,7 +599,7 @@ if (args.includes('--rules')) {
         }
       }
     });
-    check('a groove\'s accents are the part\'s loudest notes (no bar puts a loud note of a sound on an o or g hit and a soft one on an X); a figure sounds its chord tone on each of its hits, an octave up where the part played chord tone 3 or higher; a list\'s grooves differ, and a style\'s play its own Beat and Groove sounds differently at L2-L5 (but where the sources give a sparse part the same hits)', () => {
+    check('a groove\'s accents are the part\'s loudest notes (no bar puts a loud note of a sound on an o or g hit and a soft one on an X); a figure sounds its chord tone on each of its hits, an octave up where the part played chord tone 3 or higher; a list\'s grooves differ, and a style\'s play its own Beat and Groove sounds in different rhythms at L2-L5 (accents aside, but where the sources give a part the same hits)', () => {
       const VEL = { X: 1, x: 0.8, o: 0.6, g: 0.4 }, row = (s) => [...s.replace(/[\s|]/g, '')].map((c) => VEL[c] || 0);
       const sounding = (by, P, tf, bar) => Array.from({ length: 16 }, (_, sib) => (TRANSFORMS[tf](by, P, bar, sib) || []).filter((n) => !n.mute));
       for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum))) {
@@ -634,11 +634,17 @@ if (args.includes('--rules')) {
       for (const l of [...Object.values(STYLE_GROOVE), ...Object.values(CROSS_GROOVE)]) for (const ch of ['beat', 'perc']) {
         assert.equal(new Set(l.map((id) => JSON.stringify(GROOVES[id][ch]))).size, l.length, `${l.join(', ')}: two play the same ${ch} rows`);
       }
-      // A style's grooves play its own sounds differently at L2-L5, but where the sources give a sparse part the same
-      // hits: the Shaker's 8 notes take the 8ths of all four Live grooves, the 808's 4 kicks House's and Dembow's four on
-      // the floor, the Noise Hats' 6 ticks the 8ths both 8-Bit grooves skip the snare on.
-      const pat = (by, P, tf) => Array.from({ length: 64 }, (_, i) => (TRANSFORMS[tf](by, P, i >> 4, i & 15) || []).map((n) => `${n.k}${n.v}${n.mute ? 'm' : ''}`).sort().join('+')).join(' ');
-      const sourceSame = { 'shaker L2': STYLE_GROOVE.organic, 'kick808 L2': ['house', 'reggaeton'], 'chiphat L2': ['chipgallop', 'chipfour'] };
+      // A style's grooves play its own sounds in different rhythms (accents aside) at L2-L5, but where the sources give
+      // a part the same hits: the Shaker's 8 notes take the 8ths of all four Live grooves, the Taiko's 3 kicks 1, 3 and
+      // 4 of Matsuri and Steppers, the 808's 4 kicks House's and Dembow's four on the floor, the 909 Hats' 8 notes the
+      // 8ths of Synthwave and Dembow, the Noise Hats' 6 ticks the 8ths both 8-Bit grooves skip the snare on, the Ride's
+      // L5 the 8ths of Levee and Rock, and the Field Snare's L2-L3 the 8ths of all three Orchestra grooves.
+      const pat = (by, P, tf) => Array.from({ length: 64 }, (_, i) => (TRANSFORMS[tf](by, P, i >> 4, i & 15) || []).filter((n) => !n.mute).map((n) => n.k).sort().join('+')).join(' ');
+      const sourceSame = {
+        'shaker L2': STYLE_GROOVE.organic, 'taiko L2': ['taikomatsuri', 'steppers'], 'kick808 L2': ['house', 'reggaeton'],
+        'hats909 L2': ['synthwave', 'reggaeton'], 'chiphat L2': ['chipgallop', 'chipfour'], 'ride L5': ['levee', 'rock1'],
+        'fieldsnare L2': STYLE_GROOVE.orchestra, 'fieldsnare L3': STYLE_GROOVE.orchestra,
+      };
       for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum)).filter((p) => p.inst.level >= 2)) {
         const l = STYLE_GROOVE[d.style], same = sourceSame[`${d.id} L${inst.level}`] || [], ps = l.map((id) => pat(by, P, 'g_' + id));
         l.forEach((a, i) => l.slice(i + 1).forEach((b, j) => {

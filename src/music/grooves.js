@@ -40,13 +40,14 @@ export const GROOVES = {
   // Impeach the President (The Honey Drippers, 1973): the kick drags into beat 3 (PO).
   impeach: { beat: ['X... ...x x... ..x.', '.... X... .... X...'], perc: ['X.o. x.ox X... x.o.', '.... .... ..x. ....'] },
   // Steppers, the reggae walk: a kick on every beat, the rim on 3 (PO), 8th hats over 16th ticks (added, as in house)
-  // and a second sound on 2 and 4 (+ backbeat: on 3 it struck with the loudest shake and the Shaker hit 13% softer).
-  // A second sound that plays once a bar leaves 2 or 4 silent: the main sound keeps off S hits (as in samba).
+  // and a second sound on 2 and 4 (+ backbeat: on 3 it struck with the loudest shake and the Shaker hit 13% softer,
+  // and on 4 alone it would at L5). So a second sound that plays once a bar leaves 2 or 4 silent here, as under samba,
+  // bossanova and cinquillo: the main sound keeps off S hits.
   steppers: { beat: ['X... X... X... X...', '.... .... X... ....'], perc: ['xgog xgog xgog xgog', '.... x... .... x...'] },
 
   // ---------------------------------------------------------------- 8-Bit
-  // Boss gallop: kick gallops on 1 and 3, the first the louder (so three kicks a bar still gallop), noise ticks
-  // skipping the snare (NES idiom).
+  // Boss gallop: kick gallops on 1 and 3, the first the louder (so a sparse kick takes 1 and its "and", not
+  // chipfour's 1, 3 and its "and"), noise ticks skipping the snare (NES idiom).
   chipgallop: { beat: ['X.xx .... x.oo ....', '.... X... .... X...'], perc: ['.gog .gog Xgog .gog', 'x... .... .... ....'] },
   // Mono-noise rock: one noise voice, so the ticks drop out where the snare hits (NES idiom).
   chipfour: { beat: ['X... .... x.o. ....', '.... X... .... X...'], perc: ['..o. ..o. X.o. ..o.', 'x... .... .... ....'] },
@@ -67,8 +68,8 @@ export const GROOVES = {
 
   // ---------------------------------------------------------------- Orchestra
   // A march on the kettle under Ravel's Bolero snare (1928, public domain), its two bars of 3/4 stretched to 4/4;
-  // each 16th-triplet ruff is two soft 16ths on the snare's second sound, and the Beat's second sound strikes each
-  // ruff and the run that ends bar 2 (Wikipedia: Bolero, its score).
+  // each 16th-triplet ruff is two soft 16ths on the snare's second sound (Wikipedia: Bolero, its score), and the Beat's
+  // second sound strikes the snare's ruffs and its closing run (added).
   bolero: {
     beat: ['X... o... X... o... | X... o... X... o...', '..o. ..o. .... .... | ..o. ..o. x.x. x.X.'],
     perc: ['X... o... X.o. o.o. | X... o... .... ....', '..gg ..gg .... .... | ..gg ..gg ogog ogXg'],
