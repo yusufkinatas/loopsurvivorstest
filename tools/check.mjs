@@ -696,6 +696,31 @@ if (args.includes('--rules')) {
     });
   }
 
+  // Lane 5a: song quotes
+  {
+    const { TRANSFORMS, partOf, stepsOf } = await import('../src/music/sequencer.js');
+    const { QUOTES } = await import('../src/music/song.js');
+    const { INSTRUMENTS } = await import('../src/content/instruments/index.js');
+    check('a quote strikes every tune note on every Lead and Sparkle at every level and remixed, but where a held note of the part (3 steps or more) rings over it', () => {
+      const single = (n) => n.ct !== undefined || n.sc !== undefined || n.kd !== undefined;
+      for (const def of INSTRUMENTS.filter((d) => d.role === 'lead' || d.role === 'arp')) {
+        for (const inst of [...def.levels.map((_, i) => ({ def, level: i + 1 })), ...(def.remix?.pattern?.length ? [{ def, level: 5, remix: true }] : [])]) {
+          const part = partOf(inst), P = stepsOf(def, part), by = part._byStep;
+          for (const [id, q] of Object.entries(QUOTES)) {
+            const on = new Set();
+            for (let i = 0; i < q.steps; i++) if (TRANSFORMS['q_' + id](by, P, i >> 4, i & 15)?.some((n) => n.kd !== undefined)) on.add(i);
+            for (const t of q.pattern) {
+              let heard = false, held = false;
+              for (let i = t.s; i < (q.pattern.find((n) => n.s > t.s)?.s ?? q.steps); i++) heard ||= on.has(i);
+              for (let k = 1; k <= t.s && k <= 16; k++) held ||= !!by[(t.s - k) % P]?.some((n) => single(n) && n.d >= 3 && n.d > k);
+              assert.ok(heard || held, `${inst.remix ? def.remix.id : def.id + ' L' + inst.level} q_${id}: the tune note on step ${t.s} is not struck`);
+            }
+          }
+        }
+      }
+    });
+  }
+
   let failed = 0;
   for (const { name, fn } of checks) {
     try { await fn(); console.log(`ok    ${name}`); } catch (e) { failed++; console.log(`FAIL  ${name}\n      ${e.message.split('\n').join('\n      ')}`); }

@@ -51,8 +51,9 @@ export const FINALE_BAR = SECTIONS.slice(0, -1).reduce((s, x) => s + x.bars, 0);
 // over the major V degree 6 is the leading tone), steps on the 16th grid from the phrase's downbeat, d in steps. They
 // sit only on bars whose chords the song sets for them, and tools/check.mjs --audit checks every note on every Lead
 // and Sparkle in every key: no fold under a ceiling, no held note a half step above a chord tone. A part traces a
-// quote in its own rhythm (sequencer.js q_), each of its notes taking the pitch of the tune note last struck, so d
-// only matters on a tune note a half step above a chord tone: a part holds that one no longer than 3 steps or d.
+// quote in its own rhythm (sequencer.js q_), each of its notes taking the pitch of the tune note last struck, and
+// strikes the tune notes it would rest through, so d bounds those added notes and a tune note a half step above a
+// chord tone: a part holds that one no longer than 3 steps or d.
 // Public domain melodies only.
 // Bars of [step, kd, d] from bar b0 on.
 const bars = (b0, ...bs) => bs.flatMap((ns, i) => ns.map(([s, kd, d]) => ({ s: (b0 + i) * 16 + s, kd, d })));
@@ -80,18 +81,19 @@ const DIES = bars(0, [[0, 2, 2], [4, 1, 2], [8, 2, 2], [12, 0, 4]], [[0, 1, 2], 
 
 const ODE_CHORDS = [2, 6, 2, 6, 2, 6, 2, 2];   // I V I V I V I I in the relative major
 const KORO_CHORDS = [V, 0, V, 0, 3, 0, V, 0];  // the folk song's own V i V i iv i V i
-// id -> { steps, pattern, by (notes by step), last (per step, the note last struck), held (per step: that note is no
-// half step above a tone of its bar's chord, one of chords, so a part may hold it) }: the quotes (sequencer.js plays
-// QUOTES[id] as the transform q_<id>).
+// id -> { steps, pattern, by (notes by step), last (per step, the note last struck), next (per step, the step of the
+// next tune note, or steps), held (per step: that note is no half step above a tone of its bar's chord, one of chords,
+// so a part may hold it) }: the quotes (sequencer.js plays QUOTES[id] as the transform q_<id>).
 const quote = (steps, pattern, chords) => {
-  const by = [], last = [], held = [];
+  const by = [], last = [], held = [], next = [];
   for (const n of pattern) (by[n.s] ||= []).push(n);
   for (let i = 0; i < steps; i++) {
     last[i] = by[i] ? by[i][0] : last[i - 1];
     const c = chords[i >> 4], ch = makeChord(0, c.d ?? c, !!c.h), m = keyTone(ch, last[i].kd, 60);
     held[i] = !ch.pcs.slice(0, 3).some((pc) => (m - pc) % 12 === 1);
   }
-  return { steps, pattern, by, last, held };
+  for (let i = steps - 1; i >= 0; i--) next[i] = by[i + 1] ? i + 1 : next[i + 1] ?? steps;
+  return { steps, pattern, by, last, held, next };
 };
 export const QUOTES = { ode: quote(128, ODE_THEME, ODE_CHORDS), koro: quote(128, KORO, KORO_CHORDS), dies: quote(64, DIES, P.finale) };
 

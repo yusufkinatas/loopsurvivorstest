@@ -228,20 +228,34 @@ for (const [id, F] of Object.entries(FIGURES)) {
   };
 }
 // Song quotes (src/music/song.js QUOTES): q_<id> traces the tune with the part's own notes. Each note of a single
-// pitch takes the pitch of the tune note last struck (a key degree) and keeps its step, sound and velocity, so the
-// part hits as hard as its own at every level and in any crowd (only where an attack aims by pitch does it move:
-// Harp strings, Coin Arp throws). It rings its own length unless that tune note is a half step above a tone of the
-// bar's chord (the quote's held): then no longer than 3 steps or the tune note, so it never holds a rub. A quote
-// counts from its phrase's downbeat (pb, the bar in the 8-bar phrase, so a radio edit's excerpt starts it there
+// pitch takes the pitch of the tune note last struck (a key degree) and keeps its step, sound, velocity and length, so
+// the part hits as hard as its own. Where the part is silent through a tune note (none of its notes starts in it and no
+// held note rings over it), one note of its first kind at its mean velocity strikes the tune note on the tune's step,
+// no longer than the tune note or that first note, and _notes weighs the phrase back to the part's velocity. So every
+// tune note sounds except those under a held note, which keeps its length (a French Horn blast, a Shred swing, a Saw
+// Lead scream). A note rings its own length unless that tune note is a half step above a tone of the bar's chord (the
+// quote's held): then no longer than 3 steps or the tune note, so it never holds a rub. Where an attack aims by pitch
+// (Saw Lead, Square Lead, Arp Synth, Coin Arp, Horn and Shred), it follows the tune; Harp plucks its own part's strings.
+// A quote counts from its phrase's downbeat (pb, the bar in the 8-bar phrase, so a radio edit's excerpt starts it there
 // too). Notes with no single pitch (drums, chord voicings) play as written.
+const HELD = 3;   // steps: a held note, as the French Horn, Shred and Saw Lead count it
+const single = (n) => n.ct !== undefined || n.sc !== undefined || n.kd !== undefined;
+const firstNote = (by) => by._q1 ||= (() => {
+  const ns = by.flat().filter(single);
+  return { k: ns[0]?.k, d: ns[0]?.d || 1, v: ns.reduce((a, n) => a + (n.v ?? 1), 0) / (ns.length || 1) };
+})();
 for (const [id, q] of Object.entries(QUOTES)) {
   TRANSFORMS['q_' + id] = (by, P, bar, sib, pb = bar & 7) => {
-    const i = (pb * STEPS_PER_BAR + sib) % q.steps, s = at(bar, sib, P), t = q.last[i];
-    return moved(by[s], s, (n) => {
-      if (n.ct === undefined && n.sc === undefined && n.kd === undefined) return n;
-      const d = n.d || 1;
-      return { s, v: n.v, k: n.k, kd: t.kd, d: q.held[i] && sib + d <= STEPS_PER_BAR ? d : Math.min(d, Math.max(3, t.s + t.d - i)) };
-    });
+    const i = (pb * STEPS_PER_BAR + sib) % q.steps, s = at(bar, sib, P), t = q.last[i], end = q.next[i] - i;
+    const len = (d) => (q.held[i] && sib + d <= STEPS_PER_BAR ? d : Math.min(d, Math.max(3, t.s + t.d - i)));
+    const out = moved(by[s], s, (n) => (single(n) ? { s, v: n.v, k: n.k, kd: t.kd, d: len(n.d || 1) } : n));
+    const m = firstNote(by);
+    if (!q.by[i] || !m.v) return out;
+    for (let k = 0; k < end; k++) if (by[at(bar, sib + k, P)]?.some(single)) return out;
+    for (let k = 1; k <= Math.min(i, STEPS_PER_BAR); k++) {
+      if (by[(((bar * STEPS_PER_BAR + sib - k) % P) + P) % P]?.some((n) => single(n) && (n.d || 1) > k && n.d >= HELD)) return out;
+    }
+    return [...(out || NONE), { s, v: m.v, ...(m.k && { k: m.k }), kd: t.kd, d: Math.min(end, len(Math.min(t.d, m.d))) }];
   };
 }
 
@@ -743,7 +757,10 @@ export class Sequencer {
     const P = stepsOf(def, part), out = fn(part._byStep, P, bar, sib, arr.pb) ?? null;
     // A groove note counts as heard where the part's own loop has no note of its sound (a sparse part's own rhythm does not).
     if (live && out && tf.startsWith('g_')) for (const n of out) if (!part._byStep[at(bar, sib, P)]?.some((x) => x.k === n.k)) this.heard.groove++;
-    if (live && out && tf.startsWith('q_')) this.heard.quote += out.length;
+    if (tf.startsWith('q_')) {
+      this._w /= vsFull(part, P, tf);   // the notes a quote adds where the part rests, weighed back to its velocity
+      if (live && out) this.heard.quote += out.length;
+    }
     return out;
   }
 
@@ -826,6 +843,7 @@ export class Sequencer {
       s: n.s,
       v: n.v ?? 1,
       k: n.k || null,
+      kd: n.kd,   // a song quote's key degree (src/music/song.js QUOTES), else undefined
       dur: (n.d || 1) * STEP_SEC,
       midi,
       freq: midi != null ? mtof(midi) : 0,

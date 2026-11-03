@@ -27,8 +27,14 @@ const TURN = [N(6, 5, 0.7), N(14, 0, 0.65)];
 const swellGain = (note) => 0.55 + 0.45 * (note.phrase || 0);
 const swellDmg = (note) => 0.7 + 0.6 * (note.phrase || 0);
 
-// Which string a note plucks: its chord tone counted up from the frame's lowest string.
-function stringOf(note) {
+// Which string a note plucks: its chord tone counted up from the frame's lowest string. Under a song's tune (a note
+// in key degrees, kd) it plucks the string its own part plucks on that step, so the frame still sweeps like a curtain
+// instead of the tune piling the beams onto a few strings.
+function stringOf(note, inst) {
+  if (note.kd !== undefined) {
+    const own = (inst.remix ? inst.def.remix : inst.def.levels[inst.level - 1])?._byStep?.[note.s]?.find((n) => n.ct !== undefined);
+    if (own) return Math.min(STRINGS - 1, Math.max(0, own.ct));
+  }
   for (let i = 0; i < STRINGS; i++) if (chordTone(note.chord, i, LOW, true) >= note.midi) return i;
   return STRINGS - 1;
 }
@@ -137,7 +143,7 @@ export default {
 
   fire(g, note, st, inst) {
     const fr = frameOf(g, note, st, inst);
-    pluck(g, inst, st, fr, stringOf(note), g.dmg(st.damage) * note.v * swellDmg(note));
+    pluck(g, inst, st, fr, stringOf(note, inst), g.dmg(st.damage) * note.v * swellDmg(note));
   },
 
   remix: {
@@ -152,7 +158,7 @@ export default {
     // and three steps later both strings ring again. Echoes pluck once and do not ring.
     fire(g, note, st, inst) {
       const fr = frameOf(g, note, st, inst);
-      const i = stringOf(note);
+      const i = stringOf(note, inst);
       const dmg = g.dmg(st.damage) * note.v * swellDmg(note);
       const both = (scale) => {
         pluck(g, inst, st, fr, i, dmg * scale);

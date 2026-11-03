@@ -262,7 +262,7 @@ export function auditSong({ bars = FINALE_BAR + 32, tunes = [] } = {}) {
 }
 
 // The song quotes and hooks, note by note, in every key (the Finale's lift included). Every bar where a song's
-// arrangement plays a quote (two Finale cycles), on every Lead and Sparkle at level 5 and remixed, through the real transform
+// arrangement plays a quote (two Finale cycles), on every Lead and Sparkle at every level and remixed, through the real transform
 // and resolver: notes folded under the ceiling (a broken contour), held notes (d >= 4) a half step above a chord
 // tone, out of key or off the grid; and every quote a song names must be placed. Then every hook pitch over every
 // chord of its song (and its home chord), in key and under the Sparkle ceiling.
@@ -270,9 +270,9 @@ export function auditQuotes({ bars = FINALE_BAR + 2 * CHART.finale.length * 8 } 
   const r = { bars: 0, notes: 0, folds: 0, rubs: 0, outOfKey: 0, offGrid: 0, missing: [], hooks: 0, hookOutOfKey: 0, hookAbove: 0 };
   const mod = (n) => ((n % 12) + 12) % 12;
   const seq = new Sequencer({ sim: true, now: () => 0 }, null);
-  const insts = INSTRUMENTS.filter((d) => d.role === 'lead' || d.role === 'arp').flatMap((d) => [false, true].map((rx) => {
-    const i = makeInst(d, d.levels.length);
-    i.remix = rx && !!d.remix?.pattern?.length;
+  const insts = INSTRUMENTS.filter((d) => d.role === 'lead' || d.role === 'arp').flatMap((d) => [...d.levels.keys(), d.levels.length - 1].map((lv, j) => {
+    const i = makeInst(d, lv + 1);
+    i.remix = j === d.levels.length && !!d.remix?.pattern?.length;
     return i;
   }));
   for (const tune of SONGS) {
