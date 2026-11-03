@@ -1,8 +1,9 @@
 // Menus and overlays: title, how to play, first-sound select, level-up cards, pause, the end screen and
 // the Discography. Card screens show glyphs, names and sound; every explanatory line sits in the info
-// layer (I, pad Y or the (i) button) and on the pause sheet, which is the home of the run's details.
+// layer (I, pad Y or the (i) button) and on the pause sheet, which is the home of the run's details, except
+// that a card never taken shows its first words.
 
-import { ROLE_INFO, STYLES, ROLES, GAIN, BAR_SEC, REROLLS_PER_RUN, BANISHES_PER_RUN, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
+import { ROLE_INFO, STYLES, ROLES, GAIN, BALANCE, BAR_SEC, REROLLS_PER_RUN, BANISHES_PER_RUN, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer, banKey, chemTiers } from '../game/upgrades.js';
@@ -10,7 +11,7 @@ import { CHEMISTRY, CROSS_TEXT } from '../game/loadout.js';
 import { SECTIONS, SONGS } from '../music/song.js';
 import { makeChord, NOTE_NAMES } from '../music/theory.js';
 import { songMapHtml, songFraction, SONG_BARS, heardBar, drawSeq, styleColor, styleName } from './hud.js';
-import { GOALS, RECORDS, unlockLabel, unlocksOf } from '../game/progress.js';
+import { GOALS, RECORDS, unlockLabel, unlocksOf, nextGoal } from '../game/progress.js';
 import { INSTRUMENTS, BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
@@ -92,7 +93,7 @@ export function cardHtml(d, index) {
   const label = `${d.title}, ${word}${d.maxLevel ? `, level ${d.level} of ${d.maxLevel}` : ''}`;
   const frame = d.kind === 'remix' ? 'remix' : d.style || (d.kind.startsWith('pedal') ? 'pedal' : 'plain');
   return `
-  <button class="card card-${esc(d.kind)}" type="button" data-i="${index}" data-style="${esc(frame)}" style="--c:${d.color};--s:${styleColor(d.style)}" aria-label="${esc(label)}" aria-describedby="card-info-${index}">
+  <button class="card card-${esc(d.kind)}${d.fresh ? ' fresh' : ''}" type="button" data-i="${index}" data-style="${esc(frame)}" style="--c:${d.color};--s:${styleColor(d.style)}" aria-label="${esc(label)}" aria-describedby="card-info-${index}">
     <span class="card-frame" aria-hidden="true"></span>
     <span class="card-key" data-k="${index + 1}" aria-hidden="true"></span>
     ${badgeHtml}${hero}
@@ -259,15 +260,20 @@ export class Screens {
     el.querySelector('[data-act=play]').focus();
   }
 
+  // The style rule's line wears a card's gems for two sounds of a style (the second at its tier).
   howto(back) {
     const rows = [
       ['keys', 'Move. Your sounds play themselves.'],
+      ['heal', 'Bodies are the danger. Keep moving.'],
       ['plus', 'One sound per channel. More channels open as the song goes on.'],
       ['up', 'Pick a card on every level. Hear it before you take it.'],
       ['info', 'Press I for the details on any card.'],
+      ['gems', 'Two sounds of a style turn on its rule, drawn on the floor.'],
       ['drop', 'Collect notes to fill the Drop, then set it off.'],
+      ['drop', 'Land the Drop on a chorus downbeat for a Double Drop.'],
+      ['tape', `Silence a boss in time: its Master Tape remixes a sound at level ${BALANCE.remix.minLevel} or more.`],
       ['boss', 'Survive the song. Silence White Noise to win.'],
-    ].map(([g, t]) => `<li><span class="ht-icon">${icon(g)}</span><span>${t}</span></li>`).join('');
+    ].map(([g, t]) => `<li><span class="ht-icon">${g === 'gems' ? '<span class="gems"><i></i><i class="big"></i></span>' : icon(g)}</span><span>${t}</span></li>`).join('');
     const keys = [['Move', 'WASD or arrows', 'Left stick'], ['The Drop', 'Space', 'A'], ['Pick a card', '1 · 2 · 3', 'A'], ['Card info', 'I', 'Y'], ['Reroll', 'R', 'X'],
       ['Banish · Skip', 'X · Q', 'D-pad to the button, then A'], ['Pause', 'Esc or P', 'Start'], ['Back', '', 'B'], ['Mute', 'M', '']]
       .map(([act, key, pad]) => `<tr><th>${act}</th><td>${key}</td><td>${pad}</td></tr>`).join('');
@@ -442,6 +448,13 @@ export class Screens {
 
   levelUp(g, offers) {
     const descs = this.descs = offers.map((o) => describeOffer(g, o));
+    // A sound, pedal or remix never taken (in a past run or this one) shows its first info lines without the info layer.
+    // A band sound is never a new or swap card, so only the swapped-out ones can have been taken this run.
+    const meta = this.h.getSeen?.();
+    if (meta) {
+      const had = new Set((g.retired || []).map((i) => i.def.id));
+      for (const d of descs) d.fresh = d.kind === 'remix' ? !meta.remixes[d.glyph] : ['new', 'swap', 'pedal-new'].includes(d.kind) && !meta.seen[d.glyph] && !had.has(d.glyph);
+    }
     const cards = descs.map((d, i) => cardHtml(d, i)).join('');
     // A Master Tape's remix cards: gold cards only, no reroll, banish or skip, and a reel over them.
     const tape = !!g.tapeOffers;
@@ -654,6 +667,10 @@ export class Screens {
     ] : [];
     const notes = !news ? '' : !news.saved ? '<p class="end-unsaved">Progress could not be saved on this device.</p>'
       : lines.length ? `<div class="end-notes"><p class="kicker">Liner notes</p><ul>${lines.slice(0, 4).map((l) => `<li>${esc(l)}</li>`).join('')}${lines.length > 4 ? `<li class="more">and ${lines.length - 4} more</li>` : ''}</ul></div>` : '';
+    // The liner-note goal to go for next, from the saved career (so never one this run met but could not keep).
+    const career = news?.saved && this.h.getSeen?.();
+    const goal = career ? nextGoal(career) : null;
+    const next = goal ? `<p class="end-next"><b>Next:</b> ${esc(goal.text)} Opens ${esc(unlockLabel(goal))}.</p>` : '';
     const el = this._mount('end', `
       <div class="panel panel-wide end">
         <h2>${sum.won ? 'Encore!' : 'Drowned out'}</h2>
@@ -663,7 +680,7 @@ export class Screens {
           <div><b data-n="${sum.level}">${sum.level}</b><span>level</span></div>
           <div><b data-n="${sum.score}">${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}${sum.gain ? ` · G${sum.gain}` : ''}</span></div>
         </div>
-        ${notes}
+        ${notes}${next}
         ${songEndHtml(sum, isBest, prevBest)}
         <p class="end-genre"><b>${esc(sum.genre)}</b> · ${esc(tuneOf(sum.songId).name)} · ${esc(keyName(sum.keyPc, tuneOf(sum.songId)))}</p>
         <p class="now-playing" aria-live="polite"></p>

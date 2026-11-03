@@ -144,6 +144,8 @@ const screens = new Screens(screensRoot, {
   onRestart: () => enterLobby(),
   onSettings: (s) => applySettings(s),
   getSettings: () => settings,
+  // The career, for the cards a player has never taken and the end screen's next goal. Sims never read it.
+  getSeen: () => (opts.sim ? null : loadMeta()),
 });
 
 const input = new Input(canvas, stickEl, onKey);
