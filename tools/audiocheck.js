@@ -8,7 +8,7 @@ import * as V from '../src/audio/voices.js';
 import { Song, SECTIONS, FINALE_BAR, CHART, ENERGY_BANDS, SONGS, sectionsOf } from '../src/music/song.js';
 import { Sequencer, chimeMidi, hookMidi, TRANSFORMS, TEXTURE_NAMES, partOf, stepsOf } from '../src/music/sequencer.js';
 import { radioEdit, playSheet } from '../src/music/replay.js';
-import { KEYS, NATURAL_MINOR, HARMONIC_MINOR, keyTone } from '../src/music/theory.js';
+import { KEYS, NATURAL_MINOR, HARMONIC_MINOR, keyTone, makeChord } from '../src/music/theory.js';
 import { STEP_SEC, BAR_SEC, ROLE_HIGH, ROLES, STEPS_PER_BAR } from '../src/config.js';
 import { rng, seedRng } from '../src/util.js';
 import { bossCue, leitCue, leitNotes } from '../src/game/bosscues.js';
@@ -565,10 +565,10 @@ export function arrangeReport({ cycles = 2, tune = SONGS[0] } = {}) {
 
 // Plays a track sheet (Game.summary().sheet) through playSheet on a simulated clock with a stub desk.
 // Checks that every section starts in order with its own band (all of it, and no sound from another
-// entry), every note is in key and on the grid, the outro plays one downbeat on i in the last section's
-// key (a won run ends lifted) and the edit then ends by itself, and that stop() (at the end, and when
-// pressed part way through) leaves the sequencer clean.
-export function checkReplay(sheet, keyPc) {
+// entry), every note is in key and on the grid, the outro plays one downbeat on the song's home chord (i, Ode's
+// III) in the last section's key (a won run ends lifted) and the edit then ends by itself, and that stop() (at
+// the end, and when pressed part way through) leaves the sequencer clean. songId: the song the sheet was made in.
+export function checkReplay(sheet, keyPc, songId) {
   const errors = [];
   const run = (stopAfter) => {
     const clock = { sim: true, t: 0, now() { return this.t; } };
@@ -577,10 +577,11 @@ export function checkReplay(sheet, keyPc) {
     const desk = { pedalSets: 0, applyPedals() { this.pedalSets++; }, setActiveCount() {} };
     const sections = [];
     let ended = 0, notes = 0, outOfKey = 0, offGrid = 0, wrongBand = 0, outroNotes = 0, outroLeaks = 0, outroUnlifted = 0;
-    const player = playSheet({ seq, audio: desk, sheet, keyPc, onEnd: () => ended++,
+    const player = playSheet({ seq, audio: desk, sheet, keyPc, songId, onEnd: () => ended++,
       onSection: (name, size) => { if (size !== sheet[sections.length].band.length) wrongBand++; sections.push(`${name}:${size}`); } });
     const song = seq.song, t0 = seq.nextTime;
-    const home = (song.keyPc + (SECTIONS[sheet[sheet.length - 1].index].lift || 0)) % 12;
+    const tune = SONGS.find((x) => x.id === songId) || SONGS[0];
+    const home = makeChord((song.keyPc + (SECTIONS[sheet[sheet.length - 1].index].lift || 0)) % 12, tune.home).rootPc;
     let t = 0;
     for (; t < 200 && t < stopAfter && seq.running; t += 0.05) {
       clock.t = t;

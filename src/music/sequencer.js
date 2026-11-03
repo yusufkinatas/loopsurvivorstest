@@ -526,7 +526,7 @@ export class Sequencer {
     let swept = false, runIn = false, rolling = false;   // what this downbeat already plays into the next one
     const audioOn = this._audioOn();
     const A = audioOn ? this.audio : null;
-    const band = this.getInstruments();
+    let band = this.getInstruments();
     if (!this.pos) this.pos = this.song.position(this.bar);
 
     if (sib === 0) {
@@ -535,6 +535,7 @@ export class Sequencer {
         this.bar++;
         this.onBar?.(this.bar);
         if (!this.running) return;   // the hook ended playback
+        if (this.onBar) band = this.getInstruments();   // or changed the band (the radio edit's next section): its downbeat is theirs
         const was = this.pos.arr;
         const pos = this.pos = this.song.position(this.bar);
         const arr = pos.arr;

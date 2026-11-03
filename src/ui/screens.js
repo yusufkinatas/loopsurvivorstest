@@ -326,7 +326,7 @@ export class Screens {
   // notes. back: 'title' or 'end', where Back returns.
   discography(meta, back) {
     const h = Math.floor(meta.secs / 3600), min = Math.floor((meta.secs % 3600) / 60);
-    const career = [plural(meta.runs, 'run'), plural(meta.wins, 'song finished', 'songs finished'), `${meta.kills.toLocaleString('en-US')} Noise silenced`, `${h ? `${h} h ` : ''}${min} min on stage`].join(' · ');
+    const career = [plural(meta.runs, 'run'), plural(meta.wins, 'win'), `${meta.kills.toLocaleString('en-US')} Noise silenced`, `${h ? `${h} h ` : ''}${min} min on stage`].join(' · ');
     const tabs = [['records', 'Records'], ['remixes', 'Remixes'], ['notes', 'Liner notes']];
     const el = this._mount('disco', `
       <div class="panel panel-wide disco">
