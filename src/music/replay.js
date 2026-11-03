@@ -8,6 +8,7 @@ import { clamp } from '../util.js';
 import { Song, SECTIONS } from './song.js';
 import { makeInst, remixBoost } from '../game/loadout.js';
 import { BY_ID } from '../content/instruments/index.js';
+import { pickFeatured } from './sequencer.js';
 
 // Bars per section in the edit, and the bar each excerpt starts from: each section's most characteristic
 // phrase (src/music/song.js CHART), played with its textures. The choruses, The Drop and the Finale start
@@ -16,6 +17,9 @@ import { BY_ID } from '../content/instruments/index.js';
 // the first phrase, so the excerpt ends on its fill.
 const EDIT_BARS = { intro: 2, build: 2 };
 const EDIT_FROM = { chorus1: 0, verse2: 0, chorus2: 28, bridge: 0, build: 14, drop: 0, finale: 24 };
+// Where an excerpt starts when its section's song quote rides the solo phrase and a Lead or Sparkle takes that solo:
+// on the solo, so the edit plays the tune (see playSheet).
+const SOLO_FROM = { bridge: 8, finale: 16 };
 
 const valid = (e) => Number.isInteger(e?.index) && !!SECTIONS[e.index];
 const pairs = (a) => (Array.isArray(a) ? a.filter(Array.isArray) : []);
@@ -43,6 +47,10 @@ export function playSheet({ seq, audio, sheet, keyPc, onSection, onEnd }) {
     inst.remix = !!remixed;
     return inst;
   }));
+  // The edit's solos go to each excerpt's own band (seq.getFeatured below): a Lead or Sparkle soloist plays the tune.
+  edit.forEach((s, i) => {
+    if (s.quote?.at === 'solo' && ['lead', 'arp'].includes(pickFeatured(bands[i])?.def.role)) s.from = SOLO_FROM[s.id];
+  });
   let band = [];
   const enter = (i) => {
     band = bands[i];

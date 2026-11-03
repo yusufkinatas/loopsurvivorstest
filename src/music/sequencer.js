@@ -9,17 +9,24 @@ import { chordTone, scaleTone, keyTone, voiceChord, mtof } from './theory.js';
 import { clamp } from '../util.js';
 import { GROOVES, STYLE_GROOVE, CROSS_GROOVE, FIGURES } from './grooves.js';
 import { crossoverOf, emptyCounts } from '../game/loadout.js';
+import { QUOTES } from './song.js';
 
 const NO_CUES = [];
 const NONE = Object.freeze([]);
 // Beat fill velocities on steps 12-15: a run on a snare, clap or rim, or three kicks.
 const FILL_V = { hit: [0.55, 0.65, 0.8, 0.95], kick: [0.7, 0, 0.8, 0.9] };
-// Pickup chimes climb the chord and come back down while pickups keep coming.
+// Pickup chimes climb the chord and come back down while pickups keep coming (a song with a hook spells it).
 const CLIMB = [0, 1, 2, 3, 4, 5, 4, 3, 2, 1];
 
 // Pitch of a pickup chime: the idx-th chord tone from G5 up, kept under the Sparkle ceiling.
 export function chimeMidi(chord, idx) {
   let m = chordTone(chord, idx, 79);
+  while (m > ROLE_HIGH.arp) m -= 12;
+  return m;
+}
+// Pitch of a hook chime: key degree kd from D6 up, folded down by octaves (so it stays in key) under the ceiling.
+export function hookMidi(chord, kd) {
+  let m = keyTone(chord, kd, 74);
   while (m > ROLE_HIGH.arp) m -= 12;
   return m;
 }
@@ -220,6 +227,24 @@ for (const [id, F] of Object.entries(FIGURES)) {
     return t[(bar * STEPS_PER_BAR + sib) % t.length];
   };
 }
+// Song quotes (src/music/song.js QUOTES): q_<id> traces the tune with the part's own notes. Each note of a single
+// pitch takes the pitch of the tune note last struck (a key degree) and keeps its step, sound and velocity, so the
+// part hits as hard as its own at every level and in any crowd (only where an attack aims by pitch does it move:
+// Harp strings, Coin Arp throws). It rings its own length unless that tune note is a half step above a tone of the
+// bar's chord (the quote's held): then no longer than 3 steps or the tune note, so it never holds a rub. A quote
+// counts from its phrase's downbeat (pb, the bar in the 8-bar phrase, so a radio edit's excerpt starts it there
+// too). Notes with no single pitch (drums, chord voicings) play as written.
+for (const [id, q] of Object.entries(QUOTES)) {
+  TRANSFORMS['q_' + id] = (by, P, bar, sib, pb = bar & 7) => {
+    const i = (pb * STEPS_PER_BAR + sib) % q.steps, s = at(bar, sib, P), t = q.last[i];
+    return moved(by[s], s, (n) => {
+      if (n.ct === undefined && n.sc === undefined && n.kd === undefined) return n;
+      const d = n.d || 1;
+      return { s, v: n.v, k: n.k, kd: t.kd, d: q.held[i] && sib + d <= STEPS_PER_BAR ? d : Math.min(d, Math.max(3, t.s + t.d - i)) };
+    });
+  };
+}
+
 // lvN plays level N's authored part (levels are supersets, so it is the simpler part), never above the
 // channel's own level and with the channel's own stats. On a remix's own pattern it plays 'sparse'.
 const LV = { lv1: 1, lv2: 2, lv3: 3, lv4: 4, lv5: 5 };
@@ -279,7 +304,7 @@ function soloShape(part, P) {
   return part._solo;
 }
 
-function pickFeatured(band) {
+export function pickFeatured(band) {
   let best = null, bk = -Infinity;
   for (const i of band) {
     if (!i?.def) continue;
@@ -341,6 +366,8 @@ export class Sequencer {
     this._w = 1;
     this.heard = { quote: 0, groove: 0 };   // live notes played from a quote and from a groove off the part's loop (sim coverage)
     this._gBar = -1;           // the bar the band's groove list was read for (see _groove)
+    this._qBar = -1;           // the bar _qRole was looked up for
+    this._qRole = null;        // the role that plays a chorus quote in that bar
   }
 
   start(atTime) {
@@ -395,7 +422,7 @@ export class Sequencer {
   }
 
   // Stop-time: on the next downbeat that is not held, every channel plays its step-0 notes and rests
-  // until step `len`. home: that bar's chord becomes i (of the lifted key), the song's last chord.
+  // until step `len`. home: that bar's chord becomes the song's home chord (of the lifted key), its last chord.
   // It never shares a bar with the player's Drop: a queued Drop waits out the stop bar (see _step), and a
   // stop asked for while a Drop builds would land on its impact, the moment itself, so it is dropped. The
   // song's ending is kept: its silent bar follows the impact.
@@ -557,7 +584,7 @@ export class Sequencer {
     // The arrangement applies to the band while the song moves, never to the vamp or an auditioned card.
     const arr = this.hold ? null : pos.arr;
     const stopped = arr && this.lastStop?.bar === this.bar;
-    const chord = stopped && this.lastStop.home ? this.song.chord(0, pos.section.lift) : pos.chord;
+    const chord = stopped && this.lastStop.home ? this.song.chord(this.song.home, pos.section.lift) : pos.chord;
     // One hit per downbeat: an impact (it has its own crash) over stop-time over a plain crash.
     if (A && impactAt === null) { if (landed) A.silenced(t, chord.rootPc); else if (crash) A.crash(t, crash); }
     if (sib === 0) {
@@ -624,18 +651,29 @@ export class Sequencer {
   }
 
   // The texture a channel plays in a bar of the arrangement: the chart's, with the band's rules. A solo
-  // phrase's featured channel plays its solo; a tacet channel plays 'sparse' while the band has 3 channels
-  // or fewer, and a remixed channel never goes dark. peek: never ask the game (display only).
+  // phrase's featured channel plays its solo; a phrase with a song quote hands it to the band's Lead, else its
+  // Sparkle; a tacet channel plays 'sparse' while the band has 3 channels or fewer, and a remixed channel never
+  // goes dark. peek: never ask the game (display only).
   texOf(inst, arr, band = this.getInstruments().length, bar = this.bar, peek = false) {
     const role = inst.def.role;
     if (arr.solo) {
       const f = this._featured(arr, bar, peek);
-      if (f?.role === role) return this._soloTex(inst, f.gain);
-    }
+      if (f?.role === role) return this._soloTex(inst, f.gain, arr.quote);
+    } else if (arr.quote && role === this._quoteRole(bar)) return { tf: arr.quote, w: 1 };
     const t = arr.tex?.[role] || FULL_TEX;
     if (t.tf === 'out' && (inst.remix || band <= 3)) return SPARSE_TEX;
     if (t.tf === 'full' && this.forceTex?.[role]) return { ...t, tf: this.forceTex[role] };
     return t;
+  }
+
+  // The role that plays a chorus quote: the band's Lead, else its Sparkle (looked up once a bar).
+  _quoteRole(bar) {
+    if (this._qBar !== bar) {
+      const band = this.getInstruments();
+      this._qBar = bar;
+      this._qRole = band.some((i) => i.def.role === 'lead') ? 'lead' : band.some((i) => i.def.role === 'arp') ? 'arp' : null;
+    }
+    return this._qRole;
   }
 
   // The channel featured in the solo phrase that bar is in: asked of the game once, on the phrase's first bar.
@@ -650,9 +688,11 @@ export class Sequencer {
     return out;
   }
 
-  _soloTex(inst, gain) {
+  // A solo phrase with a song quote: a featured Lead or Sparkle traces the tune, gain times as hard as its full part.
+  _soloTex(inst, gain, quote = null) {
     const part = partOf(inst);
     if (!part?._byStep) return FULL_TEX;
+    if (quote && (inst.def.role === 'lead' || inst.def.role === 'arp')) return { tf: quote, w: gain, solo: true };
     const s = soloShape(part, stepsOf(inst.def, part));
     return { tf: s.tf, w: clamp(gain / s.ratio, 0.5, 2), solo: true };
   }
@@ -700,9 +740,10 @@ export class Sequencer {
     // A texture with no transform would silence the channel without a word: say so (a sim counts it as an error).
     const fn = TRANSFORMS[tf];
     if (!fn) { this._report(`texture ${tf}`, new Error(`no transform ${tf}`)); return null; }
-    const P = stepsOf(def, part), out = fn(part._byStep, P, bar, sib) ?? null;
+    const P = stepsOf(def, part), out = fn(part._byStep, P, bar, sib, arr.pb) ?? null;
     // A groove note counts as heard where the part's own loop has no note of its sound (a sparse part's own rhythm does not).
     if (live && out && tf.startsWith('g_')) for (const n of out) if (!part._byStep[at(bar, sib, P)]?.some((x) => x.k === n.k)) this.heard.groove++;
+    if (live && out && tf.startsWith('q_')) this.heard.quote += out.length;
     return out;
   }
 
@@ -798,13 +839,15 @@ export class Sequencer {
     };
   }
 
-  // Pickup chimes. A collected note ('note') rings a soft bell on the next free 8th, climbing the chord
-  // while pickups keep coming and quieter the more of them there are; items and a full Drop meter
-  // ('run') play three 16ths up the chord. Timed off the transport and pitched from the chord of their
+  // Pickup chimes. A collected note ('note') rings a soft bell on the next free 8th, climbing the chord (or
+  // spelling the song's hook) while pickups keep coming and quieter the more of them there are; items and a
+  // full Drop meter ('run') play three 16ths up the chord; 'hook' plays the song's hook once on 8ths (the
+  // lobby's way of saying which song it is). Timed off the transport and pitched from the chord of their
   // own step, so they stay on the grid and in key. Sound only: the game never waits on them.
   ping(kind) {
     if (!this.running || this.hold || !this._audioOn()) return;
     let i = this.globalStep + Math.ceil((this.clock.now() + 0.03 - this.nextTime) / STEP_SEC);
+    const hook = this.song.hook;
     if (kind === 'run') {
       for (let k = 0; k < 3; k++) this._chime(i + k, 3 + k, 0.08);
       return;
@@ -815,17 +858,23 @@ export class Sequencer {
       return;
     }
     i += i & 1;                                    // on the 8th-note grid
+    if (kind === 'hook') {
+      for (let k = 0; k < (hook || CLIMB).length; k++) this._chime(i + 2 * k, hook ? { kd: hook[k] } : CLIMB[k], 0.07);
+      return;
+    }
     if (i <= this.pingStep) return;                // one chime per 8th
     if (i - this.pingStep > 4) this.pingN = 0;     // a gap of more than a beat starts the climb again
     this.pingStep = i;
     let recent = 0;
     for (const s of this.pingSlots) if ((i - s) * STEP_SEC < 2) recent++;
     this.pingSlots[(i >> 1) & 7] = i;
-    this._chime(i, CLIMB[this.pingN++ % CLIMB.length], 0.07 / (1 + recent / 6));
+    const n = this.pingN++;
+    this._chime(i, hook ? { kd: hook[n % hook.length] } : CLIMB[n % CLIMB.length], 0.07 / (1 + recent / 6));
   }
 
   // One chime on global step i, unless a stop or a break holds the band silent there. A landed stop is
   // matched by bar and step, since a hold inside the stop bar keeps counting global steps but not bars.
+  // idx: a chord tone (chimeMidi), or { kd } a key degree of the song's hook (hookMidi).
   _chime(i, idx, gain) {
     const s = this.pendingStop || this.lastStop;
     const at = this.pendingStop ? Math.ceil(this.globalStep / STEPS_PER_BAR) * STEPS_PER_BAR : this.lastStop?.step;
@@ -834,8 +883,8 @@ export class Sequencer {
     if (this.pendingStop ? i > at && i < at + s.len : s && bar === s.bar && sib > 0 && sib < s.len) return;
     const pos = this.song.position(bar);
     if (pos.arr.brk && sib >= pos.arr.brk) return;
-    const chord = s?.home && i === at ? this.song.chord(0, pos.section.lift) : pos.chord;   // the ending's downbeat is on i
-    this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, chimeMidi(chord, idx), gain);
+    const chord = s?.home && i === at ? this.song.chord(this.song.home, pos.section.lift) : pos.chord;   // the ending's downbeat is on home
+    this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, idx.kd !== undefined ? hookMidi(chord, idx.kd) : chimeMidi(chord, idx), gain);
   }
 
   _report(where, e) {

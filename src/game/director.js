@@ -37,7 +37,7 @@ export class Director {
     this.frame = 0;
   }
 
-  get wave() { return BALANCE.waves[this.g.section?.id] || BALANCE.waves.finale; }
+  get wave() { const id = this.g.section?.id; return this.g.tune?.waves?.[id] || BALANCE.waves[id] || BALANCE.waves.finale; }   // a song may bring its own crowd
   // The wave's base types (elites draw from them).
   get types() { return [...new Set(Object.keys(this.wave).map((k) => k.split(':')[0]))]; }
 
