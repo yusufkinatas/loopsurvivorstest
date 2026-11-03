@@ -4,12 +4,15 @@
 // Also: speed=N (sim steps per frame), bot=1, autopick=smart|random|first, god=1, seed=N,
 // start=<instrumentId>, give=id:level,id:level, pedals=id:level, remix=id,id (remix given instruments),
 // tapes=N (Master Tapes banked at the start), gain=N (Gain tier), minutes=N (stop the sim), key=N, solo=1 (no level-ups).
+// Measurement: song=N (index into the setlist), sig=0 (no Signatures), xo=0 (no crossovers or Fusion lift), god=2
+// (god mode where a hit still resets the rules it touches), tex=role:transform,... (that transform in place of each
+// of the role's full phrases).
 
 import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
-import { Song, SECTIONS } from './music/song.js';
+import { Song, SECTIONS, SONGS, sectionsOf } from './music/song.js';
 import { playSheet } from './music/replay.js';
-import { KEYS } from './music/theory.js';
+import { KEYS, makeChord, chordTone } from './music/theory.js';
 import { Game } from './game/game.js';
 import { makeInst } from './game/loadout.js';
 import { Renderer } from './render/renderer.js';
@@ -18,7 +21,7 @@ import { Screens } from './ui/screens.js';
 import { Input } from './input.js';
 import { botMove, autopick } from './bot.js';
 import { loadSettings, saveSettings, loadBest, saveBest, loadMeta, saveMeta } from './storage.js';
-import { applyRun, unlockedStarts } from './game/progress.js';
+import { applyRun, unlockedStarts, lobbySong } from './game/progress.js';
 import { BY_ID, byRole, INSTRUMENTS } from './content/instruments/index.js';
 import { clamp } from './util.js';
 
@@ -33,7 +36,7 @@ function parseOpts() {
     speed: Math.max(1, Number(get('speed')) || 1),
     bot: get('bot') === '1',
     autopick: get('autopick') || (get('sim') === '1' ? 'smart' : null),
-    god: get('god') === '1',
+    god: get('god') === '2' ? 2 : get('god') === '1' ? 1 : 0,
     seed: get('seed') !== null ? Number(get('seed')) : undefined,
     start: get('start'),
     give: list(get('give')),
@@ -46,6 +49,10 @@ function parseOpts() {
     solo: get('solo') === '1',
     realpick: get('realpick') === '1',   // sim: level-ups go through the real pause path
     chaos: get('chaos') === '1',         // sim: pause and resume at random moments; with realpick, also reroll, banish and skip
+    song: Number(get('song')) || 0,
+    sig: get('sig') !== '0',
+    xo: get('xo') !== '0',
+    tex: get('tex') ? Object.fromEntries(get('tex').split(',').filter(Boolean).map((x) => x.split(':'))) : null,
   };
 }
 
@@ -56,6 +63,7 @@ const audio = new AudioEngine();
 audio.volume = settings.volume;
 const clock = opts.sim ? { sim: true, t: 0, now() { return this.t; } } : { sim: false, now: () => audio.now() };
 const seq = new Sequencer(clock, audio);
+seq.forceTex = opts.tex;
 
 const canvas = document.getElementById('game');
 const renderer = new Renderer(canvas);
@@ -68,10 +76,12 @@ let lobbyKey = 0;
 let lastStart = null;
 let lastEnd = null;        // the end screen's arguments, for Back from the Discography
 let lobbyGain = 0;         // the Gain the next run plays at (meta.gainSel)
+let lobbyTune = 0;         // the song the next run plays (an index into SONGS)
+let songPicked = false;    // a song stepped to since the last run, kept over a trip to the title
 
 const hooks = {
   onLevelUp: (offers) => { hud.hideBanner(); screens.levelUp(game, offers); },
-  onResume: () => { screens.hide(); input.releaseStick(); },
+  onResume: () => { screens.hide(); input.releaseStick(); hud.resumed(); },
   onGameOver: (sum) => endRun(sum),
   onVictory: (sum) => endRun(sum),
   onBanner: (t, s, compact, style) => hud.showBanner(t, s, compact, style),
@@ -121,12 +131,21 @@ const screens = new Screens(screensRoot, {
   },
   onDiscography: (back) => screens.discography(loadMeta(), back),
   onShowEnd: () => screens.end(...lastEnd),
-  onPlayTrack: (sheet, keyPc, onSection, onEnd) => playTrack(sheet, keyPc, onSection, onEnd),
+  // The curtain call's chimes, one per damage bar: chord tone idx of the chord the band is on at the first note,
+  // held for the run so a chord change midway cannot break the climb.
+  onCurtain: () => {
+    const c = seq.position?.chord || game.song.chord(game.song.home || 0, game.section?.lift || 0);
+    return (idx) => { if (settings.chimes && audio.ready) audio.levelUpChime([chordTone(c, idx, 64)]); };
+  },
+  onPlayTrack: (sheet, keyPc, songId, onSection, onEnd) => playTrack(sheet, keyPc, songId, onSection, onEnd),
   onStopTrack: () => stopTrack(),
   onGain: (d) => stepGain(d),
+  onSong: (d) => stepSong(d),
   onRestart: () => enterLobby(),
   onSettings: (s) => applySettings(s),
   getSettings: () => settings,
+  // The career, for the cards a player has never taken and the end screen's next goal. Sims never read it.
+  getSeen: () => (opts.sim ? null : loadMeta()),
 });
 
 const input = new Input(canvas, stickEl, onKey);
@@ -154,6 +173,7 @@ function startOptions() {
 function showTitle() {
   mode = 'title';
   seq.stop();
+  audio.cutChimes();   // a lobby hook stops with the lobby music
   game.state = 'idle';
   hudRoot.hidden = true;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
@@ -164,7 +184,7 @@ function showTitle() {
 // at a time. Screens stop it whenever they change, and so does hiding the page. onEnd runs however it stops.
 let track = null;
 let trackId = 0;
-async function playTrack(sheet, keyPc, onSection, onEnd) {
+async function playTrack(sheet, keyPc, songId, onSection, onEnd) {
   stopTrack();
   const id = trackId;
   audio.init();
@@ -172,7 +192,7 @@ async function playTrack(sheet, keyPc, onSection, onEnd) {
   if (id !== trackId) { onEnd(); return; }   // stopped while the audio woke up
   audio.setVolume(settings.volume);
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
-  track = { player: playSheet({ seq, audio, sheet, keyPc, onSection, onEnd: () => stopTrack() }), onEnd };
+  track = { player: playSheet({ seq, audio, sheet, keyPc, songId, onSection, onEnd: () => stopTrack() }), onEnd };
 }
 
 function stopTrack() {
@@ -190,15 +210,41 @@ async function enterLobby() {
   game.state = 'idle';
   hudRoot.hidden = true;
   lobbyKey = opts.key ?? Math.floor(Math.random() * KEYS.length);
-  seq.reset(new Song(KEYS[lobbyKey].pc));
+  const meta = loadMeta();
+  if (!songPicked || !meta.runs) lobbyTune = lobbySong(meta);
+  playLobbySong(null);
   seq.getInstruments = () => [];
   if (audio.ready) { audio.applyPedals({}); audio.setActiveCount(1); audio.setMuffle(false); audio.setPreviewRole(null); }
-  seq.start(clock.now() + 0.08);
   const featured = startOptions();
-  const meta = loadMeta();
   const open = unlockedStarts(meta);
   lobbyGain = meta.gainSel;
-  screens.select(featured, INSTRUMENTS.filter((d) => open.includes(d.id) && !featured.includes(d)), meta.gainMax ? meta : null);
+  // Run 1 has no song stepper: it plays the loop.
+  screens.select(featured, INSTRUMENTS.filter((d) => open.includes(d.id) && !featured.includes(d)), meta.gainMax ? meta : null, meta.runs && SONGS.length > 1 ? lobbyTune : null);
+}
+
+// The lobby plays the picked song from its first bar with an empty band, under the sound being auditioned. A hook
+// still ringing from the last lobby song stops.
+function playLobbySong(preview) {
+  const tune = SONGS[lobbyTune];
+  audio.cutChimes();
+  seq.reset(new Song(KEYS[lobbyKey].pc, sectionsOf(tune), tune));
+  seq.preview = preview;
+  seq.start(clock.now() + 0.08);
+}
+
+// The select screen's song stepper (, and ., pad LT and RT, or its buttons): the song starts over and its hook
+// rings once on the chimes over its own intro (cutting the last song's), which is how an empty lobby says what the
+// song is. The choice is kept in the career.
+function stepSong(d) {
+  const meta = loadMeta();
+  const sel = clamp(lobbyTune + d, 0, SONGS.length - 1);
+  if (!meta.runs || sel === lobbyTune) return;
+  lobbyTune = meta.songSel = sel;
+  songPicked = true;
+  saveMeta(meta);
+  playLobbySong(seq.preview);
+  seq.ping('hook');
+  screens.setSong(sel);
 }
 
 // The select screen's Gain stepper ([ and ], pad LB and RB, or its buttons). The choice is kept in the career.
@@ -220,7 +266,9 @@ function startRun(id) {
   mode = 'run';
   screens.hide();
   hudRoot.hidden = false;
-  game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain });
+  audio.cutChimes();   // a lobby hook still ringing stops with the lobby
+  songPicked = false;
+  game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain, song: lobbyTune });
   hud.reset();
   hud.refreshLoadout(game);
   hud.setBoss(null);
@@ -249,10 +297,11 @@ function endRun(sum) {
   const news = recordRun(sum);
   lastEnd = [sum, best, prevBest, news];
   screens.end(...lastEnd);
-  // Something new for the career: the level-up chime in the key the run ended in.
-  if (news?.saved && (news.goals.length || news.record || news.remixes.length || news.gain) && audio.ready) {
-    const root = 72 + ((sum.keyPc + (SECTIONS[sum.sectionIndex]?.lift || 0)) % 12);
-    audio.levelUpChime([root, root + 3, root + 7, root + 12]);
+  // Something new for the career: the level-up chime on the chord the song ends on, in the key the run ended in.
+  if (news?.saved && (news.goals.length || news.record || news.remixes.length || news.gain || news.songs) && audio.ready) {
+    const c = makeChord((sum.keyPc + (SECTIONS[sum.sectionIndex]?.lift || 0)) % 12, game.song.home);
+    const root = 72 + c.rootPc;
+    audio.levelUpChime([root, root + c.intervals[1], root + c.intervals[2], root + 12]);
   }
   if (opts.sim) window.__LS.done = true;
 }
@@ -280,6 +329,9 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ta
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
+  // Any other key first finishes the curtain call. One that could press a button (B is Back) is spent on that, so
+  // a key mashed to skip never presses Play again; the rest (F5, F12) keep their browser default.
+  if (screens.current === 'end' && screens.skipCurtain() && (k === 'Enter' || k === ' ' || k.startsWith('pad-'))) return true;
   // Space and E are the Drop keys: on menus they must never press a focused button by accident. Space still
   // toggles a focused checkbox (Settings).
   const box = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'checkbox';
@@ -297,6 +349,7 @@ function onKey(k) {
     if (k === 'x' && screens.current === 'levelup') { screens.toggleBanish(); return true; }
     if (k === 'q' && screens.current === 'levelup') { skipLevel(); return true; }
     if (screens.current === 'select' && (k === '[' || k === ']' || k === 'gain-down' || k === 'gain-up')) { stepGain(k === '[' || k === 'gain-down' ? -1 : 1); return true; }
+    if (screens.current === 'select' && (k === ',' || k === '.' || k === 'song-down' || k === 'song-up')) { stepSong(k === ',' || k === 'song-down' ? -1 : 1); return true; }
     if (k === 'pad-a') {
       // A presses what has focus: a card or a button under the cards. With nothing focused it only focuses card 1.
       const a = document.activeElement;
@@ -394,6 +447,7 @@ function frame(ts) {
 // Autopilot uses the Drop like a sensible player: when it is swamped, or hurt with things close, right away;
 // when crowded or with a boss close, it waits for a press that lands on a phrase downbeat (a perfect drop). A
 // boss showing up is no reason on its own, and a meter that has sat full a long while goes on the next phrase.
+// Unless hurt, it keeps a full meter for the song's next impact downbeat and lands a Double Drop on it.
 let dropFullSince = null;
 function botDrop() {
   if (game.state !== 'playing' || game.dropCharge < game.dropMax || game.dropState) { dropFullSince = null; return; }
@@ -406,6 +460,9 @@ function botDrop() {
   const b = game.boss && !game.boss.dead ? game.boss : null;
   const bossClose = b && Math.hypot(b.x - p.x, b.y - p.y) < 380;
   if ((low && (near >= 8 || shots >= 6)) || near >= 32) { game.requestDrop(); return; }
+  if (game.dropDoubleNow()) { game.requestDrop(); return; }
+  // One of the song's impact downbeats within 8 bars: keep the meter for the Double Drop unless hurt.
+  if (!low) for (let i = game.seq.bar + 1; i <= game.seq.bar + 8; i++) if (game.song.position(i).arr.impact) return;
   if (game.dropPerfectNow() && (near >= 14 || bossClose || low || game.time - dropFullSince > 40)) game.requestDrop();
 }
 
@@ -489,6 +546,8 @@ window.__LS = {
       // Per section: damage by cause and by enemy, healing by source, lowest health, levels, picks, kills and how
       // close they died, the crowd, hearts, Drops and Snare marks (Game._led; tools/sim.mjs --summary prints it).
       ledger: game.ledger || [], maxHp: game.player?.maxHp,
+      // The song played, Double Drops, and live notes heard from a quote or a groove.
+      song: game.tune?.id ?? null, doubleDrops: game.doubleDrops || 0, heard: { ...seq.heard },
     };
   },
 };
@@ -499,7 +558,7 @@ if (opts.sim) {
   mode = 'run';
   hudRoot.hidden = false;
   screens.hide();
-  game.newRun({ start: opts.start || 'kick808', keyIndex: opts.key, seed: opts.seed ?? 1, gain: opts.gain });
+  game.newRun({ start: opts.start || 'kick808', keyIndex: opts.key, seed: opts.seed ?? 1, gain: opts.gain, song: opts.song });
   hud.refreshLoadout(game);
 } else {
   showTitle();

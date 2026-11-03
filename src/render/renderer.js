@@ -35,6 +35,10 @@ const SHAPES = ['hex', 'stomp', 'ring', 'square', 'glitch', 'snare', 'diamond', 
 // Its dark rim is the same teardrop RIM_K times bigger, with a slightly longer tail.
 const TAIL = 2.3, TH = Math.acos(1 / TAIL);
 const RIM_K = 1.38, RIM_TAIL = (TAIL + 0.6) / RIM_K, RIM_TH = Math.acos(1 / RIM_TAIL);
+// A death pop flares 1 -> 1.35x over POP_LIFE s, faded in POP_STEPS alpha steps (one stroke per color and step).
+const POP_LIFE = 0.14, POP_STEPS = 3;
+// A damage number pops in over TEXT_POP s: a crit from 1.6x, the rest from 1.25x.
+const TEXT_POP = 0.12;
 
 export class Renderer {
   constructor(canvas) {
@@ -198,7 +202,7 @@ export class Renderer {
     // Camera
     this.cam.x = lerp(this.cam.x, p.x, Math.min(1, dt * 8));
     this.cam.y = lerp(this.cam.y, p.y, Math.min(1, dt * 8));
-    const shakeAmt = g.settings.shake ? g.shake : g.shake * 0.2;
+    const shakeAmt = g.settings.shake ? g.shake : 0;
     // Cosmetic randomness never draws from the seeded rng, so a seed plays the same run at any frame rate.
     const sx = (Math.random() * 2 - 1) * shakeAmt, sy = (Math.random() * 2 - 1) * shakeAmt;
     // The Drop camera pushes in through the build bar and punches out on the impact. It scales only the drawing,
@@ -208,17 +212,22 @@ export class Renderer {
     const prog = cur ? cur.sib / 16 : 0;
     if (g.drops > this._drops) this.zoom = 0.94;
     this._drops = g.drops;
-    // A remix landing punches out the same way.
+    // A remix landing punches out the same way, and so does a boss falling silent.
     const remixes = g.remixLog?.length || 0;
-    if (remixes > this._remixes) this.zoom = 0.95;
+    if (remixes > this._remixes || g.bossesBeaten > this._beaten) this.zoom = 0.95;
     this._remixes = remixes;
+    this._beaten = g.bossesBeaten;
+    // A boss you can still silence in time (it has a clock) leans the camera in while it is on its last hit.
+    const b = g.boss, play = g.state === 'playing';
+    const lean = b && !b.dead && b.clock && b.hp < b.maxHp * BALANCE.feel.bossLean;
     if (!g.settings.shake) this.zoom = 1;
-    else this.zoom += ((building && g.state === 'playing' ? 1 + 0.06 * prog : 1) - this.zoom) * Math.min(1, dt * 7);
+    else this.zoom += ((building && play ? 1 + 0.06 * prog : lean && play ? 1.03 : 1) - this.zoom) * Math.min(1, dt * 7);
     const s = this.scale * this.zoom;
 
-    // A quiet phrase dims the arena by a quarter; the band slamming back in (a song impact) flashes it back.
+    // A quiet phrase dims the arena by a quarter; the band slamming back in (a song impact) flashes it back (Screen
+    // flashes on).
     const heard = g.seq.sounding(g.clock.now() - (g.opts.sim ? 0 : g.audio?.latency || 0));
-    if (g.impactAt !== this._impactAt) { if (this._impactAt !== undefined && g.impactAt > 0) this.dim = -0.3; this._impactAt = g.impactAt; }
+    if (g.impactAt !== this._impactAt) { if (this._impactAt !== undefined && g.impactAt > 0 && g.settings.flashes) this.dim = -0.3; this._impactAt = g.impactAt; }
     this.dim += ((heard?.quiet && g.state === 'playing' ? 0.25 : 0) - this.dim) * Math.min(1, dt * 2.5);
     const vw = this.w / s / 2 + 80, vh = this.h / s / 2 + 80;
     const cx = this.cam.x, cy = this.cam.y;
@@ -286,6 +295,7 @@ export class Renderer {
     // ENEMY: solid bodies on top of the attacks, the bosses over them, then you.
     this._enemies(c, g);
     this._bosses(c, g);
+    this._deathPops(c, g, inView);
     if (g.state === 'dying') this._shatter(c, g);
     else if (g.state !== 'gameover') { this._shield(c, g); this._player(c, g); }   // after the death beat the speaker is gone
     // DANGER, last: arrival rings, Snare marks, lanes and boss tells, then the enemy shots on top of everything.
@@ -467,45 +477,57 @@ export class Renderer {
 
   // The band's play rules, as quiet tells on the floor in their style's color (no text): Long throw's dotted
   // circle, the Mosh pit's disc, In the pocket's ring that fills over the beat while you stand still, the
-  // Combo streak's 16 ticks, and a halo that swells through the 8-bar phrase.
+  // Combo streak's 16 ticks, and a halo that swells through the 8-bar phrase. A pick that turns a rule on, steps
+  // it up or forms a crossover (g.ruleBloom) blooms its tells out from the speaker over one beat, brighter at first.
   _ruleTells(c, g) {
     const R = g.stats?.rules, S = g.rules;
     if (!R?.on || !S || g.state === 'dying' || g.state === 'gameover') return;
-    const p = g.player, pulse = g.beatPulse;
+    const p = g.player, pulse = g.beatPulse, B = g.ruleBloom;
+    const bk = B ? clamp((g.time - B.t) / BEAT_SEC, 0, 1) : 1;
+    // A tell's bloom: its size (eased out) and an alpha lift that fades as it reaches full size; [1, 0] when not blooming.
+    const bloom = (rule) => (bk < 1 && B.styles.some((st) => CHEMISTRY[st]?.rule === rule) ? [1 - (1 - bk) ** 3, 0.5 * (1 - bk)] : [1, 0]);
     if (R.far) {
-      c.strokeStyle = rgba(RULE_COLOR.far, 0.2 + 0.12 * pulse);
+      const [k, up] = bloom('far');
+      c.strokeStyle = rgba(RULE_COLOR.far, 0.2 + 0.12 * pulse + up);
       c.lineWidth = 2;
       c.setLineDash([2, 12]);
-      circle(c, p.x, p.y, RULES.far); c.stroke();
+      // Electro chip's full combo counts every hit as far (farR 0): the circle hugs the speaker (just outside In the
+      // pocket's ring) instead of vanishing.
+      circle(c, p.x, p.y, Math.max(g.farR(), p.r + 40) * k); c.stroke();
       c.setLineDash([]);
     }
     if (R.near) {
-      c.fillStyle = rgba(RULE_COLOR.near, 0.03 + 0.03 * pulse);
-      circle(c, p.x, p.y, RULES.near); c.fill();
-      c.strokeStyle = rgba(RULE_COLOR.near, 0.26);
+      const [k, up] = bloom('near');
+      c.fillStyle = rgba(RULE_COLOR.near, 0.03 + 0.03 * pulse + up * 0.3);
+      circle(c, p.x, p.y, g.nearR() * k); c.fill();
+      c.strokeStyle = rgba(RULE_COLOR.near, 0.26 + up);
       c.lineWidth = 2;
       c.stroke();
     }
     if (R.stillHeal || R.stillArea) {
-      const k = S.planted ? 1 : S.broke ? 0 : clamp((g.time - S.beatAt) / BEAT_SEC, 0, 1);
+      const [bs, up] = bloom('still');
+      // While it blooms the ring is drawn whole, planted or not.
+      const k = up ? 1 : S.planted ? 1 : S.broke ? 0 : clamp((g.time - S.beatAt) / BEAT_SEC, 0, 1);
       if (k > 0) {
-        const rr = p.r + 30;
-        c.strokeStyle = rgba(RULE_COLOR.still, S.planted ? 0.5 + 0.3 * pulse : 0.3);
+        const rr = (p.r + 30) * bs;
+        c.strokeStyle = rgba(RULE_COLOR.still, (S.planted ? 0.5 + 0.3 * pulse : 0.3) + up);
         c.lineWidth = 3;
         c.beginPath(); c.arc(p.x, p.y, rr, -Math.PI / 2, -Math.PI / 2 + k * TAU); c.stroke();
         if (S.planted) { c.fillStyle = rgba(RULE_COLOR.still, 0.07 + 0.05 * pulse); circle(c, p.x, p.y, rr); c.fill(); }
       }
     }
     if (R.combo) {
+      const [k, up] = bloom('combo');
       const n = RULES.comboCap, w = 3, gap = 1.5, x0 = p.x - (n * (w + gap) - gap) / 2, y = p.y + p.r + 34;
       for (let i = 0; i < n; i++) {
-        c.fillStyle = i < S.combo ? RULE_COLOR.combo : rgba(RULE_COLOR.combo, 0.16);
-        c.fillRect(x0 + i * (w + gap), y, w, 3);
+        c.fillStyle = i < S.combo ? RULE_COLOR.combo : rgba(RULE_COLOR.combo, 0.16 + up);
+        c.fillRect(p.x + (x0 + i * (w + gap) - p.x) * k, y, w, 3);
       }
     }
     if (R.swell) {
+      const [k, up] = bloom('swell'), sw = g.swellAt();
       c.globalCompositeOperation = 'lighter';
-      this.drawGlow(p.x, p.y, 36 + 54 * S.phrase, RULE_COLOR.swell, 0.08 + 0.3 * S.phrase);
+      this.drawGlow(p.x, p.y, (36 + 54 * sw) * k, RULE_COLOR.swell, 0.08 + 0.3 * sw + up);
       c.globalCompositeOperation = 'source-over';
     }
   }
@@ -985,6 +1007,19 @@ export class Renderer {
       c.beginPath(); c.arc(p.x, p.y, rr + pulse * 2, -Math.PI / 2, -Math.PI / 2 + frac * TAU); c.stroke();
     }
     c.lineCap = 'butt';
+    // The count-in: full, with a press now landing on the phrase downbeat (a perfect Drop), a dashed white ring closes
+    // from rr + 26 to rr + 4 over the two bars heard before it, doubled 8 px outside when that downbeat is one of the
+    // song's own impacts (a Double Drop). Dashed and white, it stays apart from In the pocket's solid ring.
+    if (full && g.dropPerfectNow()) {
+      const cur = g.seq.sounding(g._heardNow());
+      const k = cur ? clamp(((cur.bar - g.dropLandsOn() + 2) * 16 + cur.sib) / 32, 0, 1) : 0;
+      const r = rr + 26 - 22 * k;
+      c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = 1.5;
+      c.setLineDash([3, 5]);
+      circle(c, p.x, p.y, r); c.stroke();
+      if (g.dropDoubleNow()) { circle(c, p.x, p.y, r + 8); c.stroke(); }
+      c.setLineDash([]);
+    }
     if (!(full && this._dropCap === 1) || typeof document === 'undefined') return;
     const dev = document.body.dataset.input;
     if (dev === 'touch') return;
@@ -1082,8 +1117,46 @@ export class Renderer {
     c.globalAlpha = fa;
   }
 
+  // Kills you can see: a dying body's own silhouette flares out in the color of the channel that silenced it, over
+  // the crowd and under you and the danger layer. One stroke per color and fade step. On a busy screen half of them
+  // (always the same half, keyed by where each died), like the sparks.
+  _deathPops(c, g, inView) {
+    const P = g.deathPops, by = this._popBy ||= new Map(), thin = this.load > 0.45;
+    if (!P?.length) return;
+    for (const a of by.values()) a.length = 0;
+    for (let i = P.length - 1; i >= 0; i--) {
+      const d = P[i], k = (g.time - d.t) / POP_LIFE;
+      if (k >= 1) break;   // pushed in time order: the rest are older
+      if (!inView(d.x, d.y, d.r * 2) || (thin && ((d.x * 977) | 0) & 1)) continue;
+      let a = by.get(d.color);
+      if (!a) by.set(d.color, a = []);
+      a.push(d, k);
+    }
+    c.lineJoin = 'round';
+    c.lineWidth = 1.8 / this.scale;
+    for (const [color, a] of by) {
+      if (!a.length) continue;
+      c.strokeStyle = color;
+      for (let step = 0; step < POP_STEPS; step++) {
+        c.beginPath();
+        let n = 0;
+        for (let i = 0; i < a.length; i += 2) {
+          const k = a[i + 1];
+          if (Math.min(POP_STEPS - 1, (k * POP_STEPS) | 0) !== step) continue;
+          body(c, a[i], a[i].r * (1 + 0.35 * (1 - (1 - k) * (1 - k))), this.time, true);   // eased out
+          n++;
+        }
+        if (!n) continue;
+        c.globalAlpha = 0.75 * (1 - step / POP_STEPS);
+        c.stroke();
+      }
+    }
+    c.globalAlpha = 1;
+    c.lineJoin = 'miter';
+  }
+
   // Damage numbers on top. On a busy screen only the big ones stay: crits on a boss or an elite (and the words, like
-  // Breather!).
+  // Breather!). A number pops in (a crit bigger and tilted) and pops again each time a hit adds into it.
   _texts(c, g, inView) {
     c.textAlign = 'center';
     c.textBaseline = 'middle';
@@ -1097,16 +1170,25 @@ export class Renderer {
       if (!inView(t.x, t.y)) continue;
       if (busy) {
         const ch = t.str.charCodeAt(0);
-        if (ch >= 48 && ch <= 57 && !(t.size >= 14 && onBig(t))) continue;
+        if (ch >= 48 && ch <= 57 && !(t.crit && onBig(t))) continue;
       }
       const k = 1 - t.age / t.life;
+      const u = Math.min(1, (t.age - t.popAt) / TEXT_POP);
+      const sc = 1 + ((t.crit ? 1.6 : 1.25) - 1) * (1 - u) * (1 - u);   // eased out
       c.globalAlpha = Math.min(1, k * 2);
-      c.font = `700 ${t.size}px "JetBrains Mono", ui-monospace, monospace`;
+      c.font = `700 ${(t.size * sc).toFixed(1)}px "JetBrains Mono", ui-monospace, monospace`;
       c.lineWidth = 3;
       c.strokeStyle = 'rgba(10,8,16,0.85)';
-      c.strokeText(t.str, t.x, t.y);
       c.fillStyle = t.color;
-      c.fillText(t.str, t.x, t.y);
+      if (t.tilt) {
+        c.save();
+        c.translate(t.x, t.y); c.rotate(t.tilt);
+        c.strokeText(t.str, 0, 0); c.fillText(t.str, 0, 0);
+        c.restore();
+      } else {
+        c.strokeText(t.str, t.x, t.y);
+        c.fillText(t.str, t.x, t.y);
+      }
     }
     c.globalAlpha = 1;
   }
@@ -1148,34 +1230,35 @@ function noteStem(c, x, y, r) {
   c.quadraticCurveTo(x + r * 2, y - r * 2, x + r * 1.7, y - r * 1.2);
 }
 
-// An enemy's silhouette as a fresh path, at radius r.
-function body(c, e, r, t) {
+// An enemy's silhouette as a fresh path, at radius r (sub: added to the current path instead). Each shape starts
+// with a moveTo, so a batch of them is one path. A death pop passes a plain record (no ai).
+function body(c, e, r, t, sub = false) {
   const x = e.x, y = e.y;
-  c.beginPath();
+  if (!sub) c.beginPath();
   switch (e.shape) {
     case 'square': c.rect(x - r, y - r, r * 2, r * 2); break;
     case 'tri': {
       const a = t * 3 + e.phase;
-      for (let i = 0; i < 3; i++) { const aa = a + (i / 3) * TAU; c.lineTo(x + Math.cos(aa) * r * 1.25, y + Math.sin(aa) * r * 1.25); }
+      for (let i = 0; i < 3; i++) { const aa = a + (i / 3) * TAU; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(aa) * r * 1.25, y + Math.sin(aa) * r * 1.25); }
       c.closePath();
       break;
     }
     case 'hex': {
-      for (let i = 0; i < 6; i++) { const aa = (i / 6) * TAU + e.phase; c.lineTo(x + Math.cos(aa) * r, y + Math.sin(aa) * r); }
+      for (let i = 0; i < 6; i++) { const aa = (i / 6) * TAU + e.phase; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(aa) * r, y + Math.sin(aa) * r); }
       c.closePath();
       break;
     }
     case 'diamond': c.moveTo(x, y - r * 1.3); c.lineTo(x + r, y); c.lineTo(x, y + r * 1.3); c.lineTo(x - r, y); c.closePath(); break;
-    case 'ring': case 'snare': c.arc(x, y, r, 0, TAU); break;
+    case 'ring': case 'snare': c.moveTo(x + r, y); c.arc(x, y, r, 0, TAU); break;
     case 'stomp': {
       // A speaker cabinet: a flat-sided octagon.
-      for (let i = 0; i < 8; i++) { const aa = ((i + 0.5) / 8) * TAU; c.lineTo(x + Math.cos(aa) * r * 1.08, y + Math.sin(aa) * r * 1.08); }
+      for (let i = 0; i < 8; i++) { const aa = ((i + 0.5) / 8) * TAU; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(aa) * r * 1.08, y + Math.sin(aa) * r * 1.08); }
       c.closePath();
       break;
     }
     case 'glitch': default: {
       // A torn block: its two halves slide apart, wider for a moment after a blink.
-      const o = r * (e.ai.glitchT ? 0.55 : 0.25);
+      const o = r * (e.ai?.glitchT ? 0.55 : 0.25);
       c.rect(x - r + o, y - r * 0.8, r * 2, r * 0.8);
       c.rect(x - r - o, y, r * 2, r * 0.8);
       break;

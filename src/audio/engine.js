@@ -6,6 +6,7 @@
 import { ROLES, STEP_SEC, BEAT_SEC, BAR_SEC, ECHO_STEPS } from '../config.js';
 import { mtof, noteAtOrAbove } from '../music/theory.js';
 import * as V from './voices.js';
+import { leitNotes } from '../game/bosscues.js';
 
 const CHANNEL_LEVEL = { beat: 0.95, perc: 0.42, bass: 0.72, chords: 0.36, lead: 0.6, arp: 0.32 };
 const CHANNEL_PAN = { beat: 0, perc: 0.28, bass: 0, chords: -0.12, lead: 0.06, arp: -0.3 };
@@ -145,6 +146,8 @@ export class AudioEngine {
     // Boss cues ride the system bus through their own gain, so the last boss's sounds can be cut at once.
     this.bossBus = G(1);
     this.bossBus.connect(this.sys);
+    this.chimes = G(1);
+    this.chimes.connect(this.sys);
     this.ui = G(0.5);
     this.ui.connect(this.limiter);
 
@@ -428,15 +431,30 @@ export class AudioEngine {
   // A pickup chime: a soft FM bell, kept under the Sparkle channel.
   ping(t, midi, gain) {
     if (!this.ctx) return;
-    V.fm(this.ctx, this.sys, t, { freq: mtof(midi), ratio: 4, index: 0.6, indexDecay: 0.08, a: 0.002, d: 0.22, s: 0, r: 0.06, dur: 0.01, gain, pan: 0.18 });
+    V.fm(this.ctx, this.chimes, t, { freq: mtof(midi), ratio: 4, index: 0.6, indexDecay: 0.08, a: 0.002, d: 0.22, s: 0, r: 0.06, dur: 0.01, gain, pan: 0.18 });
+  }
+
+  // Cut every chime already scheduled: a lobby hook is scheduled whole, so a song stepped past (or a run started)
+  // would leave it ringing over the next song. The old bus fades out and later chimes ring on a fresh one.
+  cutChimes() {
+    if (!this.ctx) return;
+    const old = this.chimes;
+    old.gain.setTargetAtTime(0, this.ctx.currentTime, 0.01);
+    setTimeout(() => old.disconnect(), 100);
+    this.chimes = this.ctx.createGain();
+    this.chimes.connect(this.sys);
   }
 
   // ---- Boss cues: each boss sounds on the beats it attacks on (src/game/bosscues.js). Pitched cues use
-  // the chord root or fifth; the rest are unpitched.
+  // the chord root or fifth; the rest are unpitched. A leitmotif cue plays one beat of the boss's motif.
 
   bossCue(name, t, chord) {
     if (!this.ctx) return;
     const ctx = this.ctx, out = this.bossBus;
+    if (name.startsWith('leit:')) {
+      for (const n of leitNotes(name, chord)) V.tone(ctx, out, t + n.at * STEP_SEC, { freq: mtof(n.midi), wave: 'triangle', dur: n.d * STEP_SEC, a: 0.004, d: 0.15, s: 0.6, r: 0.08, gain: 0.07 });
+      return;
+    }
     const at = (pc, low) => mtof(noteAtOrAbove(pc, low));
     switch (name) {
       case 'swell':   // The Drone winds up for a beat on the root; its charge on the downbeat cuts it off

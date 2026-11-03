@@ -44,7 +44,8 @@ export const PEDAL_SLOTS = 4;
 export const REROLLS_PER_RUN = 3;
 export const BANISHES_PER_RUN = 3;
 
-// Fader cards, offered once the real cards run out: each push adds 8% damage to one channel, up to 5 pushes.
+// Fader cards: each push adds 8% damage to one channel, up to 5 pushes. Dealt for a channel at level 5 or remixed
+// (BALANCE.offers.fader), and for every channel once the real cards run out.
 export const FADER = { step: 0.08, max: 5 };
 
 export const WORLD = {
@@ -74,10 +75,12 @@ export const BALANCE = {
   // The player: health before pedals and chemistry, and a master dial on all damage taken (before armor).
   // area: a master dial on every attack area of the band (game.area): small areas early, earned back with Reverb
   // and the Live rule. It reaches area footprints only, not projectile range or auto-aim.
-  player: { maxHp: 120, dmgIn: 0.72, area: 0.8 },
+  player: { maxHp: 120, dmgIn: 1.1, area: 0.8 },
   // The Noise's health: hp x (1 + lin*m + quad*m^2) x sec[section] for song minute m (bosses have their own line
-  // under boss). sec: one section's toughness on top of the curve.
-  enemy: { hp: 1, lin: 0.3, quad: 0.1, sec: { chorus2: 1.25, bridge: 1.12, build: 1.08, drop: 1.12, finale: 1.2 } },
+  // under boss). sec: one section's toughness on top of the curve. The intro to Verse II keep the plain curve, so the
+  // first full Drop meter still lands in the bars before Chorus II (its Double Drop); from Chorus II on the Noise is
+  // much tougher, which is where a weak band runs out.
+  enemy: { hp: 1, lin: 0.3, quad: 0.1, sec: { chorus2: 1.6, bridge: 1.9, build: 1.9, drop: 2.2, finale: 2.7 } },
   // The horde (director.js): a floor of bodies near the view that refills every beat, so the screen never clears,
   // and a stream on top that piles up when the band cannot keep up.
   horde: {
@@ -156,8 +159,10 @@ export const BALANCE = {
     breathers: { verse2: [0, 16], bridge: [0, 16], finale: [16, 32] },   // section -> bars in it that put a heart near you
     breatherDist: 300,      // px from the player, in a random direction
   },
-  // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp). Vinyls only come from featured elites.
-  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 340 },
+  // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp), flat from level 16 on so the late sections
+  // still deal cards. Vinyls only come from featured elites. finale: notes picked up in the Finale count x finale
+  // toward levels (not the Drop), so the open-ended last section still deals cards while White Noise is up.
+  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 160, finale: 3 },
   // Notes left on the floor fade after `life` (8 bars) and blink through their last `blink` seconds.
   notes: { life: 18, blink: 2 },
   // A quiet phrase (the band plays thin): the floor x floor, the stream x stream, `upgrade` of the plain bodies come
@@ -206,23 +211,43 @@ export const BALANCE = {
     radius: 460,           // shots are erased only inside it
     kb: 260, stun: 0.6,
     perfectDmg: 1.5, perfectRadius: 1.25, phrase: 8,
+    // A Double Drop: a perfect drop on one of the song's own impact downbeats, x doubleDmg damage and x doubleRadius reach.
+    doubleDmg: 1.5, doubleRadius: 1.15,
   },
   // The song's own impacts (the band slams back in): damage is a share of the Drop's base, never staggers a boss,
   // erases enemy shots inside `erase` of the radius.
   songImpact: { damage: 0.5, radius: 380, kb: 220, stun: 0.4, erase: 0.6 },
   // Remixes are earned with Master Tapes: a non-final boss silenced in its own section drops one where it fell.
   // A tape lies `tapeLife` (8 bars), blinks through its last `tapeBlink`, and is only picked up within `tapeReach`
-  // px (magnets and the boss pull-all never move it). Spent on a channel at level 5, the remix lands on the
-  // first 4-bar line (`line`) at least `lead` bars ahead: one bar of dropout and riser, then the impact ring.
-  // Its damage is `damage` x the Drop's base x (1 + perLevel x level) x the band's damage; it erases enemy shots
-  // inside it and knocks a boss in it off the beat. While a tape is banked, the level cards of the channels nearest a
-  // remix (the highest level not remixed yet) weigh at least `tapeUp` (a level 4 card alone weighs 0.1, a level 3
-  // one 0.35; 0 turns the pull off).
+  // px (magnets and the boss pull-all never move it). Spent on a channel at `minLevel` or more (finished to level 5
+  // as it lands), the remix lands on the first 4-bar line (`line`) at least `lead` bars ahead: one bar of dropout and
+  // riser, then the impact ring. Its damage is `damage` x the Drop's base x (1 + perLevel x level) x the band's
+  // damage; it erases enemy shots inside it and knocks a boss in it off the beat. While a tape is banked, the level
+  // cards of the channels it waits for (upgrades.js tapeTarget: the highest level below minLevel, not remixed) weigh
+  // at least `tapeUp` (0 turns the pull off).
   remix: {
     tapes: 3, tapeLife: 16, tapeBlink: 2, tapeReach: 46, tapeUp: 0.85,
     lead: 2, line: 4,
     damage: 0.5, perLevel: 0.05, radius: 520, kb: 220, stun: 0.5, dur: 0.5,
+    // minLevel: the level a channel needs before a tape can remix it (every player-facing "level 3" reads it). sig: a
+    // remix's damage with its own remix pedal on the board (the Signature).
+    minLevel: 3, sig: 1.5,
   },
+  // The deal (upgrades.js buildOffers): new cards x (1 + mom x sounds of their style), level cards upA - upB x level
+  // (the top channel's at least topFloor), one level card on upSlot of screens, pedal weights (pedalNew2 once two are
+  // owned, x pedalDud when the pedal powers none of the band), swap x swapGain when it gains a tier or a crossover,
+  // x swapLoss when it loses one, x swapSide when it moves away from the band's styles, and Fader cards in the pool.
+  offers: { mom: 0.35, upA: 0.95, upB: 0.16, topFloor: 0.55, upSlot: 0.85, pedalUp: 0.8, pedalNew: 0.75, pedalNew2: 0.5, pedalDud: 0.3,
+    swap: 0.32, swapGain: 3, swapLoss: 0.25, swapSide: 0.4, fader: 0.45 },
+  // Crossovers (loadout.js crossoverOf): two styles at 2+ sounds bend their two rules, three form Fusion. pairTier and
+  // fusionTier: rule tiers a pair or Fusion adds (cap 3). grunge: the Mosh pit's reach while planted, symphonic: its
+  // growth with the phrase, film: Long throw's shrink with the phrase, lofi: combo a clean planted beat adds,
+  // chipmetal: the share of the combo a hit leaves.
+  crossover: { pairTier: 0, fusionTier: 1, grunge: 2, symphonic: 1.5, film: 1, lofi: 6, chipmetal: 0.5 },
+  // Moments: a kill run when one channel silences at least max(multiKill, multiShare x the section's floor) bodies in
+  // a beat, once a bar (32 skilled rotated runs after the round 1 retune, median per section: 0 through Verse II, 2-5
+  // from Chorus II on); the camera leans in while a boss you can still silence is under bossLean of its health.
+  feel: { multiKill: 19, multiShare: 0.12, bossLean: 0.05 },
 };
 
 // The Drop's numbers (kept as their own export for the code that already reads DROP).

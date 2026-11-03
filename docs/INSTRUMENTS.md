@@ -85,7 +85,11 @@ A note is `{ s, v, k, ct | sc | chord, o, d }`:
 - `k` optional kind string for unpitched or multi-sound instruments (`'kick'`, `'snare'`, `'open'`).
 - Pitch, pick one: `ct: n` the n-th chord tone counting up from the chord root at or above `low`
   (0 root, 1 third, 2 fifth, 3 next root, negative goes down); `sc: n` the n-th scale step from the
-  chord root (0 root, 2 third, 4 fifth, 7 octave); `chord: n` an n-note voice-led voicing near `center`.
+  chord root (0 root, 2 third, 4 fifth, 7 octave); `chord: n` an n-note voice-led voicing near `center`;
+  `kd: n` the n-th degree of the key counting from the tonic at or above `low` (0 tonic, 2 third, 4 fifth,
+  7 octave; over the major V chord, 6 is the leading tone). A `kd` note is a tune written as heard: it does
+  not move with the chord and is never settled onto it, so it belongs only over the chords it was written
+  for (the song quotes in `src/music/song.js`, which `check.mjs --audit` checks for folds and rubs).
 - `o` octave shift for this note (added to `low` / `center`).
 - `d` duration in steps (default 1). Arrives as `note.dur` in seconds.
 
@@ -215,12 +219,30 @@ A style is also a way to move. Two, four and six sounds of one style turn its ru
 | Heavy | Mosh pit (`near`) | hits on enemies reaching inside 140 px | +20 / 40 / 65% damage |
 | Live | In the pocket (`still`) | planted: moved under 24 px since the last beat | +12 / 24 / 40% area, heal 0.5 / 1 / 1.5 a planted beat after a bar without a hit |
 | 8-Bit | Combo streak (`combo`) | every beat without a hit (up to 16), reset by a hit | up to +25 / 50 / 80% damage |
-| Orchestra | Ride the swell (`swell`) | late in each 8-bar phrase (weak right after a fill, strong at the next) | x(1 ± 25 / 50 / 80%), mean 1 |
+| Orchestra | Ride the swell (`swell`) | late in each 8-bar phrase (x1 right after a fill, the full bonus at the next) | up to +20 / 35 / 50% damage |
 
 `g.stats.rules` holds the totals (`far, near, stillHeal, stillArea, combo, swell`, and `on`), `g.rules` the live
 state (`combo, planted, phrase, lastBeatX, lastBeatY`), and `g.lastHurtAt` the time of the last hit taken.
 An instrument may read them (an Orchestra sound that saves its big hit for `g.rules.phrase` near 1), but never
-multiplies its damage by them: `g.hit()` already does. Fusion (2+ sounds in three styles) is a genre name only.
+multiplies its damage by them: `g.hit()` already does. Read the live reach and swell through `g.nearR()`,
+`g.farR()` and `g.swellAt()`, never `RULES` directly: a crossover bends them.
+
+Exactly two styles with 2+ sounds each form their crossover (`crossoverOf`, the genre name too); it bends their two
+rules (pure math in `game.js`, numbers in `BALANCE.crossover`, sentences in `CROSS_TEXT`). Three styles at 2+ form
+Fusion, which plays every active rule one tier up (`ruleTiers`, cap 3) and bends nothing.
+
+| Crossover | Styles | What it bends |
+|---|---|---|
+| Industrial | Synth + Heavy | Mosh pit reaches out to Long throw's 240 px |
+| Grunge | Heavy + Live | planted, the Mosh pit's reach doubles |
+| Symphonic metal | Heavy + Orchestra | the Mosh pit's reach grows with the phrase, to double at the fill |
+| Indietronica | Synth + Live | planted, Long throw starts at the Mosh pit's 140 px |
+| Film score | Synth + Orchestra | Long throw closes in with the phrase, to 60% at the fill |
+| Electro chip | Synth + 8-Bit | at a full combo every hit counts as far |
+| Chip metal | Heavy + 8-Bit | a hit halves the combo instead of resetting it |
+| Lo-fi chip | Live + 8-Bit | a clean planted beat adds 2 to the combo |
+| Chamber pop | Live + Orchestra | planted, the swell holds at its peak |
+| Boss theme | 8-Bit + Orchestra | the fill's downbeat fills the combo |
 
 Every attack must be launched from `fire()` by a note. Never deal damage on a timer that is not a
 note. Persistent things (orbiters, mines) may exist between notes, but they strike on notes.
@@ -231,14 +253,17 @@ Every instrument has one remix: a new part for its channel, a new timbre and a b
 never dealt on a level-up. A non-final boss silenced inside its own section drops a **Master Tape** where it
 fell (at most three a run, `BALANCE.remix`). The tape lies 8 bars, blinks through its last 2 s and is never
 pulled in by magnets or the boss's pull-all, so you walk into the fight to get it; the boss bar's thin clock
-line shows how many bars of its section are left. A tape spends on a channel at level 5 that is not remixed yet:
+line shows how many bars of its section are left. A tape spends on a channel at `BALANCE.remix.minLevel` (3) or
+more that is not remixed yet, and the remix finishes it to level 5 as it lands:
 
-- none ready: it is banked (a gold reel by the mixer) and spent the moment a channel reaches level 5;
+- none ready: it is banked (a gold reel by the mixer and on the strips it could finish) and spent the moment a
+  channel reaches that level;
 - one ready: that remix is queued;
 - two or more: the run pauses on gold remix cards (name, glyph in a vinyl, the remix's step lane, auditioned on
   hover or hold; no reroll, banish or skip). The pick is queued.
 
-The paired pedal is not a requirement any more. It is what opens up on the channel's strip once the remix lands.
+The paired pedal is not a requirement any more. It is what opens up on the channel's strip once the remix lands,
+and the remix's Signature: with that pedal on the board the remix deals `BALANCE.remix.sig` (`g.dmg`).
 
 **The moment.** A queued remix lands on the first 4-bar line at least two bars ahead that is not a stop bar,
 the player's Drop (its build or impact), a Build-Up roll bar, an arrangement impact or a breakdown's first bar
@@ -330,10 +355,11 @@ Every sound should also hurt bosses. Sounds that aim somewhere other than at the
 on a grid, at a crowd, along your facing) send the bar's first hit (step 0) at a boss in range with
 `g.bossInRange`, a visible rule instead of a hidden boss multiplier. Solo at level 5 against The Drone, every sound lands 1.9k to 2.1k damage in its chorus.
 
-A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>`:
+A remix is compared with its level 5, paired pedal at 3 on both sides, by adding `remix=<id>`, with `sig=0` on
+both sides so the Signature never counts (a level 5 run can win a tape and remix late):
 
 ```
-node tools/sim.mjs "speed=16&bot=1&minutes=2.2&god=1&solo=1&start=<id>&give=<id>:5&pedals=<pedal>:3&remix=<id>&seed=7" --summary
+node tools/sim.mjs "speed=16&bot=1&minutes=2.2&god=1&solo=1&start=<id>&give=<id>:5&pedals=<pedal>:3&remix=<id>&sig=0&seed=7" --summary
 ```
 
 The spawn supply runs out before the strongest sounds do, so read kills and the boss

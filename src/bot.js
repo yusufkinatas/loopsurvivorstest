@@ -1,5 +1,7 @@
 import { rng } from './util.js';
-import { RULES } from './game/loadout.js';
+import { BALANCE } from './config.js';
+import { bandMove } from './game/upgrades.js';
+import { pedalFits } from './content/pedals.js';
 
 // A simple autopilot for headless balance runs (?sim=1&bot=1) and the attract demo.
 // It plays roughly like a careful but ordinary human: a few times a second it tries a handful of
@@ -56,6 +58,7 @@ function plan(g) {
   // The style rules it plays (see RULES_ON). On a Combo streak it watches more shots and gives them a wider berth.
   const rules = RULES_ON ? g.stats.rules : null;
   const mosh = rules?.near > 0, kite = rules?.far > 0, plant = rules?.stillHeal > 0, careful = rules?.combo > 0;
+  const nearR = g.nearR(), farR = g.farR();   // the rules' reach as the game reads it
   const focus = careful ? FOCUS + 3 : FOCUS, berth = careful ? 30 : 14, missW = careful ? 2.2 : 1.2, shotW = careful ? 1.4 : 1;
 
   // What it is watching: the closest shots that can reach it within the horizon, enemies close enough to touch.
@@ -136,7 +139,7 @@ function plan(g) {
     }
     if (arr.length > 60) { arr.sort((a, b) => a[0] - b[0]); arr.length = 60; }
     crowdNear = arr.map((x) => x[1]);
-    for (const e of crowdNear) if (Math.hypot(e.x - p.x, e.y - p.y) - e.r < RULES.near) closeNow++;
+    for (const e of crowdNear) if (Math.hypot(e.x - p.x, e.y - p.y) - e.r < nearR) closeNow++;
   }
   // How close it walks in before it stops closing on the nearest enemy.
   const approach = mosh ? 110 : kite ? 280 : 170;
@@ -221,8 +224,8 @@ function plan(g) {
       let inNear = 0, inFar = 0;
       for (const e of crowdNear) {
         const gap = Math.hypot(e.x - endX, e.y - endY) - e.r;
-        if (gap < RULES.near) inNear++;
-        if (gap < RULES.far) inFar++;
+        if (gap < nearR) inNear++;
+        if (gap < farR) inFar++;
       }
       if (mosh) cost -= 0.1 * Math.min(inNear, 10);
       if (kite) cost += 0.08 * Math.min(inFar, 12);
@@ -265,38 +268,51 @@ function focus(g) {
   return g.loadout.instruments().slice().sort((a, b) => b.level - a.level || b.dmg - a.dmg);
 }
 
-// Card choice for autopilot runs. 'smart' fills the band, then plays a focused build: once four channels are
-// filled, level cards on its two highest channels come first (the third next), so a level 5 is ready for a Master
-// Tape by the second boss. 'random' is uniform. A tape's remix cards (all 'remix'): the channel with the most damage.
+// Card choice for autopilot runs. 'smart' fills the band toward the styles it plays (rule tiers and crossovers
+// first), then plays a focused build: once four channels are filled, level cards on its two highest channels come
+// first (the third next), and a banked Master Tape pulls the card that brings a channel to its level. 'random' is
+// uniform. A tape's remix cards (all 'remix'): the channel with the most damage, counting the Signature where its
+// pedal is already on the board.
 export function autopick(offers, g, mode = 'smart') {
   if (offers.length && offers.every((o) => o.kind === 'remix')) {
+    const worth = (o) => (o.inst?.dmg || 0) * (o.inst && g.loadout.pedal(o.inst.def.remix.pedal) ? BALANCE.remix.sig : 1);
     let best = 0;
-    offers.forEach((o, i) => { if ((o.inst?.dmg || 0) > (offers[best].inst?.dmg || 0)) best = i; });
+    offers.forEach((o, i) => { if (worth(o) > worth(offers[best])) best = i; });
     return mode === 'random' ? Math.floor(rng() * offers.length) : best;
   }
   if (mode === 'random') return Math.floor(rng() * offers.length);
   if (mode === 'first') return 0;
   const top = g.loadout.filled() >= 4 ? focus(g) : null;
+  const counts = g.loadout.styleCounts();
   let best = 0, bs = -Infinity;
   offers.forEach((o, i) => {
     let s = 0;
     switch (o.kind) {
-      case 'new': s = 6 + (g.loadout.filled() < 3 ? 2 : 0); break;
+      case 'new': s = 6 + (g.loadout.filled() < 3 ? 2 : 0) + 0.5 * counts[o.def.style] + (bandMove(counts, o.def.style) > 0 ? 1 : 0); break;
       case 'up': {
         const rank = top ? top.indexOf(o.inst) : -1;
         s = !top ? 4 + o.level * 0.6 : rank >= 0 && rank < 2 ? 7.5 + o.level * 0.3 : rank === 2 ? 6.2 : 3 + o.level * 0.2;
-        if (o.level >= 5 && g.tapes?.banked > 0) s = 9.5;   // a banked Master Tape is waiting for this level 5
+        if (o.level >= BALANCE.remix.minLevel && g.tapes?.banked > 0) s = 9.5;   // a banked Master Tape is waiting for this level
         break;
       }
       case 'swap': {
-        const c = g.loadout.styleCounts();
-        s = c[o.def.style] >= c[o.from.def.style] ? 2.5 : 0.5;
+        const m = bandMove(counts, o.def.style, o.from.def.style);
+        s = m > 0 ? 5.5 : m < 0 || counts[o.def.style] < counts[o.from.def.style] ? 0.5 : 2.5;
         break;
       }
-      case 'pedal-new': s = 3.5; break;
-      case 'pedal-up': s = 3.2; break;
+      case 'pedal-new':
+      case 'pedal-up': {
+        // By the band's sounds it powers (pedals.js fits), more for a remix partner (a remixed channel or one a tape
+        // can remix: a Signature). Compressor and Auto-Wah power the player, not a sound: flat, partner aside.
+        const band = g.loadout.instruments();
+        const lit = band.filter((i) => pedalFits(o.pedal, i)).length;
+        const partner = band.some((i) => i.def.remix.pedal === o.pedal.id && (i.remix || i.level >= BALANCE.remix.minLevel));
+        if (o.kind === 'pedal-up') s = lit >= 2 || partner ? 3.2 : o.pedal.fits ? 1.5 : 2.8;
+        else s = (o.pedal.fits ? 2.6 + 0.35 * lit : 2.8) + (partner ? 2 : 0);
+        break;
+      }
       case 'remix': s = 9; break;
-      case 'fader': s = 3; break;
+      case 'fader': { const rank = (top || focus(g)).indexOf(o.inst); s = rank >= 0 && rank < 2 ? 5.5 : 3; break; }
       default: s = 0.5;
     }
     s += rng() * 0.8;

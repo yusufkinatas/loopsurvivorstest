@@ -5,19 +5,28 @@
 // song moves, and an auditioned card always plays its plain part.
 
 import { STEPS_PER_BAR, STEP_SEC, BAR_SEC, ROLE_HIGH } from '../config.js';
-import { chordTone, scaleTone, voiceChord, mtof } from './theory.js';
+import { chordTone, scaleTone, keyTone, voiceChord, mtof } from './theory.js';
 import { clamp } from '../util.js';
+import { GROOVES, STYLE_GROOVE, CROSS_GROOVE, FIGURES } from './grooves.js';
+import { crossoverOf, emptyCounts } from '../game/loadout.js';
+import { QUOTES } from './song.js';
 
 const NO_CUES = [];
 const NONE = Object.freeze([]);
 // Beat fill velocities on steps 12-15: a run on a snare, clap or rim, or three kicks.
 const FILL_V = { hit: [0.55, 0.65, 0.8, 0.95], kick: [0.7, 0, 0.8, 0.9] };
-// Pickup chimes climb the chord and come back down while pickups keep coming.
+// Pickup chimes climb the chord and come back down while pickups keep coming (a song with a hook spells it).
 const CLIMB = [0, 1, 2, 3, 4, 5, 4, 3, 2, 1];
 
 // Pitch of a pickup chime: the idx-th chord tone from G5 up, kept under the Sparkle ceiling.
 export function chimeMidi(chord, idx) {
   let m = chordTone(chord, idx, 79);
+  while (m > ROLE_HIGH.arp) m -= 12;
+  return m;
+}
+// Pitch of a hook chime: key degree kd from D6 up, folded down by octaves (so it stays in key) under the ceiling.
+export function hookMidi(chord, kd) {
+  let m = keyTone(chord, kd, 74);
   while (m > ROLE_HIGH.arp) m -= 12;
   return m;
 }
@@ -32,7 +41,7 @@ export function chimeMidi(chord, idx) {
 // gets s = the pattern step it sounds on ((bar * 16 + sib) % P), so s === 0 is still the pattern's downbeat.
 const at = (bar, sib, P) => (bar * STEPS_PER_BAR + sib) % P;
 const moved = (ns, s, fn) => (ns ? ns.map((n) => fn({ ...n, s })) : null);
-const pitched = (n) => n.ct !== undefined || n.sc !== undefined || !!n.chord;
+const pitched = (n) => n.ct !== undefined || n.sc !== undefined || n.kd !== undefined || !!n.chord;
 
 export const TRANSFORMS = {
   // The part as written.
@@ -69,11 +78,192 @@ export const TRANSFORMS = {
     return n;
   }),
 };
+
+// Grooves and figures (src/music/grooves.js) move the part's own notes onto their hits, bar by bar, so you hear the
+// groove or the figure in your band's sounds. A sound's notes take its row's strongest hits (a hit ranks by its
+// velocity in the row, then by where it falls: step 0, beat 3, the other beats, the 8ths; of near-equal hits, the one
+// farthest from those taken, so a sparse part spreads over the bar), its loudest notes on the strongest of them. A busy
+// part's extra notes fire with a hit they share (a busy line's take the free steps), so every attack of the part fires.
+const rank = (sib, v) => v + (sib ? (sib === 8 ? 1.25 : sib % 4 ? (sib % 2 ? 0 : 0.5) : 1) : 2);
+// t of the slots [{ sib, r }] off the steps taken (and taking them), strongest first.
+function pick(slots, t, taken) {
+  const left = slots.filter((sl) => !taken.has(sl.sib)), out = [];
+  const gap = (sl) => (taken.size ? Math.min(...[...taken].map((s) => Math.abs(s - sl.sib))) : -sl.sib);
+  while (out.length < t && left.length) {
+    const top = Math.max(...left.map((sl) => sl.r));
+    let best = null;
+    for (const sl of left) if (sl.r > top - 0.2 && (!best || gap(sl) > gap(best) || (gap(sl) === gap(best) && sl.sib > best.sib))) best = sl;
+    left.splice(left.indexOf(best), 1);
+    taken.add(best.sib);
+    out.push(best);
+  }
+  return out;
+}
+// One bar of pools [{ ns: one sound's notes in bar order, slots: its hits, spill: the hits it takes once those are full,
+// set(note, slot): the note played }] into out by step of the bar. On a part that plays two notes at once, a sound's
+// notes, loudest first, take its strongest hits and those beyond every hit fire with one of them. On a part that never
+// does (one drummer, a kettle, a line under a figure) a step holds one note, the notes keep their order of sounds,
+// lengths and pitches over the hits, and those beyond every hit fire with theirs; of one sound and length the loudest
+// velocities go to the strongest hits (a hit's first note before any it shares), so the groove's accents are heard. A
+// note under a louder one of its sound fires without a voice (mute), and the extra notes stay off step 0, where every
+// hit is the bar's first (a boss's, a boom).
+const louder = (a, b) => b.v - a.v || b.r - a.r || a.sib - b.sib;   // the row's accents first, then the stronger place
+function fitBar(pools, stack, out) {
+  const all = new Set(), plays = [];
+  const fits = pools.filter((p) => p.ns.length).map((p) => ({ p, ns: !stack ? p.ns : p.ns.slice().sort((a, b) => (b.v ?? 1) - (a.v ?? 1)), taken: stack ? new Set() : all, got: [] }));
+  for (const key of ['slots', 'spill']) for (const f of fits) f.got.push(...pick(f.p[key] || NONE, f.ns.length - f.got.length, f.taken));
+  for (const f of fits) {
+    const got = f.got.length ? f.got : pick([...f.p.slots, ...(f.p.spill || NONE)], 1, new Set()), n = f.ns.length;
+    if (stack) {
+      const pile = got.length > 1 ? got.filter((sl) => sl.sib) : got;
+      got.sort(louder);
+      f.ns.forEach((x, i) => plays.push([i < got.length ? got[i] : pile[(i - got.length) % pile.length], x, f.p.set]));
+      continue;
+    }
+    got.sort((a, b) => a.sib - b.sib);
+    const one = got.length > 1 && !got[0].sib ? 1 : 0, ns = f.ns.slice(), key = (x) => `${x.k} ${x.d ?? 1}`;
+    const slot = ns.map((x, i) => got[i < one ? 0 : one + Math.floor(((i - one) * (got.length - one)) / (n - one))]);
+    for (const k of new Set(ns.map(key))) {
+      const ix = ns.flatMap((x, i) => (key(x) === k ? [i] : [])), c = new Map(), nth = {};
+      for (const i of ix) c.set(slot[i], (nth[i] = c.get(slot[i]) ?? 0) + 1);
+      const vs = ix.map((i) => f.ns[i].v).sort((a, b) => (b ?? 1) - (a ?? 1));
+      ix.sort((a, b) => nth[a] - nth[b] || louder(slot[a], slot[b])).forEach((i, j) => {
+        if (vs[j] !== ns[i].v) ns[i] = { ...ns[i], v: vs[j] };
+      });
+    }
+    ns.forEach((x, i) => plays.push([slot[i], x, f.p.set]));
+  }
+  for (const [sl, n, set] of plays) (out[sl.sib] ||= []).push(set ? set(n, sl) : n);
+  for (const on of out) if (on) on.forEach((x, i) => {
+    if (on.some((y, j) => j !== i && y.k === x.k && ((y.v ?? 1) > (x.v ?? 1) || ((y.v ?? 1) === (x.v ?? 1) && j < i)))) on[i] = { ...x, mute: true };
+  });
+}
+// A part's notes re-timed bar by bar: pools(the notes of bar b, b) -> the pools of fitBar. Cached on the part, for as
+// many bars as it takes the part and every 1, 2 and 4-bar row or figure to come round together.
+function retime(by, P, tf, pools) {
+  const c = (by._re ||= {});
+  if (!c[tf]) {
+    let L = 4;
+    while (L % (P / STEPS_PER_BAR)) L += 4;
+    const t = (c[tf] = []), { stack } = kindsOf(by);
+    for (let b = 0; b < L; b++) {
+      const ns = [], out = [];
+      for (let sib = 0; sib < STEPS_PER_BAR; sib++) ns.push(...(by[at(b, sib, P)] || NONE));
+      fitBar(pools(ns, b), stack, out);
+      for (let sib = 0; sib < STEPS_PER_BAR; sib++) t.push(out[sib]?.map((n) => ({ ...n, s: at(b, sib, P) })) || null);
+    }
+  }
+  return c[tf];
+}
+// A part's main sound K (a Beat part's kick, else its most played); drum: no note has a pitch; line: every note is
+// one pitch (no chord); beat: it has a kick; stack: it plays two notes on a step somewhere.
+const kindsOf = (by) => by._kinds ||= (() => {
+  const n = {};
+  let drum = true, line = true, stack = false;
+  for (const ns of by) for (const x of ns || NONE) {
+    if (pitched(x)) drum = false;
+    if (!pitched(x) || x.chord) line = false;
+    if (ns.length > 1) stack = true;
+    n[x.k] = (n[x.k] || 0) + 1;
+  }
+  return { drum, line, stack, beat: !!n.kick, K: n.kick ? 'kick' : Object.keys(n).sort((a, b) => n[b] - n[a])[0] };
+})();
+// A grid row ('X... o...', '|' between bars) as a velocity (0 a rest) per step, and its slots in bar b.
+const VEL = { X: 1, x: 0.8, o: 0.6, g: 0.4 };
+const row = (str) => [...str.replace(/[\s|]/g, '')].map((c) => VEL[c] || 0);
+const slotsIn = (r, b) => {
+  const out = [];
+  for (let sib = 0; sib < STEPS_PER_BAR; sib++) {
+    const v = r[(b * STEPS_PER_BAR + sib) % r.length];
+    if (v) out.push({ sib, v, r: rank(sib, v) });
+  }
+  return out;
+};
+// A groove re-times a drum part (Beat rows on a part with a kick, else Groove rows): its main sound takes the K row,
+// its other sounds the S row, and once that is full the K row's other hits (so a second sound keeps its job, the
+// Ride's bell planting as many cymbals); a Groove bar of one sound plays both rows (Bolero's ruffs on a lone snare).
+// A pitched part plays as written.
+for (const [id, G] of Object.entries(GROOVES)) {
+  const [pk, ps] = G.perc.map(row);
+  const rows = { beat: G.beat.map(row), perc: [pk, ps], one: [pk.map((v, i) => Math.max(v, ps[i] || 0)), []] };
+  TRANSFORMS['g_' + id] = (by, P, bar, sib) => {
+    const p = kindsOf(by);
+    if (!p.drum) return by[at(bar, sib, P)] || null;
+    const t = retime(by, P, 'g_' + id, (ns, b) => {
+      const rest = ns.filter((n) => n.k !== p.K);
+      const [K, S] = rows[p.beat ? 'beat' : rest.length ? 'perc' : 'one'].map((r) => slotsIn(r, b)), kOnly = K.filter((k) => !S.some((s) => s.sib === k.sib));
+      const sep = !p.stack && rest.length && kOnly.length;
+      return [{ ns: ns.filter((n) => n.k === p.K), slots: sep ? kOnly : K, spill: (sep || !p.beat) && S }, { ns: rest, slots: S, spill: kOnly }];
+    });
+    return t[(bar * STEPS_PER_BAR + sib) % t.length];
+  };
+}
+// A figure plays its chord tones on a part of single pitches (any other part plays as written): the part's notes take
+// its hits in their own order, each sounding the figure's tone in its own octave (a note at chord tone 3 or higher
+// sounds it an octave up), so the figure is heard in the register the part played. It plays at full, half or quarter
+// speed, whichever has its sparsest bar nearest the part's notes a bar (an Alberti on quarters is still an Alberti),
+// so most of it sounds.
+for (const [id, F] of Object.entries(FIGURES)) {
+  const few = (z) => Math.min(...Array.from({ length: z }, (_, b) => F.filter((n) => Math.floor((n.s * z) / STEPS_PER_BAR) === b).length));
+  const speeds = [1, 2, 4].map((z) => [z, few(z)]);
+  const set = (n, sl) => {
+    const o = (sl.o || 0) + ((n.ct ?? 0) >= 3 ? 1 : 0);
+    return { v: n.v, ...(n.d && { d: n.d }), ...(n.k && { k: n.k }), ct: sl.ct, ...(o && { o }) };
+  };
+  TRANSFORMS['f_' + id] = (by, P, bar, sib) => {
+    const p = kindsOf(by);
+    if (!p.line) return by[at(bar, sib, P)] || null;
+    const t = retime(by, P, 'f_' + id, (ns, b) => {
+      const per = (by.reduce((n, x) => n + (x?.length || 0), 0) * STEPS_PER_BAR) / P, z = speeds.reduce((a, c) => (Math.abs(Math.log(c[1] / per)) < Math.abs(Math.log(a[1] / per)) ? c : a))[0];
+      const slots = F.filter((n) => Math.floor((n.s * z) / STEPS_PER_BAR) === b % z).map((n) => {
+        const sib = (n.s * z) % STEPS_PER_BAR;
+        return { sib, v: n.v, r: rank(sib, n.v), ct: n.ct, o: n.o };
+      });
+      // A busy part's extra notes take the free steps, holding the figure's last pitch (a line plays one note at a time).
+      const spill = [];
+      for (let sib = 0; sib < STEPS_PER_BAR; sib++) if (!slots.some((sl) => sl.sib === sib)) spill.push({ ...(slots.findLast((sl) => sl.sib < sib) || slots[0]), sib, v: 0, r: rank(sib, 0) });
+      return [{ ns, slots, spill, set }];
+    });
+    return t[(bar * STEPS_PER_BAR + sib) % t.length];
+  };
+}
+// Song quotes (src/music/song.js QUOTES): q_<id> traces the tune with the part's own notes. Each note of a single
+// pitch takes the pitch of the tune note last struck (a key degree) and keeps its step, sound, velocity and length, so
+// the part hits as hard as its own. Where the part is silent through a tune note (none of its notes starts in it and no
+// held note rings over it), one note of its first kind at its mean velocity strikes the tune note on the tune's step,
+// no longer than the tune note or that first note, and _notes weighs the phrase back to the part's velocity. So every
+// tune note sounds except those under a held note, which keeps its length (a French Horn blast, a Shred swing, a Saw
+// Lead scream). A note rings its own length unless that tune note is a half step above a tone of the bar's chord (the
+// quote's held): then no longer than 3 steps or the tune note, so it never holds a rub. Where an attack aims by pitch
+// (Saw Lead, Square Lead, Arp Synth, Coin Arp, Horn and Shred), it follows the tune; Harp plucks its own part's strings.
+// A quote counts from its phrase's downbeat (pb, the bar in the 8-bar phrase, so a radio edit's excerpt starts it there
+// too). Notes with no single pitch (drums, chord voicings) play as written.
+const HELD = 3;   // steps: a held note, as the French Horn, Shred and Saw Lead count it
+const single = (n) => n.ct !== undefined || n.sc !== undefined || n.kd !== undefined;
+const firstNote = (by) => by._q1 ||= (() => {
+  const ns = by.flat().filter(single);
+  return { k: ns[0]?.k, d: ns[0]?.d || 1, v: ns.reduce((a, n) => a + (n.v ?? 1), 0) / (ns.length || 1) };
+})();
+for (const [id, q] of Object.entries(QUOTES)) {
+  TRANSFORMS['q_' + id] = (by, P, bar, sib, pb = bar & 7) => {
+    const i = (pb * STEPS_PER_BAR + sib) % q.steps, s = at(bar, sib, P), t = q.last[i], end = q.next[i] - i;
+    const len = (d) => (q.held[i] && sib + d <= STEPS_PER_BAR ? d : Math.min(d, Math.max(3, t.s + t.d - i)));
+    const out = moved(by[s], s, (n) => (single(n) ? { s, v: n.v, k: n.k, kd: t.kd, d: len(n.d || 1) } : n));
+    const m = firstNote(by);
+    if (!q.by[i] || !m.v) return out;
+    for (let k = 0; k < end; k++) if (by[at(bar, sib + k, P)]?.some(single)) return out;
+    for (let k = 1; k <= Math.min(i, STEPS_PER_BAR); k++) {
+      if (by[(((bar * STEPS_PER_BAR + sib - k) % P) + P) % P]?.some((n) => single(n) && (n.d || 1) > k && n.d >= HELD)) return out;
+    }
+    return [...(out || NONE), { s, v: m.v, ...(m.k && { k: m.k }), kd: t.kd, d: Math.min(end, len(Math.min(t.d, m.d))) }];
+  };
+}
+
 // lvN plays level N's authored part (levels are supersets, so it is the simpler part), never above the
 // channel's own level and with the channel's own stats. On a remix's own pattern it plays 'sparse'.
 const LV = { lv1: 1, lv2: 2, lv3: 3, lv4: 4, lv5: 5 };
 // Every texture name a chart may use ('solo' is the featured channel's, chosen by the sequencer).
-export const TEXTURE_NAMES = [...Object.keys(TRANSFORMS), ...Object.keys(LV)];
+export const TEXTURE_NAMES = [...Object.keys(TRANSFORMS), ...Object.keys(LV), 'groove'];
 
 const FULL_TEX = Object.freeze({ tf: 'full', w: 1 });
 const SPARSE_TEX = Object.freeze({ tf: 'sparse', w: 1 });
@@ -109,6 +299,11 @@ function velocity(by, P, tf, bars) {
   for (let bar = 0; bar < bars; bar++) for (let sib = 0; sib < STEPS_PER_BAR; sib++) for (const n of TRANSFORMS[tf](by, P, bar, sib) || NONE) v += n.v ?? 1;
   return v;
 }
+// How hard a part plays texture tf against its full part (velocity over a phrase). Cached on the part.
+function vsFull(part, P, tf) {
+  const c = (part._vs ||= {});
+  return (c[tf] ??= velocity(part._byStep, P, tf, 8) / velocity(part._byStep, P, 'full', 8));
+}
 // A solo is the part doubled up when it is sparse (8 notes a bar or fewer), else the full part. Its
 // weight brings the channel to `gain` times its full part's damage. Cached on the part.
 function soloShape(part, P) {
@@ -123,7 +318,7 @@ function soloShape(part, P) {
   return part._solo;
 }
 
-function pickFeatured(band) {
+export function pickFeatured(band) {
   let best = null, bk = -Infinity;
   for (const i of band) {
     if (!i?.def) continue;
@@ -144,6 +339,7 @@ export class Sequencer {
     // At the start of a solo phrase: the instrument that takes it, or { inst, gain } (gain: how hard it
     // hits against its full part, SOLO_GAIN by default), or null to let the sequencer pick.
     this.getFeatured = () => null;
+    this.forceTex = null;   // role -> a transform played in place of each of its 'full' phrases (sims: tex=)
     this._errors = new Set();
     this.reset(null);
   }
@@ -182,6 +378,10 @@ export class Sequencer {
     this._impactBar = -1;      // the bar whose downbeat had an impact (the desk opens up for that bar)
     this._vamped = false;      // a held downbeat set the desk to the vamp: the first step the song moves again resets it
     this._w = 1;
+    this.heard = { quote: 0, groove: 0 };   // live notes played from a quote and from a groove off the part's loop (sim coverage)
+    this._gBar = -1;           // the bar the band's groove list was read for (see _groove)
+    this._qBar = -1;           // the bar _qRole was looked up for
+    this._qRole = null;        // the role that plays a chorus quote in that bar
   }
 
   start(atTime) {
@@ -236,7 +436,7 @@ export class Sequencer {
   }
 
   // Stop-time: on the next downbeat that is not held, every channel plays its step-0 notes and rests
-  // until step `len`. home: that bar's chord becomes i (of the lifted key), the song's last chord.
+  // until step `len`. home: that bar's chord becomes the song's home chord (of the lifted key), its last chord.
   // It never shares a bar with the player's Drop: a queued Drop waits out the stop bar (see _step), and a
   // stop asked for while a Drop builds would land on its impact, the moment itself, so it is dropped. The
   // song's ending is kept: its silent bar follows the impact.
@@ -326,7 +526,7 @@ export class Sequencer {
     let swept = false, runIn = false, rolling = false;   // what this downbeat already plays into the next one
     const audioOn = this._audioOn();
     const A = audioOn ? this.audio : null;
-    const band = this.getInstruments();
+    let band = this.getInstruments();
     if (!this.pos) this.pos = this.song.position(this.bar);
 
     if (sib === 0) {
@@ -335,6 +535,7 @@ export class Sequencer {
         this.bar++;
         this.onBar?.(this.bar);
         if (!this.running) return;   // the hook ended playback
+        if (this.onBar) band = this.getInstruments();   // or changed the band (the radio edit's next section): its downbeat is theirs
         const was = this.pos.arr;
         const pos = this.pos = this.song.position(this.bar);
         const arr = pos.arr;
@@ -398,7 +599,7 @@ export class Sequencer {
     // The arrangement applies to the band while the song moves, never to the vamp or an auditioned card.
     const arr = this.hold ? null : pos.arr;
     const stopped = arr && this.lastStop?.bar === this.bar;
-    const chord = stopped && this.lastStop.home ? this.song.chord(0, pos.section.lift) : pos.chord;
+    const chord = stopped && this.lastStop.home ? this.song.chord(this.song.home, pos.section.lift) : pos.chord;
     // One hit per downbeat: an impact (it has its own crash) over stop-time over a plain crash.
     if (A && impactAt === null) { if (landed) A.silenced(t, chord.rootPc); else if (crash) A.crash(t, crash); }
     if (sib === 0) {
@@ -465,17 +666,29 @@ export class Sequencer {
   }
 
   // The texture a channel plays in a bar of the arrangement: the chart's, with the band's rules. A solo
-  // phrase's featured channel plays its solo; a tacet channel plays 'sparse' while the band has 3 channels
-  // or fewer, and a remixed channel never goes dark. peek: never ask the game (display only).
+  // phrase's featured channel plays its solo; a phrase with a song quote hands it to the band's Lead, else its
+  // Sparkle; a tacet channel plays 'sparse' while the band has 3 channels or fewer, and a remixed channel never
+  // goes dark. peek: never ask the game (display only).
   texOf(inst, arr, band = this.getInstruments().length, bar = this.bar, peek = false) {
     const role = inst.def.role;
     if (arr.solo) {
       const f = this._featured(arr, bar, peek);
-      if (f?.role === role) return this._soloTex(inst, f.gain);
-    }
+      if (f?.role === role) return this._soloTex(inst, f.gain, arr.quote);
+    } else if (arr.quote && role === this._quoteRole(bar)) return { tf: arr.quote, w: 1 };
     const t = arr.tex?.[role] || FULL_TEX;
     if (t.tf === 'out' && (inst.remix || band <= 3)) return SPARSE_TEX;
+    if (t.tf === 'full' && this.forceTex?.[role]) return { ...t, tf: this.forceTex[role] };
     return t;
+  }
+
+  // The role that plays a chorus quote: the band's Lead, else its Sparkle (looked up once a bar).
+  _quoteRole(bar) {
+    if (this._qBar !== bar) {
+      const band = this.getInstruments();
+      this._qBar = bar;
+      this._qRole = band.some((i) => i.def.role === 'lead') ? 'lead' : band.some((i) => i.def.role === 'arp') ? 'arp' : null;
+    }
+    return this._qRole;
   }
 
   // The channel featured in the solo phrase that bar is in: asked of the game once, on the phrase's first bar.
@@ -490,9 +703,11 @@ export class Sequencer {
     return out;
   }
 
-  _soloTex(inst, gain) {
+  // A solo phrase with a song quote: a featured Lead or Sparkle traces the tune, gain times as hard as its full part.
+  _soloTex(inst, gain, quote = null) {
     const part = partOf(inst);
     if (!part?._byStep) return FULL_TEX;
+    if (quote && (inst.def.role === 'lead' || inst.def.role === 'arp')) return { tf: quote, w: gain, solo: true };
     const s = soloShape(part, stepsOf(inst.def, part));
     return { tf: s.tf, w: clamp(gain / s.ratio, 0.5, 2), solo: true };
   }
@@ -526,12 +741,43 @@ export class Sequencer {
     if (def.role === 'beat' && (arr.roll || (arr.fill && sib >= 12))) return this._beatNotes(part, sib, arr, live);
     this._w = tex.w;
     let tf = tex.tf;
+    if (tf === 'groove') {
+      tf = this._groove(arr, bar);
+      if (tex.as) this._w *= vsFull(part, stepsOf(def, part), tex.as);
+    }
+    if (inst.remix && (tf.startsWith('g_') || tf.startsWith('f_'))) { tf = 'full'; this._w = 1; }   // a remix keeps its own part, at its own weight
     const n = LV[tf];
     if (n) {
       if (part === def.remix) tf = 'sparse';
       else { part = def.levels[Math.min(inst.level, n) - 1]; tf = 'full'; }
     }
-    return part?._byStep ? TRANSFORMS[tf]?.(part._byStep, stepsOf(def, part), bar, sib) ?? null : null;
+    if (!part?._byStep) return null;
+    // A texture with no transform would silence the channel without a word: say so (a sim counts it as an error).
+    const fn = TRANSFORMS[tf];
+    if (!fn) { this._report(`texture ${tf}`, new Error(`no transform ${tf}`)); return null; }
+    const P = stepsOf(def, part), out = fn(part._byStep, P, bar, sib, arr.pb) ?? null;
+    // A groove note counts as heard where the part's own loop has no note of its sound (a sparse part's own rhythm does not).
+    if (live && out && tf.startsWith('g_')) for (const n of out) if (!part._byStep[at(bar, sib, P)]?.some((x) => x.k === n.k)) this.heard.groove++;
+    if (tf.startsWith('q_')) {
+      this._w /= vsFull(part, P, tf);   // the notes a quote adds where the part rests, weighed back to its velocity
+      if (live && out) this.heard.quote += out.length;
+    }
+    return out;
+  }
+
+  // The groove a groove phrase plays (src/music/grooves.js): the arr.groove-th of its band's crossover's or Fusion's
+  // list, else of its top style's (the Beat channel's on a tie). Pure, from the band, so a radio edit plays the same
+  // groove; read once a bar, so a pick mid-bar changes it on the next.
+  _groove(arr, bar) {
+    if (this._gBar !== bar) {
+      const band = this.getInstruments(), c = emptyCounts();
+      for (const i of band) if (i.def.style in c) c[i.def.style]++;
+      const beat = band.find((i) => i.def.role === 'beat')?.def.style;
+      const top = Object.keys(c).reduce((a, s) => (c[s] > c[a] || (c[s] === c[a] && s === beat) ? s : a));
+      this._gList = CROSS_GROOVE[crossoverOf(c)] || STYLE_GROOVE[top];
+      this._gBar = bar;
+    }
+    return 'g_' + this._gList[arr.groove % this._gList.length];
   }
 
   _play(inst, t, sib, chord, emit, A, arr, band) {
@@ -542,7 +788,7 @@ export class Sequencer {
     const phrase = arr ? (arr.pb * STEPS_PER_BAR + sib) / (8 * STEPS_PER_BAR) : 0;
     for (const n of notes) {
       const note = this._resolve(inst, n, chord, t, w, phrase);
-      if (A) {
+      if (A && !n.mute) {   // a groove's or a figure's stacked note fires under the one already sounding
         try { def.sound(A.api(), t, note, A.out(def.role), inst); }
         catch (e) { this._report(def.id + '.sound', e); }
       }
@@ -584,6 +830,8 @@ export class Sequencer {
         const pc = ((midi % 12) + 12) % 12;
         if (chord.pcs.slice(0, 3).some((c) => (pc - c + 12) % 12 === 1)) midi -= 1;
       }
+    } else if (n.kd !== undefined) {
+      midi = keyTone(chord, n.kd, (def.low ?? 48) + oct);   // a tune in key degrees: written as heard, no settling
     }
     const high = def.high ?? ROLE_HIGH[def.role];
     if (high) {
@@ -596,6 +844,7 @@ export class Sequencer {
       s: n.s,
       v: n.v ?? 1,
       k: n.k || null,
+      kd: n.kd,   // a song quote's key degree (src/music/song.js QUOTES), else undefined
       dur: (n.d || 1) * STEP_SEC,
       midi,
       freq: midi != null ? mtof(midi) : 0,
@@ -609,29 +858,42 @@ export class Sequencer {
     };
   }
 
-  // Pickup chimes. A collected note ('note') rings a soft bell on the next free 8th, climbing the chord
-  // while pickups keep coming and quieter the more of them there are; items and a full Drop meter
-  // ('run') play three 16ths up the chord. Timed off the transport and pitched from the chord of their
+  // Pickup chimes. A collected note ('note') rings a soft bell on the next free 8th, climbing the chord (or
+  // spelling the song's hook) while pickups keep coming and quieter the more of them there are; items and a
+  // full Drop meter ('run') play three 16ths up the chord; 'hook' plays the song's hook once on 8ths (the
+  // lobby's way of saying which song it is). Timed off the transport and pitched from the chord of their
   // own step, so they stay on the grid and in key. Sound only: the game never waits on them.
   ping(kind) {
     if (!this.running || this.hold || !this._audioOn()) return;
     let i = this.globalStep + Math.ceil((this.clock.now() + 0.03 - this.nextTime) / STEP_SEC);
+    const hook = this.song.hook;
     if (kind === 'run') {
       for (let k = 0; k < 3; k++) this._chime(i + k, 3 + k, 0.08);
       return;
     }
+    // A kill run ('crowd'): four 16ths up the chord (tones 1-4), lower and softer than the full meter's run (3-5).
+    if (kind === 'crowd') {
+      for (let k = 0; k < 4; k++) this._chime(i + k, 1 + k, 0.06);
+      return;
+    }
     i += i & 1;                                    // on the 8th-note grid
+    if (kind === 'hook') {
+      for (let k = 0; k < (hook || CLIMB).length; k++) this._chime(i + 2 * k, hook ? { kd: hook[k] } : CLIMB[k], 0.07);
+      return;
+    }
     if (i <= this.pingStep) return;                // one chime per 8th
     if (i - this.pingStep > 4) this.pingN = 0;     // a gap of more than a beat starts the climb again
     this.pingStep = i;
     let recent = 0;
     for (const s of this.pingSlots) if ((i - s) * STEP_SEC < 2) recent++;
     this.pingSlots[(i >> 1) & 7] = i;
-    this._chime(i, CLIMB[this.pingN++ % CLIMB.length], 0.07 / (1 + recent / 6));
+    const n = this.pingN++;
+    this._chime(i, hook ? { kd: hook[n % hook.length] } : CLIMB[n % CLIMB.length], 0.07 / (1 + recent / 6));
   }
 
   // One chime on global step i, unless a stop or a break holds the band silent there. A landed stop is
   // matched by bar and step, since a hold inside the stop bar keeps counting global steps but not bars.
+  // idx: a chord tone (chimeMidi), or { kd } a key degree of the song's hook (hookMidi).
   _chime(i, idx, gain) {
     const s = this.pendingStop || this.lastStop;
     const at = this.pendingStop ? Math.ceil(this.globalStep / STEPS_PER_BAR) * STEPS_PER_BAR : this.lastStop?.step;
@@ -640,8 +902,8 @@ export class Sequencer {
     if (this.pendingStop ? i > at && i < at + s.len : s && bar === s.bar && sib > 0 && sib < s.len) return;
     const pos = this.song.position(bar);
     if (pos.arr.brk && sib >= pos.arr.brk) return;
-    const chord = s?.home && i === at ? this.song.chord(0, pos.section.lift) : pos.chord;   // the ending's downbeat is on i
-    this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, chimeMidi(chord, idx), gain);
+    const chord = s?.home && i === at ? this.song.chord(this.song.home, pos.section.lift) : pos.chord;   // the ending's downbeat is on home
+    this.audio.ping(this.nextTime + (i - this.globalStep) * STEP_SEC, idx.kd !== undefined ? hookMidi(chord, idx.kd) : chimeMidi(chord, idx), gain);
   }
 
   _report(where, e) {

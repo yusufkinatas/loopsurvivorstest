@@ -1,15 +1,17 @@
 // Menus and overlays: title, how to play, first-sound select, level-up cards, pause, the end screen and
 // the Discography. Card screens show glyphs, names and sound; every explanatory line sits in the info
-// layer (I, pad Y or the (i) button) and on the pause sheet, which is the home of the run's details.
+// layer (I, pad Y or the (i) button) and on the pause sheet, which is the home of the run's details, except
+// that a card never taken shows its first words.
 
-import { ROLE_INFO, STYLES, ROLES, GAIN, BAR_SEC, REROLLS_PER_RUN, BANISHES_PER_RUN, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
+import { ROLE_INFO, STYLES, ROLES, GAIN, BALANCE, BAR_SEC, REROLLS_PER_RUN, BANISHES_PER_RUN, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL } from '../config.js';
 import { fmtTime } from '../util.js';
 import { icon } from './icons.js';
 import { describeOffer, banKey, chemTiers } from '../game/upgrades.js';
-import { CHEMISTRY } from '../game/loadout.js';
-import { SECTIONS } from '../music/song.js';
+import { CHEMISTRY, CROSS_TEXT } from '../game/loadout.js';
+import { SECTIONS, SONGS } from '../music/song.js';
+import { makeChord, NOTE_NAMES } from '../music/theory.js';
 import { songMapHtml, songFraction, SONG_BARS, heardBar, drawSeq, styleColor, styleName } from './hud.js';
-import { GOALS, RECORDS, unlockLabel, unlocksOf } from '../game/progress.js';
+import { GOALS, RECORDS, unlockLabel, unlocksOf, nextGoal } from '../game/progress.js';
 import { INSTRUMENTS, BY_ID } from '../content/instruments/index.js';
 import { PEDAL_BY_ID } from '../content/pedals.js';
 
@@ -21,9 +23,16 @@ const kbd = (key, pad) => `${key ? `<kbd class="k-key" data-k="${esc(key)}"></kb
 const dots = (n, max) => `<span class="uses" aria-hidden="true">${Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
 const pipsRow = (n, max) => `<span class="pips-sm" aria-hidden="true">${Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
 
+// The setlist: a song by id (a record or run from before it, or an unknown one: the loop), and its key named for
+// the chord it comes home to (Ode, at home on III, sits in the run's relative major), never split over two lines.
+const tuneOf = (id) => SONGS.find((t) => t.id === id) || SONGS[0];
+const keyName = (kp, tune) => { const c = makeChord(kp, tune.home); return `${NOTE_NAMES[c.rootPc]}\u00a0${c.quality === 'maj' ? 'major' : 'minor'}`; };
+
 // A level-up ignores picks and button presses this long after it opens, so a Drop press or the second
 // half of a double tap never takes a card blind.
 const ARM_MS = 350;
+// The end screen's curtain call (s): each stat's count, the gap between damage bars and each bar's growth.
+const CURTAIN = { stat: 0.3, gap: 0.25, grow: 0.3 };
 
 // Kind badges are glyphs only; the words are for screen readers.
 const KIND = {
@@ -37,18 +46,21 @@ function stepsHtml(cells) {
   return `<span class="steps${cells.length > 16 ? ' long' : ''}" aria-hidden="true">${cells.map((c, i) => `<i class="${c.on ? 'on' : ''}${c.isNew ? ' new' : ''}${i % 4 === 0 ? ' beat' : ''}" style="--v:${c.v || 0}"></i>`).join('')}</span>`;
 }
 
-// Level pips; the level the card brings pulses.
+// Level pips; the levels the card brings pulse (a remix card's jump from prev to level 5, else the one level).
 function pipsHtml(d) {
   if (!d.maxLevel) return '';
-  const fresh = d.kind === 'new' || d.kind === 'up' || d.kind === 'pedal-new' || d.kind === 'pedal-up' || d.kind === 'fader';
-  return `<span class="pips" aria-hidden="true">${Array.from({ length: d.maxLevel }, (_, i) => `<i class="${i < d.level ? 'on' : ''}${fresh && i === d.level - 1 ? ' new' : ''}"></i>`).join('')}</span>`;
+  const fresh = d.kind === 'new' || d.kind === 'up' || d.kind === 'pedal-new' || d.kind === 'pedal-up' || d.kind === 'fader' || d.kind === 'remix';
+  const from = d.prev ?? d.level - 1;
+  return `<span class="pips" aria-hidden="true">${Array.from({ length: d.maxLevel }, (_, i) => `<i class="${i < d.level ? 'on' : ''}${fresh && i >= from && i < d.level ? ' new' : ''}"></i>`).join('')}</span>`;
 }
 
 // Style gems: one dot per sound of a style the card changes (larger at its chemistry tiers), a sparkle when
-// the card gains a tier, a crack when it loses one.
+// the card gains a tier, a crack when it loses one. A crossover the card forms is a disc split in its two style
+// colors, Fusion the six-color gem (each cracked apart when the card breaks it).
 function gemsHtml(gems) {
   return (gems || []).map((gm) => {
-    if (gm.style === 'fusion') return '<span class="gems fusion" title="Fusion"><i class="big new up"></i></span>';
+    if (gm.style === 'fusion') return `<span class="gems fusion${gm.tier < 0 ? ' broke' : ''}" title="Fusion"><i class="big${gm.tier > 0 ? ' new up' : ''}"></i></span>`;
+    if (gm.style === 'cross') return `<span class="gems cross${gm.tier < 0 ? ' broke' : ''}" style="--s:${styleColor(gm.a)};--s2:${styleColor(gm.b)}" title="${esc(gm.name)}"><i class="${gm.tier > 0 ? 'new up' : ''}"></i></span>`;
     const th = new Set(chemTiers(gm.style).map((t) => t.n));
     if (!th.size) [2, 4, 6].forEach((n) => th.add(n));
     const n = Math.max(0, Math.min(6, gm.n));
@@ -57,6 +69,16 @@ function gemsHtml(gems) {
     if (gm.delta < 0) out.push(`<i class="gone${th.has(n + 1) ? ' big' : ''}${gm.tier < 0 ? ' down' : ''}"></i>`);
     return `<span class="gems" style="--s:${styleColor(gm.style)}" title="${esc(styleName(gm.style))}">${out.join('')}</span>`;
   }).join('');
+}
+
+// The card foot's glyphs beside the gems: a gold reel (tape: this card brings a channel to where the banked Master
+// Tape remixes it), the remix's partner pedal (pair: { glyph, on }, lit once it is on the board), and the band's
+// sounds a pedal powers (fit: [{ glyph, role, on, pair }], dim where it does nothing, gold-ringed for a remix partner).
+function footHtml(d) {
+  const tape = d.tape ? `<span class="reel">${icon('tape')}</span>` : '';
+  const pair = d.pair ? `<span class="pair${d.pair.on ? ' on' : ''}">${icon(d.pair.glyph)}</span>` : '';
+  const fit = d.fit?.length ? `<span class="fit">${d.fit.map((f) => `<i class="${f.on === false ? 'off' : ''}${f.pair ? ' pair' : ''}">${icon(f.glyph, f.role)}</i>`).join('')}</span>` : '';
+  return tape + pair + fit + gemsHtml(d.gems);
 }
 
 export function cardHtml(d, index) {
@@ -71,13 +93,13 @@ export function cardHtml(d, index) {
   const label = `${d.title}, ${word}${d.maxLevel ? `, level ${d.level} of ${d.maxLevel}` : ''}`;
   const frame = d.kind === 'remix' ? 'remix' : d.style || (d.kind.startsWith('pedal') ? 'pedal' : 'plain');
   return `
-  <button class="card card-${esc(d.kind)}" type="button" data-i="${index}" data-style="${esc(frame)}" style="--c:${d.color};--s:${styleColor(d.style)}" aria-label="${esc(label)}" aria-describedby="card-info-${index}">
+  <button class="card card-${esc(d.kind)}${d.fresh ? ' fresh' : ''}" type="button" data-i="${index}" data-style="${esc(frame)}" style="--c:${d.color};--s:${styleColor(d.style)}" aria-label="${esc(label)}" aria-describedby="card-info-${index}">
     <span class="card-frame" aria-hidden="true"></span>
     <span class="card-key" data-k="${index + 1}" aria-hidden="true"></span>
     ${badgeHtml}${hero}
     <span class="card-title">${esc(d.title)}</span>
     ${pipsHtml(d)}${stepsHtml(d.cells)}
-    <span class="card-foot" aria-hidden="true">${gemsHtml(d.gems)}</span>
+    <span class="card-foot" aria-hidden="true">${footHtml(d)}</span>
     <span class="card-info" id="card-info-${index}">${(d.info || []).map((l) => `<span>${esc(l)}</span>`).join('')}</span>
   </button>`;
 }
@@ -100,13 +122,14 @@ function songEndHtml(sum, isBest, prev) {
 }
 
 // The 30 sleeves (gold ring for a finished song, dashed for a demo, a G tag for its Gain, dimmed with a hint
-// until pressed), then any other genre pressed, as hidden tracks.
+// until pressed; a crossover's sleeve carries its sentence), then any other genre pressed, as hidden tracks.
 function recordsHtml(meta) {
+  const line = (genre) => (Object.hasOwn(CROSS_TEXT, genre) ? `<small>${esc(CROSS_TEXT[genre])}</small>` : '');
   const sleeve = (genre, rec, hint) => (rec
-    ? `<button class="sleeve ${rec.w ? 'gold' : 'demo'}" type="button" data-genre="${esc(genre)}" ${rec.sh.length ? '' : 'disabled'}>
-        <i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>
-        <span>${rec.w ? 'Gold' : 'Demo'} · ${esc(rec.k)}${rec.g ? ` <em>G${rec.g}</em>` : ''}</span></button>`
-    : `<div class="sleeve empty"><i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b><span>${esc(hint)}</span></div>`);
+    ? `<button class="sleeve ${rec.w ? 'gold' : 'demo'}${line(genre) ? ' x' : ''}" type="button" data-genre="${esc(genre)}" ${rec.sh.length ? '' : 'disabled'}>
+        <i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>${line(genre)}
+        <span>${rec.w ? 'Gold' : 'Demo'} · ${esc(keyName(rec.kp, tuneOf(rec.sg)))}${rec.g ? ` <em>G${rec.g}</em>` : ''}</span></button>`
+    : `<div class="sleeve empty${line(genre) ? ' x' : ''}"><i class="disc" aria-hidden="true"></i><b>${esc(genre)}</b>${line(genre)}<span>${esc(hint)}</span></div>`);
   const hidden = Object.keys(meta.records).filter((g) => !RECORDS.some((r) => r.genre === g));
   return `<p class="now-playing" aria-live="polite"></p>
     <div class="sleeves">${RECORDS.map((r) => sleeve(r.genre, meta.records[r.genre], r.hint)).join('')}</div>
@@ -114,7 +137,7 @@ function recordsHtml(meta) {
 }
 
 // The remix crate: channels in rows, styles in columns. A remix is earned with a Master Tape on its sound at
-// level 5, so a tile is the sound's glyph: gold with the remix's name once found, dim with the sound's name in a
+// BALANCE.remix.minLevel or more, so a tile is the sound's glyph: gold with the remix's name once found, dim with the sound's name in a
 // tooltip until then.
 function remixesHtml(meta) {
   const styles = Object.keys(STYLES);
@@ -135,16 +158,20 @@ function notesHtml(meta) {
     <span><b>${esc(g.name)}</b> ${esc(g.text)}</span><small>Unlocks ${esc(unlockLabel(g))}</small></li>`).join('')}</ol>`;
 }
 
-// The style rules on the pause sheet, from CHEMISTRY in either shape (tier arrays, or { name, text, tiers }).
-function rulesHtml(counts) {
-  return Object.keys(CHEMISTRY).map((st) => {
+// The style rules on the pause sheet, from CHEMISTRY in either shape (tier arrays, or { name, text, tiers }), lit
+// at the tiers the band plays (a crossover's lift included), under the crossover in play and its sentence.
+function rulesHtml(g) {
+  const counts = g.loadout.styleCounts(), R = g.stats.rules;
+  const xs = Object.keys(counts).filter((st) => counts[st] >= 2).map(styleColor);
+  const x = R.x ? `<li class="on x" style="--g:linear-gradient(${xs.join(', ')})"><b>${esc(R.x)}</b><p>${esc(CROSS_TEXT[R.x])}</p></li>` : '';
+  return x + Object.keys(CHEMISTRY).map((st) => {
     const c = CHEMISTRY[st];
     const tiers = chemTiers(st);
-    const n = counts[st] || 0;
+    const n = counts[st] || 0, tier = R.tiers?.[st] || 0;
     const head = Array.isArray(c) ? '' : [c?.name, c?.text].filter(Boolean).map(esc).join(': ');
-    return `<li class="${n >= (tiers[0]?.n ?? 2) ? 'on' : ''}" style="--s:${styleColor(st)}">
+    return `<li class="${tier ? 'on' : ''}" style="--s:${styleColor(st)}">
       <b>${esc(styleName(st))}<span>${n}</span></b>${head ? `<p>${head}</p>` : ''}
-      <ol>${tiers.map((t) => `<li class="${n >= t.n ? 'on' : ''}"><i>${t.n}</i>${esc(t.text || '')}</li>`).join('')}</ol></li>`;
+      <ol>${tiers.map((t, i) => `<li class="${i < tier ? 'on' : ''}"><i>${t.n}</i>${esc(t.text || '')}</li>`).join('')}</ol></li>`;
   }).join('');
 }
 
@@ -233,15 +260,20 @@ export class Screens {
     el.querySelector('[data-act=play]').focus();
   }
 
+  // The style rule's line wears a card's gems for two sounds of a style (the second at its tier).
   howto(back) {
     const rows = [
       ['keys', 'Move. Your sounds play themselves.'],
+      ['heal', 'Bodies are the danger. Keep moving.'],
       ['plus', 'One sound per channel. More channels open as the song goes on.'],
       ['up', 'Pick a card on every level. Hear it before you take it.'],
       ['info', 'Press I for the details on any card.'],
+      ['gems', 'Two sounds of a style turn on its rule, drawn on the floor.'],
       ['drop', 'Collect notes to fill the Drop, then set it off.'],
+      ['drop', 'Land the Drop as the band slams back in (its ring doubles) for a Double Drop.'],
+      ['tape', `Silence a boss in time: its Master Tape remixes a sound at level ${BALANCE.remix.minLevel} or more.`],
       ['boss', 'Survive the song. Silence White Noise to win.'],
-    ].map(([g, t]) => `<li><span class="ht-icon">${icon(g)}</span><span>${t}</span></li>`).join('');
+    ].map(([g, t]) => `<li><span class="ht-icon">${g === 'gems' ? '<span class="gems"><i></i><i class="big"></i></span>' : icon(g)}</span><span>${t}</span></li>`).join('');
     const keys = [['Move', 'WASD or arrows', 'Left stick'], ['The Drop', 'Space', 'A'], ['Pick a card', '1 · 2 · 3', 'A'], ['Card info', 'I', 'Y'], ['Reroll', 'R', 'X'],
       ['Banish · Skip', 'X · Q', 'D-pad to the button, then A'], ['Pause', 'Esc or P', 'Start'], ['Back', '', 'B'], ['Mute', 'M', '']]
       .map(([act, key, pad]) => `<tr><th>${act}</th><td>${key}</td><td>${pad}</td></tr>`).join('');
@@ -294,7 +326,7 @@ export class Screens {
   // notes. back: 'title' or 'end', where Back returns.
   discography(meta, back) {
     const h = Math.floor(meta.secs / 3600), min = Math.floor((meta.secs % 3600) / 60);
-    const career = [plural(meta.runs, 'run'), plural(meta.wins, 'song finished', 'songs finished'), `${meta.kills.toLocaleString('en-US')} Noise silenced`, `${h ? `${h} h ` : ''}${min} min on stage`].join(' · ');
+    const career = [plural(meta.runs, 'run'), plural(meta.wins, 'win'), `${meta.kills.toLocaleString('en-US')} Noise silenced`, `${h ? `${h} h ` : ''}${min} min on stage`].join(' · ');
     const tabs = [['records', 'Records'], ['remixes', 'Remixes'], ['notes', 'Liner notes']];
     const el = this._mount('disco', `
       <div class="panel panel-wide disco">
@@ -313,7 +345,7 @@ export class Screens {
       el.querySelectorAll('button.sleeve').forEach((sl) => sl.addEventListener('click', () => {
         if (sl.classList.contains('playing')) { this.h.onStopTrack(); return; }
         const genre = sl.dataset.genre, rec = meta.records[genre];
-        this.h.onPlayTrack(rec.sh, rec.kp, (name, n) => { np.textContent = `Now playing: ${genre} · ${name} · ${plural(n, 'sound')}`; }, () => { sl.classList.remove('playing'); np.textContent = ''; });
+        this.h.onPlayTrack(rec.sh, rec.kp, rec.sg, (name, n) => { np.textContent = `Now playing: ${genre} · ${tuneOf(rec.sg).name} · ${name} · ${plural(n, 'sound')}`; }, () => { sl.classList.remove('playing'); np.textContent = ''; });
         sl.classList.add('playing');
       }));
     };
@@ -328,7 +360,8 @@ export class Screens {
   // defs: the three featured first sounds. chips: the other sounds the career has unlocked, picked and
   // auditioned like the cards (glyphs with a style edge). Every other sound shows as a dim locked
   // silhouette (its goal in a tooltip). meta: the career when a Gain is open (the stepper), else null.
-  select(defs, chips, meta) {
+  // song: the song picked (an index into SONGS) when the song stepper shows (after the first run), else null.
+  select(defs, chips, meta, song = null) {
     const descs = defs.map((def) => ({
       kind: 'new', title: def.name, color: ROLE_INFO[def.role].color, style: def.style, glyph: def.id, from: null, level: 1, maxLevel: MAX_INSTRUMENT_LEVEL,
       cells: def.levels[0].pattern.reduce((cells, n) => { if (cells[n.s]) cells[n.s] = { on: true, v: n.v ?? 1 }; return cells; }, Array.from({ length: def.steps || 16 }, () => ({ on: false }))),
@@ -342,27 +375,35 @@ export class Screens {
     const shown = new Set([...defs, ...chips].map((d) => d.id));
     const locked = INSTRUMENTS.map((def) => [def, GOALS.find((g) => unlocksOf(g).includes(def.id))]).filter(([def, goal]) => goal && !shown.has(def.id))
       .map(([def, goal]) => `<span class="chip locked" style="--c:${ROLE_INFO[def.role].color}" title="${esc(`${goal.name}: ${goal.text}`)}">${icon(def.id, def.role)}<i>${icon('lock')}</i></span>`).join('');
+    const songRow = song !== null ? `
+      <div class="song">
+        <button class="ibtn ibtn-sm" type="button" data-song="-1" aria-label="Previous song">${icon('back')}${kbd(',', 'LT')}</button>
+        <span class="song-name" aria-live="polite"></span>
+        <button class="ibtn ibtn-sm flip" type="button" data-song="1" aria-label="Next song">${icon('back')}${kbd('.', 'RT')}</button>
+      </div>` : '';
     const gain = meta ? `
       <div class="gain">
         <span class="gain-name"></span>
         <button class="ibtn ibtn-sm" type="button" data-gain="-1" aria-label="Less Gain">${icon('back')}${kbd('[', 'LB')}</button>
         <button class="ibtn ibtn-sm flip" type="button" data-gain="1" aria-label="More Gain">${icon('back')}${kbd(']', 'RB')}</button>
         <span class="gain-score"></span>
-      </div>
-      <p class="gain-mods"></p>` : '';
+      </div>` : '';
     const all = [...defs, ...chips];
     const el = this._mount('select', `
       <div class="cards-wrap">
         <div class="cards">${cards}</div>
         <div class="chips">${chipHtml}${locked}</div>
-        ${gain}
+        ${songRow || gain ? `<div class="dials">${songRow}${gain}</div>` : ''}
+        ${meta ? '<p class="gain-mods"></p>' : ''}
         <div class="row-actions">
           <button class="btn btn-ghost" type="button" data-act="back">Back</button>
           <button class="ibtn" type="button" data-act="info" aria-label="Card details" title="Card details" aria-pressed="${this.info}">${icon('info')}${kbd('I', 'Y')}</button>
         </div>
       </div>`);
     el.querySelectorAll('[data-gain]').forEach((b) => b.addEventListener('click', () => this.h.onGain(Number(b.dataset.gain))));
+    el.querySelectorAll('[data-song]').forEach((b) => b.addEventListener('click', () => this.h.onSong(Number(b.dataset.song))));
     if (meta) this.setGain(meta.gainSel);
+    if (song !== null) this.setSong(song);
     this.descs = descs;
     this._wireCards(el, (i) => this.h.onPickStart(all[i].id), (i) => this.h.onPreviewStart(i === null ? null : all[i].id));
     el.querySelector('[data-act=back]').addEventListener('click', () => { this.h.onPreviewStart(null); this.h.onShowTitle(); });
@@ -380,6 +421,19 @@ export class Screens {
 
   stopAttract() { clearInterval(this._attract); this._attract = null; }
 
+  // The song stepper: "◂ Ode ▸" over its credit. The arrows dim at the ends of the setlist; a pad or arrow-key
+  // focus on the one that dims moves to the other, so it stays in the row.
+  setSong(i) {
+    const el = this.root.querySelector('.song');
+    if (!el) return;
+    const t = SONGS[i], [prev, next] = el.querySelectorAll('[data-song]'), a = document.activeElement;
+    el.querySelector('.song-name').innerHTML = `<b>${esc(t.name)}</b><small>${esc(t.credit || '')}</small>`;
+    prev.disabled = i <= 0;
+    next.disabled = i >= SONGS.length - 1;
+    if (a === prev && prev.disabled) next.focus();
+    if (a === next && next.disabled) prev.focus();
+  }
+
   // The Gain stepper: "Gain 2 ◂ ▸ ×1.2". Its name and modifiers sit in the info layer.
   setGain(n) {
     const el = this.root.querySelector('.gain');
@@ -394,6 +448,13 @@ export class Screens {
 
   levelUp(g, offers) {
     const descs = this.descs = offers.map((o) => describeOffer(g, o));
+    // A sound, pedal or remix never taken (in a past run or this one) shows its first info lines without the info layer.
+    // A band sound is never a new or swap card, so only the swapped-out ones can have been taken this run.
+    const meta = this.h.getSeen?.();
+    if (meta) {
+      const had = new Set((g.retired || []).map((i) => i.def.id));
+      for (const d of descs) d.fresh = d.kind === 'remix' ? !meta.remixes[d.glyph] : ['new', 'swap', 'pedal-new'].includes(d.kind) && !meta.seen[d.glyph] && !had.has(d.glyph);
+    }
     const cards = descs.map((d, i) => cardHtml(d, i)).join('');
     // A Master Tape's remix cards: gold cards only, no reroll, banish or skip, and a reel over them.
     const tape = !!g.tapeOffers;
@@ -511,7 +572,7 @@ export class Screens {
     // Arrow keys only: A and D are movement keys and would move focus while strafing.
     if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
       const a = document.activeElement;
-      const rows = [...this.root.querySelectorAll('.cards, .chips, .gain, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
+      const rows = [...this.root.querySelectorAll('.cards, .chips, .song, .gain, .row-actions')].map((r) => [...r.querySelectorAll('button:not([disabled])')]).filter((r) => r.length);
       const r = rows.findIndex((row) => row.includes(a));
       if (r < 0) this.cards[0].focus();   // first press lands on the first card
       else if (key === 'ArrowDown' || key === 'ArrowUp') {
@@ -557,7 +618,7 @@ export class Screens {
           <span class="pause-time">${fmtTime(g.time)}</span>
         </div>
         ${songMapHtml(g.sectionIndex, [{ at: songFraction(g.seq.bar), cls: 'head' }])}
-        <p class="pause-meta"><b>${esc(g.genre)}</b> · ${esc(g.key.name)} · ${g.kills.toLocaleString('en-US')} silenced · HP ${Math.ceil(p.hp)}/${Math.round(p.maxHp)} · Lv ${g.level}</p>
+        <p class="pause-meta"><b>${esc(g.genre)}</b> · ${esc(g.tune.name)} · ${esc(keyName(g.key.pc, g.tune))} · ${g.kills.toLocaleString('en-US')} silenced · HP ${Math.ceil(p.hp)}/${Math.round(p.maxHp)} · Lv ${g.level}</p>
         <div class="pause-cols">
           <div>
             <ul class="pause-band">${band}</ul>
@@ -565,7 +626,7 @@ export class Screens {
           </div>
           <div>
             <canvas class="seqgrid" aria-hidden="true"></canvas>
-            <ul class="rules">${rulesHtml(g.loadout.styleCounts())}</ul>
+            <ul class="rules">${rulesHtml(g)}</ul>
           </div>
         </div>
         <div class="panel-actions">
@@ -598,6 +659,7 @@ export class Screens {
       </li>`).join('');
     const pedals = sum.pedals.map((p) => `<span class="end-pedal" style="--c:${PEDAL_BY_ID[p.id]?.color || '#fff'}" title="${esc(`${p.name} · Lv ${p.level}`)}">${icon(p.id, 'pedal')}${pipsRow(p.level, MAX_PEDAL_LEVEL)}</span>`).join('');
     const lines = news?.saved ? [
+      ...(news.songs ? [`New songs in the lobby: ${new Intl.ListFormat('en').format(SONGS.slice(1).map((t) => t.name))}.`] : []),
       ...(news.record ? [`Record pressed: ${news.record.genre}, ${news.record.gold ? 'gold' : 'demo'}.`] : []),
       ...(news.gain ? [`Gain ${news.gain} unlocked: ${GAIN[news.gain - 1].name}.`] : []),
       ...news.goals.map((g) => `New first sound: ${unlockLabel(g)}.`),
@@ -605,18 +667,22 @@ export class Screens {
     ] : [];
     const notes = !news ? '' : !news.saved ? '<p class="end-unsaved">Progress could not be saved on this device.</p>'
       : lines.length ? `<div class="end-notes"><p class="kicker">Liner notes</p><ul>${lines.slice(0, 4).map((l) => `<li>${esc(l)}</li>`).join('')}${lines.length > 4 ? `<li class="more">and ${lines.length - 4} more</li>` : ''}</ul></div>` : '';
+    // The liner-note goal to go for next, from the saved career (so never one this run met but could not keep).
+    const career = news?.saved && this.h.getSeen?.();
+    const goal = career ? nextGoal(career) : null;
+    const next = goal ? `<p class="end-next"><b>Next:</b> ${esc(goal.text)} Opens ${esc(unlockLabel(goal))}.</p>` : '';
     const el = this._mount('end', `
       <div class="panel panel-wide end">
         <h2>${sum.won ? 'Encore!' : 'Drowned out'}</h2>
         <div class="end-stats">
-          <div><b>${fmtTime(sum.time)}</b><span>survived</span></div>
-          <div><b>${sum.kills.toLocaleString('en-US')}</b><span>silenced</span></div>
-          <div><b>${sum.level}</b><span>level</span></div>
-          <div><b>${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}${sum.gain ? ` · G${sum.gain}` : ''}</span></div>
+          <div><b data-n="${sum.time}" data-time>${fmtTime(sum.time)}</b><span>survived</span></div>
+          <div><b data-n="${sum.kills}">${sum.kills.toLocaleString('en-US')}</b><span>silenced</span></div>
+          <div><b data-n="${sum.level}">${sum.level}</b><span>level</span></div>
+          <div><b data-n="${sum.score}">${sum.score.toLocaleString('en-US')}</b><span>score${isBest ? ' · best' : ''}${sum.gain ? ` · G${sum.gain}` : ''}</span></div>
         </div>
-        ${notes}
+        ${notes}${next}
         ${songEndHtml(sum, isBest, prevBest)}
-        <p class="end-genre"><b>${esc(sum.genre)}</b> · ${esc(sum.key)}</p>
+        <p class="end-genre"><b>${esc(sum.genre)}</b> · ${esc(tuneOf(sum.songId).name)} · ${esc(keyName(sum.keyPc, tuneOf(sum.songId)))}</p>
         <p class="now-playing" aria-live="polite"></p>
         <ul class="end-rows">${rows || '<li>No instruments</li>'}</ul>
         ${pedals ? `<p class="end-pedals">${pedals}</p>` : ''}
@@ -632,7 +698,7 @@ export class Screens {
     const done = () => { listen.setAttribute('aria-pressed', 'false'); listen.textContent = 'Listen to your track'; np.textContent = ''; };
     listen.addEventListener('click', () => {
       if (listen.getAttribute('aria-pressed') === 'true') { this.h.onStopTrack(); return; }
-      this.h.onPlayTrack(sum.sheet, sum.keyPc, (name, n) => { np.textContent = `Now playing: ${name} · ${plural(n, 'sound')}`; }, done);
+      this.h.onPlayTrack(sum.sheet, sum.keyPc, sum.songId, (name, n) => { np.textContent = `Now playing: ${name} · ${plural(n, 'sound')}`; }, done);
       listen.setAttribute('aria-pressed', 'true');
       listen.textContent = 'Stop';
     });
@@ -640,5 +706,59 @@ export class Screens {
     el.querySelector('[data-act=disco]').addEventListener('click', () => this.h.onDiscography('end'));
     el.querySelector('[data-act=back]').addEventListener('click', () => this.h.onShowTitle());
     el.querySelector('[data-act=again]').focus({ preventScroll: true });
+    this._curtain(el, sum, maxDmg);
   }
+
+  // The curtain call: the stats count up in turn, then the damage bars grow one by one from the smallest, each
+  // on a chord tone a step higher (onCurtain, Note chimes), and the biggest flares in its channel color. Any key
+  // (skipCurtain), click or tap shows the final state, where reduced motion and a return from the Discography
+  // start. The markup holds the final state, so rows at 0 (nothing to grow) sit out.
+  _curtain(el, sum, max) {
+    this._skip = null;
+    if (this._curtainOf === sum || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    this._curtainOf = sum;
+    const { stat, gap, grow } = CURTAIN;
+    const stats = [...el.querySelectorAll('.end-stats b[data-n]')];
+    const lis = el.querySelectorAll('.end-rows li');
+    const rows = sum.instruments.map((r, i) => ({ li: lis[i], bar: lis[i].querySelector('.er-bar i'), num: lis[i].querySelector('.er-num'), n: r.dmg })).filter((r) => r.n > 0).reverse();
+    const t0 = stats.length * stat, n = rows.length, end = t0 + Math.max(0, n - 1) * gap + grow;
+    const ease = (k) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3;
+    let next = 0, raf = 0, chime = null;
+    const draw = (t, quiet) => {
+      for (const [i, b] of stats.entries()) {
+        const v = b.dataset.n * ease(t / stat - i);
+        b.textContent = 'time' in b.dataset ? fmtTime(v) : Math.round(v).toLocaleString('en-US');
+      }
+      for (const [j, r] of rows.entries()) {
+        const k = ease((t - t0 - j * gap) / grow);
+        r.bar.style.transform = `scaleX(${(r.n / max) * k})`;
+        r.num.textContent = Math.round(r.n * k).toLocaleString('en-US');
+      }
+      // The biggest bar takes tone 5 (the top of the chime range), each one before it a chord tone lower (under 0
+      // into the octave below), so every note climbs. Only the latest note due sounds: after a stall (a hidden
+      // tab, a long frame) the missed ones stay quiet instead of landing as one stacked chord.
+      for (; next < n && t >= t0 + next * gap; next++) {
+        if (quiet || (next < n - 1 && t >= t0 + (next + 1) * gap)) continue;
+        (chime ||= this.h.onCurtain?.())?.(next + 6 - n);   // onCurtain holds the chord sounding at the first note
+        if (next === n - 1) rows[next].li.classList.add('top');
+      }
+    };
+    const skip = () => { stop(); draw(Infinity, true); return true; };
+    const stop = () => { cancelAnimationFrame(raf); if (this._skip === skip) this._skip = null; el.removeEventListener('click', onClick, true); };
+    const onClick = () => skip();   // a click or tap on a button also presses it
+    this._skip = skip;
+    el.addEventListener('click', onClick, true);
+    const start = performance.now();
+    const tick = (now) => {
+      if (!el.isConnected) { stop(); return; }
+      const t = (now - start) / 1000;
+      draw(t);
+      if (t < end) raf = requestAnimationFrame(tick); else stop();
+    };
+    draw(0);
+    raf = requestAnimationFrame(tick);
+  }
+
+  // A key on the end screen first finishes its curtain call: true when there was one to finish.
+  skipCurtain() { return !!this._skip?.(); }
 }

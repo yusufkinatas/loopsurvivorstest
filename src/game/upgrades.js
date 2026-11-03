@@ -1,28 +1,63 @@
 // Level-up offers. Each card is a musical decision: add a new sound to an empty channel, push an
-// existing one further, swap a channel to a different style, or add a pedal. Remixes are not level-up cards:
-// a Master Tape from a silenced boss spends on a channel at level 5 (game.js), and when two or more are ready
-// it deals remix cards of its own (describeOffer still draws them).
+// existing one further, swap a channel to a different style, add a pedal, or push a finished channel's fader.
+// Remixes are not level-up cards: a Master Tape from a silenced boss spends on a channel at BALANCE.remix.minLevel
+// or more (game.js), and when two or more are ready it deals remix cards of its own (describeOffer still draws them).
 
 import { ROLES, ROLE_INFO, STYLES, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, FADER, BALANCE } from '../config.js';
 import { rng, weightedPick, shuffle } from '../util.js';
 import { INSTRUMENTS } from '../content/instruments/index.js';
-import { PEDALS, PEDAL_BY_ID } from '../content/pedals.js';
-import { CHEMISTRY, FUSION, isFusion } from './loadout.js';
+import { PEDALS, PEDAL_BY_ID, pedalFits } from '../content/pedals.js';
+import { CHEMISTRY, CROSS_TEXT, crossoverOf, ruleTiers } from './loadout.js';
 
-// A Master Tape can remix an instrument at level 5 that has a remix and is not remixed yet. Its remix pedal is
-// what opens up on the strip once it is, not a requirement.
-export const remixReady = (inst) => !!(inst?.def?.remix && !inst.remix && inst.level >= MAX_INSTRUMENT_LEVEL);
+// A Master Tape can remix an instrument at BALANCE.remix.minLevel or more that has a remix and is not remixed yet;
+// the remix finishes it to level 5 as it lands (game.js _remixFlipped). Its remix pedal is what opens up on the
+// strip once it is, not a requirement.
+export const remixReady = (inst) => !!(inst?.def?.remix && !inst.remix && inst.level >= BALANCE.remix.minLevel);
 
+// A pedal not on the board can still join it: a free slot (pedals never leave) and not banished (never dealt again).
+// The remix card and the remixed strip promise a Signature only while this holds.
+export const pedalCanJoin = (g, id) => g.loadout.pedalSlotsFree() > 0 && !g.banished?.has(id);
+
+// The channels a banked tape waits for: every one not remixed yet below minLevel, at the highest such level. A level
+// card that reaches minLevel always starts from there, so the strips and the card that finishes the job agree.
+// None while a channel is ready: the tape is going there (its remix cards are pending or open).
+export function tapeTarget(g) {
+  if (g.remixReady?.().length) return [];
+  const below = g.loadout.instruments().filter((i) => i.def.remix && !i.remix && i.level < BALANCE.remix.minLevel);
+  const top = Math.max(...below.map((i) => i.level));
+  return below.filter((i) => i.level === top);
+}
+
+// How a card moves the band's rules, read for a band you do not have yet: 1 when a style gains a rule tier and none
+// loses one, or the crossover rises (none < a pair < Fusion); -1 when a tier or the crossover falls; else 0 (a pair
+// turning into another pair is sideways). counts: the band's style counts now.
+const xoRank = (c) => { const x = crossoverOf(c); return x === 'Fusion' ? 2 : x ? 1 : 0; };
+export function bandMove(counts, add, remove) {
+  const after = { ...counts };
+  if (add) after[add]++;
+  if (remove) after[remove]--;
+  const t0 = ruleTiers(counts), t1 = ruleTiers(after);
+  const up = Object.keys(t1).some((st) => t1[st] > t0[st]), down = Object.keys(t1).some((st) => t1[st] < t0[st]);
+  const r0 = xoRank(counts), r1 = xoRank(after);
+  return (up && !down) || r1 > r0 ? 1 : down || r1 < r0 ? -1 : 0;
+}
+
+// The pool, weighted by BALANCE.offers so the deal follows the band: new sounds lean toward the styles you play,
+// level cards thin out slowly with level and the top channel's always comes up, swaps mostly show when they gain a
+// tier or a crossover, a pedal that powers none of your sounds is rare, and a finished channel deals its Fader.
 function candidates(g) {
-  const L = g.loadout;
+  const L = g.loadout, O = BALANCE.offers;
   const filled = L.filled();
   const room = filled < g.channelCap();
+  const counts = L.styleCounts();
   const out = [];
-  // A banked Master Tape waits for a channel at level 5: meanwhile the level cards of the channels nearest a remix
-  // (the highest level among those not remixed yet) come up at least this often (BALANCE.remix.tapeUp, about a
-  // first level's weight), so a boss's tape is worth finishing a channel for.
+  // A banked Master Tape waits for a channel at minLevel: meanwhile the level cards of the channels it waits for
+  // (tapeTarget) weigh at least BALANCE.remix.tapeUp, so a boss's tape is worth finishing a channel for.
   const tapeUp = g.tapes?.banked > 0 ? BALANCE.remix.tapeUp || 0 : 0;
-  const nearest = tapeUp ? Math.max(0, ...L.instruments().filter((i) => i.def.remix && !i.remix && i.level < MAX_INSTRUMENT_LEVEL).map((i) => i.level)) : 0;
+  const waits = tapeUp ? tapeTarget(g) : [];
+  // The top channel: the highest level that can still level up (ties: the most damage). Its card never thins out.
+  const top = L.instruments().filter((i) => !i.remix && !g.remixQueued?.(i) && i.level < MAX_INSTRUMENT_LEVEL)
+    .sort((a, b) => b.level - a.level || b.dmg - a.dmg)[0];
   for (const role of ROLES) {
     const cur = L.channels[role];
     const inRole = INSTRUMENTS.filter((d) => d.role === role);
@@ -32,24 +67,31 @@ function candidates(g) {
     if (!cur) {
       if (!room) continue;
       const w = (filled < 3 ? 1.1 : 0.8) * newW;
-      for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w });
+      for (const d of inRole) out.push({ kind: 'new', def: d, role, level: 1, w: w * (1 + O.mom * counts[d.style]) });
     } else {
+      // A finished channel (level 5 or remixed) keeps growing through its fader.
+      const fd = L.faders[role] || 0;
+      if ((cur.level >= MAX_INSTRUMENT_LEVEL || cur.remix) && fd < FADER.max) out.push({ kind: 'fader', role, inst: cur, level: fd + 1, w: O.fader });
       if (cur.remix || g.remixQueued?.(cur)) continue;   // a remixed (or remix-queued) channel is never swapped by a card
       if (cur.level < MAX_INSTRUMENT_LEVEL) {
-        const w = 1.1 - 0.25 * cur.level;
-        out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w: tapeUp && cur.level === nearest ? Math.max(w, tapeUp) : w });
+        const w = Math.max(O.upA - O.upB * cur.level, cur === top ? O.topFloor : 0, waits.includes(cur) ? tapeUp : 0);
+        out.push({ kind: 'up', def: cur.def, role, level: cur.level + 1, inst: cur, w });
       }
       // A swap keeps the channel's level: it changes the style, not the strength.
       for (const d of inRole) {
         if (d === cur.def) continue;
-        out.push({ kind: 'swap', def: d, role, from: cur, level: cur.level, w: 0.32 * swapW });
+        const m = bandMove(counts, d.style, cur.def.style);
+        const k = m > 0 ? O.swapGain : m < 0 ? O.swapLoss : counts[d.style] >= counts[cur.def.style] ? 1 : O.swapSide;
+        out.push({ kind: 'swap', def: d, role, from: cur, level: cur.level, w: O.swap * swapW * k });
       }
     }
   }
+  const band = L.instruments();
+  const dud = (pd) => (band.some((i) => pedalFits(pd, i) !== false) ? 1 : O.pedalDud);
   for (const pd of PEDALS) {
     const own = L.pedal(pd.id);
-    if (own) { if (own.level < MAX_PEDAL_LEVEL) out.push({ kind: 'pedal-up', pedal: pd, level: own.level + 1, own, w: 1.4 }); }
-    else if (L.pedalSlotsFree() > 0) out.push({ kind: 'pedal-new', pedal: pd, level: 1, w: g.time > 25 ? 1.0 : 0.2 });
+    if (own) { if (own.level < MAX_PEDAL_LEVEL) out.push({ kind: 'pedal-up', pedal: pd, level: own.level + 1, own, w: O.pedalUp * dud(pd) }); }
+    else if (L.pedalSlotsFree() > 0) out.push({ kind: 'pedal-new', pedal: pd, level: 1, w: (g.time > 25 ? (L.pedals.length >= 2 ? O.pedalNew2 : O.pedalNew) : 0.2) * dud(pd) });
   }
   return out.filter((c) => !g.banished.has(banKey(c)));
 }
@@ -73,11 +115,12 @@ export function buildOffers(g, count = 3) {
     if (c.role && picked.filter((p) => p.role === c.role).length >= 2) return false;
     return true;
   };
-  // Keep the band growing early. Upgrades are no longer forced onto the offer (chance 0): they come
-  // up by weight, rarer the higher the level, so early picks also go to pedals and levels 5 land late.
-  // Once the pedals are full, upgrades are most of what is left, so they still come.
+  // Keep the band growing early: a new sound on most screens while a channel is free.
   const news = pool.filter((c) => c.kind === 'new');
   if (news.length && rng() < 0.85) take(weightedPick(news, (c) => c.w));
+  // And let you commit: most screens hold a level card (weighted, so the top channel's leads).
+  const ups = pool.filter((c) => c.kind === 'up' && ok(c));
+  if (ups.length && rng() < BALANCE.offers.upSlot) take(weightedPick(ups, (c) => c.w));
   let guard = 0;
   while (picked.length < count && guard++ < 50) {
     const avail = pool.filter(ok);
@@ -86,9 +129,10 @@ export function buildOffers(g, count = 3) {
   }
   if (picked.length < count) {
     // Out of real cards: a Breather first when you are hurt, then a Fader card for each channel (in random
-    // order), and the bonus cards only once every fader is all the way up.
+    // order; never a second one for a channel whose Fader the deal already took), and the bonus cards only once
+    // every fader is all the way up.
     const L = g.loadout;
-    const faders = shuffle(L.instruments().filter((i) => (L.faders[i.def.role] || 0) < FADER.max))
+    const faders = shuffle(L.instruments().filter((i) => (L.faders[i.def.role] || 0) < FADER.max && !picked.some((p) => p.kind === 'fader' && p.role === i.def.role)))
       .map((inst) => ({ kind: 'fader', role: inst.def.role, inst, level: (L.faders[inst.def.role] || 0) + 1 }));
     const heal = { kind: 'heal' }, bonus = [{ kind: 'hype' }, { kind: 'score' }];
     const fills = g.player.hp < g.player.maxHp * 0.5 ? [heal, ...faders, ...bonus] : [...faders, ...bonus, heal];
@@ -113,28 +157,33 @@ export function applyOffer(g, o) {
 }
 
 // How a card changes the band's play rules, as short lines: a rule tier gained ("Heavy x2: Mosh pit, +20% up
-// close"), lost, or a step toward the next one. Each line carries its style and rule for the card's gems.
+// close", the tier a crossover lifts it to), dropped ("Synth x5: Long throw drops to +40% far away") or lost, or a
+// step toward the next one, then a crossover broken ("Breaks Grunge") and one formed ("Forms Grunge: ..."). A
+// style whose count stays still gets a line when Fusion lifts or drops its tier. Each tier line carries its style
+// and rule for the card's gems.
 export function chemistryLine(g, style, delta) {
   const c = g.loadout.styleCounts();
   const before = { ...c };
   if (style in c) c[style] += delta.add || 0;
   if (delta.remove in c) c[delta.remove] -= 1;
+  const t0 = ruleTiers(before), t1 = ruleTiers(c);
   const lines = [];
   for (const st of Object.keys(CHEMISTRY)) {
-    if (c[st] === before[st]) continue;
+    if (c[st] === before[st] && t1[st] === t0[st]) continue;
     const { tiers, name, rule } = CHEMISTRY[st];
-    const gained = tiers.filter((t) => c[st] >= t.n && before[st] < t.n);
-    const lost = tiers.filter((t) => c[st] < t.n && before[st] >= t.n);
-    const base = { style: st, rule };
-    if (gained.length) lines.push({ ...base, good: true, text: `${STYLES[st].name} x${c[st]}: ${name}, ${gained[gained.length - 1].text}` });
-    else if (lost.length) lines.push({ ...base, good: false, text: `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
+    const base = { style: st, rule }, head = `${STYLES[st].name} x${c[st]}: ${name}`;
+    const tierText = (t) => { const s = tiers[t - 1].text; return s[0].toLowerCase() + s.slice(1); };
+    if (t1[st] > t0[st]) lines.push({ ...base, good: true, text: `${head}, ${tierText(t1[st])}` });
+    else if (t1[st] < t0[st]) lines.push({ ...base, good: false, text: t1[st] ? `${head} drops to ${tierText(t1[st]).replace(/^up to /, '')}` : `Loses ${STYLES[st].name} x${before[st]}: ${name}` });
     else if (c[st] > before[st]) {
       const next = tiers.find((t) => t.n > c[st]);
       const goal = next && (next === tiers[0] ? name : next.text);
       lines.push({ ...base, good: null, text: next ? `${STYLES[st].name} ${c[st]}/${next.n} toward ${goal}` : `${STYLES[st].name} x${c[st]}` });
     }
   }
-  if (isFusion(c) && !isFusion(before)) lines.push({ good: true, text: FUSION.text });
+  const x0 = crossoverOf(before), x1 = crossoverOf(c);
+  if (x0 && x1 !== x0) lines.push({ good: false, text: `Breaks ${x0}` });
+  if (x1 && x1 !== x0) lines.push({ good: true, text: `Forms ${x1}: ${CROSS_TEXT[x1]}` });
   return lines;
 }
 
@@ -162,24 +211,30 @@ function statDiff(a, b) {
 // The style thresholds (2/4/6 sounds) from CHEMISTRY, read in either shape: { style: [{ n, text }] } or
 // { style: { rule, name, text, tiers: [{ n, text }] } }.
 export const chemTiers = (style) => { const c = CHEMISTRY[style]; return (Array.isArray(c) ? c : c?.tiers) || []; };
-const tierOf = (style, n) => chemTiers(style).filter((t) => n >= t.n).length;
 
 // How a card moves the style counts, as gems for the card's foot row: one entry per style whose count
-// changes, { style, n (count after), delta (+1 or -1), tier (+1 gained, -1 lost, 0) }, and { style: 'fusion' }
-// when the card turns Fusion on (2+ sounds in three different styles).
+// changes, { style, n (count after), delta (+1 or -1), tier (+1 gained, -1 lost, 0) }, then the crossover it
+// breaks (tier -1) and the one it forms (tier +1): { style: 'cross', a, b, name, tier } for a pair, { style:
+// 'fusion', tier } for Fusion (2+ sounds in three different styles).
 function styleGems(g, add, remove) {
   const before = g.loadout.styleCounts();
   const after = { ...before };
   if (add) after[add] = (after[add] || 0) + 1;
   if (remove) after[remove] = (after[remove] || 0) - 1;
+  const t0 = ruleTiers(before), t1 = ruleTiers(after);
   const gems = [];
   for (const st of new Set([add, remove])) {
     if (!st || after[st] === (before[st] || 0)) continue;
-    const t0 = tierOf(st, before[st] || 0), t1 = tierOf(st, after[st]);
-    gems.push({ style: st, n: after[st], delta: Math.sign(after[st] - (before[st] || 0)), tier: Math.sign(t1 - t0) });
+    gems.push({ style: st, n: after[st], delta: Math.sign(after[st] - (before[st] || 0)), tier: Math.sign(t1[st] - t0[st]) });
   }
-  const fused = (c) => Object.values(c).filter((n) => n >= 2).length >= 3;
-  if (fused(after) && !fused(before)) gems.push({ style: 'fusion', n: 0, delta: 0, tier: 1 });
+  const x0 = crossoverOf(before), x1 = crossoverOf(after);
+  const cross = (c, name, tier) => {
+    if (name === 'Fusion') return { style: 'fusion', n: 0, delta: 0, tier };
+    const [a, b] = Object.keys(c).filter((st) => c[st] >= 2);
+    return { style: 'cross', a, b, name, tier };
+  };
+  if (x0 && x1 !== x0) gems.push(cross(before, x0, -1));
+  if (x1 && x1 !== x0) gems.push(cross(after, x1, 1));
   return gems;
 }
 
@@ -214,13 +269,20 @@ export function describeOffer(g, o) {
     const steps = def.steps || 16;
     const out = { ...base, title: def.name, color: role.color, style: def.style, glyph: def.id, level: o.level, maxLevel: MAX_INSTRUMENT_LEVEL, slot: { role: def.role } };
     if (o.kind === 'remix') {
-      // A tape's remix card: its own part where it has one (else the level 5 part), a new attack, and its pedal
-      // opened up on the strip.
-      const rm = def.remix, pd = PEDAL_BY_ID[rm.pedal];
+      // A tape's remix card: its own part where it has one (else the level 5 part), a new attack, its pedal
+      // opened up on the strip, and the jump to level 5 from where the channel is (prev: its pips pulse). The foot
+      // shows that pedal, lit when it is on the board (the Signature, last line), and nothing once it can never join
+      // (pedalCanJoin).
+      const rm = def.remix, pd = PEDAL_BY_ID[rm.pedal], from = o.inst?.level ?? MAX_INSTRUMENT_LEVEL;
+      const on = !!g.loadout.pedal(rm.pedal), x = `×${BALANCE.remix.sig}`;
+      const can = on || pedalCanJoin(g, rm.pedal);
       return {
-        ...out, title: rm.name,
+        ...out, title: rm.name, prev: from,
         cells: rm.pattern ? laneCells(rm.pattern, rm.steps || steps, null) : laneCells(lv.pattern, steps, null),
-        info: [rm.text, `You hear it: ${rm.sound || `${pd?.name || 'Its pedal'} opens up on your ${role.name} channel.`}`],
+        info: [rm.text, `You hear it: ${rm.sound || `${pd?.name || 'Its pedal'} opens up on your ${role.name} channel.`}`,
+          ...(from < MAX_INSTRUMENT_LEVEL ? [`Level ${from} → ${MAX_INSTRUMENT_LEVEL}`] : []),
+          on ? `${pd.name} is on your board: this remix deals ${x}.` : can ? `Add ${pd.name} later for ${x}.` : ''].filter(Boolean),
+        pair: can ? { glyph: rm.pedal, on } : null,
       };
     }
     out.cells = laneCells(lv.pattern, steps, prev?.pattern);
@@ -228,7 +290,10 @@ export function describeOffer(g, o) {
       out.gems = styleGems(g, def.style, null);
       out.info = [def.blurb, lv.text, ...texts(chemistryLine(g, def.style, { add: 1 }))];
     } else if (o.kind === 'up') {
-      out.info = [`Level ${o.level - 1} → ${o.level}`, lv.text, statDiff(prev.stats, lv.stats)];
+      // The card that brings a channel to minLevel while a tape is banked carries the tape's reel.
+      const mn = BALANCE.remix.minLevel;
+      out.tape = g.tapes?.banked > 0 && o.level === mn;
+      out.info = [`Level ${o.level - 1} → ${o.level}`, out.tape && `Reaches level ${mn}: your Master Tape remixes it.`, lv.text, statDiff(prev.stats, lv.stats)];
     } else {
       out.from = o.from.def.id;
       const restyle = o.from.def.style !== def.style;
@@ -244,10 +309,18 @@ export function describeOffer(g, o) {
     const st = pd.levels[o.level - 1];
     const own = g.loadout.pedals.indexOf(o.own);
     const free = g.loadout.pedalSlotsFree();
+    // The band's sounds this pedal powers, gold-squared where it is that sound's remix partner (remixed, or far enough
+    // along for a tape). A pedal that powers you (no fits) shows its partners only, lit (on: null).
+    const band = g.loadout.instruments();
+    const pair = (i) => i.def.remix.pedal === pd.id && (i.remix || i.level >= BALANCE.remix.minLevel);
+    const fit = band.filter((i) => pd.fits || pair(i)).map((i) => ({ glyph: i.def.id, role: i.def.role, on: pedalFits(pd, i), pair: pair(i) }));
+    const lit = fit.filter((f) => f.on).length;
     return {
       ...base, title: pd.name, color: pd.color, glyph: pd.id, level: o.level, maxLevel: MAX_PEDAL_LEVEL,
       slot: { pedal: o.kind === 'pedal-new' ? g.loadout.pedals.length : Math.max(0, own) },
-      info: [pd.text(st), pd.sound, o.kind === 'pedal-new' ? `New pedal · ${free} slot${free === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`],
+      fit,
+      info: [pd.text(st), pd.sound, o.kind === 'pedal-new' ? `New pedal · ${free} slot${free === 1 ? '' : 's'} free` : `Level ${o.level - 1} → ${o.level}`,
+        ...(pd.fits && band.length ? [`Powers ${lit} of your ${band.length} sound${band.length === 1 ? '' : 's'}.`] : [])],
     };
   }
   if (o.kind === 'fader') {

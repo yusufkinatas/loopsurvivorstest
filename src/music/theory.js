@@ -22,7 +22,8 @@ export const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const mod = (n, m) => ((n % m) + m) % m;
 
 // Build a chord by stacking thirds inside the key's scale, so every chord tone (7ths included) is diatonic.
-// deg: scale degree 0..6. harm: use harmonic minor (raised 7th) for a major V chord.
+// deg: scale degree 0..6. harm: use harmonic minor (raised 7th) for a major V chord. The chord also carries its
+// key (keyPc, scale) for parts written in key degrees (keyTone).
 export function makeChord(keyPc, deg, harm = false) {
   const scale = harm ? HARMONIC_MINOR : NATURAL_MINOR;
   const pcs = [0, 2, 4, 6].map((k) => mod(keyPc + scale[(deg + k) % 7] + (deg + k >= 7 ? 12 : 0), 12));
@@ -34,7 +35,7 @@ export function makeChord(keyPc, deg, harm = false) {
   const third = intervals[1];
   const quality = third === 3 ? (intervals[2] === 6 ? 'dim' : 'min') : 'maj';
   const name = NOTE_NAMES[rootPc] + (quality === 'min' ? 'm' : quality === 'dim' ? 'dim' : '');
-  return { deg, harm, rootPc, pcs, intervals, scaleFromRoot, quality, name };
+  return { deg, harm, rootPc, pcs, intervals, scaleFromRoot, quality, name, keyPc, scale };
 }
 
 // Lowest MIDI note >= low with the given pitch class.
@@ -58,6 +59,12 @@ export function scaleTone(chord, idx, low) {
   const oct = Math.floor(idx / 7);
   const pos = mod(idx, 7);
   return root + chord.scaleFromRoot[pos] + 12 * oct;
+}
+
+// n-th step of the key's scale counting from the tonic at/above `low` (a tune written in key degrees, kd). Over a
+// harmonic V the scale is harmonic minor, so step 6 is the leading tone and no accidental is needed.
+export function keyTone(chord, n, low) {
+  return noteAtOrAbove(chord.keyPc, low) + chord.scale[mod(n, 7)] + 12 * Math.floor(n / 7);
 }
 
 // Pick an n-note voicing of the chord close to the previous voicing (smooth voice leading),

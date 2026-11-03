@@ -112,9 +112,11 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 @keyframes phasehit { 0% { box-shadow: 0 0 0 2px #ff4d6d, 0 0 26px #ff4d6d; } 100% { box-shadow: none; } }
 /* The boss's clock: a thin gold line under the bar that drains with the bars left in its section (its Master
    Tape is a race). It reddens through the last quarter. */
-.bossbar-clock { height: 2px; margin-top: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 1px; overflow: hidden; }
+.bossbar-clock { height: 2px; margin: 4px 15px 0 0; background: rgba(255, 255, 255, 0.08); border-radius: 1px; overflow: hidden; }
 .bossbar-clock i { display: block; height: 100%; background: var(--gold); transform-origin: left center; transition: transform 0.12s linear, background 0.3s; box-shadow: 0 0 6px var(--gold); }
 .bossbar-clock.late i { background: #ff7a8a; box-shadow: 0 0 6px #ff7a8a; }
+/* The line ends in the tape it races for (positioned on the bar, so the clock's clipping leaves it whole). */
+.bossbar-clock svg { position: absolute; right: 0; bottom: -4px; width: 10px; height: 10px; color: var(--gold); filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
 .fightnote { position: absolute; top: calc(var(--safe-t) + 86px); left: 16px; right: 16px; text-align: center; opacity: 0; font-family: var(--f-display); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 2px 10px #000; }
 .fightnote.show { animation: banner 1.6s ease-out forwards; }
 
@@ -128,7 +130,9 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 @keyframes bannergold { 0% { opacity: 0; transform: scale(1.35); } 12% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: scale(1.04); } }
 
 /* The genre stamps once over the mixer when it changes. */
-.stamp { position: absolute; left: 50%; bottom: calc(var(--safe-b) + 84px); transform: translateX(-50%); opacity: 0; white-space: nowrap; font: 800 15px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text); text-shadow: 0 2px 14px #000; }
+.stamp { position: absolute; left: 50%; bottom: calc(var(--safe-b) + 84px); transform: translateX(-50%); opacity: 0; white-space: nowrap; text-align: center; font: 800 15px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text); text-shadow: 0 2px 14px #000; }
+/* Its one small line: a crossover's sentence, or the rule tier the new genre turned on. Wraps on a phone. */
+.stamp small { display: block; margin-top: 5px; white-space: normal; width: min(300px, calc(100vw - 32px)); font: 600 11px/1.3 var(--f-body); letter-spacing: 0.04em; text-transform: none; color: var(--text); }
 .stamp.show { animation: stamp 1.5s ease-out forwards; }
 @keyframes stamp { 0% { opacity: 0; transform: translateX(-50%) scale(1.6) rotate(-4deg); } 14% { opacity: 1; transform: translateX(-50%) scale(1) rotate(-2deg); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) scale(1) rotate(-2deg); } }
 
@@ -177,6 +181,13 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 .strip.remix { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); border-top-color: var(--gold); }
 .strip.remix .strip-glyph::before { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px dashed var(--gold); background: radial-gradient(circle, rgba(255, 209, 102, 0.18), transparent 70%); animation: spin 3s linear infinite; }
 .strip.remix .strip-pips i.on { background: var(--gold); box-shadow: 0 0 5px var(--gold); }
+/* Its partner pedal on a tab over the strip's corner: dim until the pedal is on the board, then gold with the
+   Signature's number. */
+.strip-sig { position: absolute; top: -9px; right: -5px; display: flex; align-items: center; gap: 2px; height: 15px; padding: 0 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--dim); }
+.strip-sig:empty { display: none; }
+.strip-sig svg { width: 10px; height: 10px; }
+.strip-sig b { font: 700 9px/1 var(--f-mono); }
+.strip-sig.on { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 6px -1px var(--gold); }
 /* A remix queued on this channel waits for its 4-bar line: the strip breathes gold until it lands. */
 .strip.queued { border-color: var(--gold); animation: stripqueued 0.5s ease-in-out infinite alternate; }
 @keyframes stripqueued { from { box-shadow: 0 0 0 0 rgba(255, 209, 102, 0); } to { box-shadow: 0 0 14px -2px var(--gold); } }
@@ -185,6 +196,14 @@ body[data-input=touch] #hud.drop-ready .dropbtn { display: grid; }
 .tapes svg { width: 20px; height: 20px; filter: drop-shadow(0 0 5px rgba(255, 209, 102, 0.6)); }
 .tapes.pop { animation: tapepop 0.6s ease-out; }
 @keyframes tapepop { 0% { transform: scale(1.6); filter: brightness(2); } 100% { transform: none; } }
+/* A banked tape waits for these strips (the highest level below the remix level): its reel sits on the strip and
+   pulses on the beat. While a tape lies on the floor, the strips it would remix get a gold rim (never a fill). */
+.strip-reel { position: absolute; top: -8px; right: -5px; display: none; width: 15px; height: 15px; padding: 1px; color: var(--gold); background: var(--ink); border-radius: 3px; filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
+.strip-reel svg { display: block; width: 100%; height: 100%; }
+.strip.tape-wait .strip-reel { display: block; }
+.mixer.beat .strip.tape-wait .strip-reel { animation: reelbeat 0.4s ease-out; }
+@keyframes reelbeat { 0% { transform: scale(1.3); filter: brightness(1.7) drop-shadow(0 0 7px var(--gold)); } 100% { transform: none; } }
+.strip.tapeready { outline: 1.5px solid var(--gold); outline-offset: 2px; }
 /* Moments: a sound joins (pop), a chemistry tier rises (flash in the style color). */
 .strip.pop { animation: strippop 0.5s ease-out; }
 .strip.pop .strip-glyph { animation: glyphflash 0.5s ease-out; }
@@ -311,6 +330,12 @@ body[data-input=pad] #screens :is(.btn, .ibtn, input):focus { outline: 2px solid
 .howto { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; font-size: 15px; }
 .howto li { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 12px; }
 .ht-icon { width: 24px; height: 24px; color: var(--muted); }
+.ht-icon .gems { --s: var(--muted); width: 100%; height: 100%; justify-content: center; }
+/* A wide, short window (a laptop, a landscape phone) reads the lines in two columns, so Got it stays in view. */
+@media (min-width: 640px) and (max-height: 780px) {
+  .screen-howto .howto { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 24px; }
+  .screen-howto .keys :is(th, td) { padding-block: 2px; }
+}
 .keys { width: 100%; margin-top: 16px; border-collapse: collapse; font-size: 13.5px; }
 .keys th, .keys td { padding: 3px 12px 3px 0; text-align: left; border-bottom: 1px solid var(--line); }
 .keys thead th { font: 700 10.5px/1.4 var(--f-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
@@ -421,6 +446,21 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .gems i.gone.down { border-color: var(--bad); }
 .gems i.gone.down::after { background: var(--bad); }
 .gems.fusion i { --s: #fff; background: conic-gradient(var(--beat), var(--perc), var(--bass), var(--chords), var(--lead), var(--arp), var(--beat)); }
+/* A crossover the card forms: a disc split in its two style colors; one it breaks (or Fusion): cracked apart. */
+.gems.cross i { width: 10px; height: 10px; background: linear-gradient(100deg, var(--s) 50%, var(--s2) 50%); }
+.gems.cross.broke i { opacity: 0.7; background: linear-gradient(100deg, var(--s) 38%, transparent 38% 62%, var(--s2) 62%); }
+.gems.fusion.broke i { opacity: 0.7; mask-image: linear-gradient(100deg, #000 38%, transparent 38% 62%, #000 62%); }
+/* The foot's glyphs: a tape's reel, a remix's partner pedal (dim until it is on the board), a pedal's fit row. */
+.card-foot > .reel, .card-foot > .pair { display: inline-flex; width: 16px; height: 16px; color: var(--gold); }
+.card-foot > .pair { opacity: 0.35; }
+.card-foot > .pair.on { opacity: 1; filter: drop-shadow(0 0 4px rgba(255, 209, 102, 0.6)); }
+.fit { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.fit i { display: block; width: 15px; height: 15px; border-radius: 50%; color: var(--text); }
+.fit i.off { opacity: 0.22; }
+/* A remix partner: a gold rounded square like a strip (a ring around a slanted glyph would read as "no"), kept at
+   full strength when the pedal does nothing for the sound itself (the Signature still pays). */
+.fit i.pair { padding: 1.5px; border-radius: 4px; box-shadow: 0 0 0 1.5px var(--gold); }
+.fit i.pair.off { opacity: 1; color: color-mix(in srgb, var(--text) 22%, transparent); }
 @keyframes sparkle { from { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--s), 0 0 4px var(--s); } to { box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--s), 0 0 14px 3px var(--s); } }
 
 /* The info layer: every sentence a card used to show, on demand (I, pad Y or the (i) button). */
@@ -429,6 +469,33 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .card-info span:first-child { color: var(--text); }
 .card-info span + span { margin-top: 4px; }
 #screens.info .card-info { display: block; }
+/* On a phone the info layer sets tighter, so a card that forms Fusion (seven lines) fits beside two more. */
+@media (max-width: 760px), (max-height: 520px) {
+  #screens.info .card-info { font-size: 12px; line-height: 1.32; }
+  #screens.info .card-info span + span { margin-top: 1px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  #screens.info .cards { grid-template-columns: repeat(var(--n, 3), minmax(0, 300px)); }   /* wider, so fewer lines */
+  #screens.info .card-info { padding-top: 6px; font-size: 11.5px; line-height: 1.3; }
+  /* The words name the card and its part, so its glyph and lane go and a Fusion card's buttons clear the mixer. */
+  #screens.info .screen-levelup :is(.card-hero, .steps) { display: none; }
+}
+/* A card never taken in any run shows its words without the info layer: a sound its blurb (what it is and what it
+   does; a swap skips its first line, which is about the old sound and is on the badge), a pedal or remix its first
+   two lines, one on a short screen so three cards still fit. The rest (B3/B4's lines are always last) wait for it. */
+.card.fresh .card-info { display: block; }
+#screens:not(.info) .card.fresh .card-info span:nth-child(n+3),
+#screens:not(.info) .card-new.fresh .card-info span:nth-child(n+2),
+#screens:not(.info) .card-swap.fresh .card-info span:not(:nth-child(2)) { display: none; }
+#screens:not(.info) .card-swap.fresh .card-info span:nth-child(2) { margin-top: 0; color: var(--text); }
+@media (max-height: 520px), (max-width: 760px) and (max-height: 700px) {
+  #screens:not(.info) .card.fresh:not(.card-swap) .card-info span:nth-child(n+2) { display: none; }
+  .tape-mark { width: 24px; height: 24px; margin-bottom: 6px; }   /* so the remix cards and (i) clear the mixer */
+}
+/* A tape's remix cards sit under a reel, so a portrait phone up to 760 px tall keeps them to one line too. */
+@media (max-width: 760px) and (max-height: 760px) {
+  #screens:not(.info) .tape-pick .card.fresh .card-info span:nth-child(n+2) { display: none; }
+}
 
 /* Banish mode: the cards that can go get a red frame, the rest step back. */
 .cards.banishing .card:not(.no-ban) .card-frame { background: var(--bad); }
@@ -442,6 +509,12 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .card.chip:is(:hover, :focus-visible, .focused, .listening, .auditioning) { border-color: var(--c); border-bottom-color: var(--s); transform: translateY(-2px); filter: drop-shadow(0 6px 10px color-mix(in srgb, var(--c) 35%, transparent)); }
 .chip.locked { position: relative; display: grid; place-items: center; width: 42px; height: 42px; padding: 10px; border-radius: 6px; border: 1px dashed var(--line); color: var(--c); opacity: 0.22; filter: grayscale(0.6); }
 .chip.locked i { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 1px; color: var(--text); background: var(--ink); border-radius: 3px; }
+/* The song stepper (after the first run): "◂ Ode ▸" over a one-line credit, wide enough for the longest name so
+   the arrows stay put. It sits over the Gain stepper (beside it on a landscape phone: .dials). */
+.song { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 18px; }
+.song-name { display: grid; justify-items: center; gap: 3px; width: 200px; text-align: center; }
+.song-name b { font-family: var(--f-display); font-size: 16px; font-weight: 700; line-height: 1.2; color: var(--text); }
+.song-name small { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
 /* The Gain stepper: "Gain 2 ◂ ▸ ×1.2". Its name and modifiers are in the info layer. */
 .gain { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
 .gain-name b { color: var(--text); font-size: 15px; }
@@ -463,6 +536,9 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .end-rows { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
 .end-rows li { display: grid; grid-template-columns: 24px minmax(0, 150px) minmax(0, 1fr) 76px; align-items: center; gap: 10px; font-size: 13.5px; }
 .end-rows li.retired { opacity: 0.55; }
+/* The curtain call's last bar, the biggest: one flare in its channel color (screens.js _curtain). */
+.end-rows li.top { border-radius: 4px; animation: ertop 0.9s ease-out; }
+@keyframes ertop { from { background: color-mix(in srgb, var(--c) 22%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent), 0 0 18px 4px color-mix(in srgb, var(--c) 40%, transparent); } }
 .er-icon { width: 22px; height: 22px; color: var(--c); }
 .er-name { display: grid; line-height: 1.25; min-width: 0; }
 .er-name small { font-family: var(--f-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -480,6 +556,8 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .end-notes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 14px; line-height: 1.4; }
 .end-notes .more { color: var(--muted); }
 .end-unsaved { margin: 16px 0 0; font-size: 13.5px; color: var(--dim); }
+.end-next { margin: 12px 0 0; font-size: 14px; line-height: 1.4; color: var(--muted); }
+.end-next b { color: var(--text); font-weight: 600; }
 .end .now-playing:empty { display: none; }
 .end [data-act=listen] { min-width: 12em; }   /* Listen and Stop keep one width, so the buttons stay put */
 
@@ -516,6 +594,9 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .rules ol li i { font-style: normal; font-family: var(--f-mono); color: var(--dim); }
 .rules ol li.on { color: var(--text); }
 .rules ol li.on i { color: var(--s); }
+/* The crossover in play: its styles' colors down the edge, its sentence under the name. */
+.rules > li.x { border-left-color: transparent; background: var(--g) left / 3px 100% no-repeat, var(--panel-2); }
+.rules > li.x b { color: var(--text); }
 
 /* Discography: record sleeves, the remix crate and the liner notes, one page at a time. */
 #screens:has(.screen-disco) { background: rgba(11, 8, 20, 0.84); }
@@ -536,6 +617,8 @@ button.sleeve { font: inherit; cursor: pointer; }
 button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens .sleeve:focus { border-color: var(--text); outline: none; }
 .sleeve b { font-size: 13.5px; line-height: 1.2; overflow-wrap: break-word; }
 .sleeve span { grid-column: 2; font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
+.sleeve small { grid-column: 2; font-size: 11px; line-height: 1.3; color: var(--muted); }
+.sleeve.x .disc { grid-row: span 3; }
 .sleeve em { font-style: normal; color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 50%, transparent); border-radius: 3px; padding: 0 4px; }
 .sleeve.demo { border-style: dashed; }
 .sleeve.empty { opacity: 0.42; }
@@ -587,7 +670,38 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .stamp { bottom: calc(var(--safe-b) + 72px); font-size: 13px; }
   .dropbtn { bottom: calc(var(--safe-b) + 76px); }
 
-  /* Cards become rows (glyph left; name, pips, lane and gems right) so three fit without scrolling. */
+  .row-actions { margin-top: 14px; gap: 8px; }
+  .card.chip, .chip.locked { display: grid; grid-template-columns: none; grid-template-areas: none; min-height: 0; width: 38px; height: 38px; padding: 8px; }
+  .chips { gap: 5px; margin-top: 16px; }
+  .end-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .end-rows li { grid-template-columns: 22px minmax(0, 1fr) 64px; }
+  .er-bar { display: none; }
+  .screen-howto .panel { padding: 20px 16px; }
+  .howto { gap: 9px; font-size: 14px; }
+  .title-actions { display: grid; grid-template-columns: 1fr 1fr; width: min(100%, 340px); }
+  .pause.panel { padding: 18px 14px; }
+  .pause-cols { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .pause-band li { grid-template-columns: 20px minmax(0, 1fr) auto 52px; gap: 8px; padding: 5px 7px; font-size: 12.5px; }
+  .panel-actions .btn { padding: 12px 14px; }
+  .disco.panel { padding: 20px 14px; }
+  .disco .now-playing { min-height: 32px; line-height: 16px; }   /* room for its two lines, so the sleeves stay put */
+  .tab { padding: 10px; }
+  .sleeves { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sleeve { grid-template-columns: 32px minmax(0, 1fr); column-gap: 8px; padding: 7px 8px; }
+  .disc { width: 32px; height: 32px; }
+  .rx { padding: 5px 3px; min-height: 44px; }
+  .rx-g > svg { width: 16px; height: 16px; }
+  .rx b { font-size: 9.5px; }
+  .rx-head { font-size: 8.5px; letter-spacing: 0.04em; }
+  .notes { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 340px) {
+  .disco .now-playing { min-height: 48px; }   /* the longest line takes three here */
+}
+
+/* Portrait phones: cards become rows (glyph left; name, pips, lane and gems right) so three fit without scrolling.
+   A small landscape phone (667x375) keeps the three columns, as rows would not fit its height. */
+@media (max-width: 760px) and (orientation: portrait), (max-width: 760px) and (min-height: 521px) {
   .screen-levelup .cards-wrap, .cards-wrap { margin-top: 0; padding-bottom: 0; }
   .cards, .tape-pick .cards { grid-template-columns: minmax(0, 1fr); max-width: 440px; gap: 10px; }
   .card {
@@ -608,29 +722,18 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .card-badge { top: 9px; left: 9px; width: 16px; height: 16px; }
   .card-badge > svg { flex-basis: 16px; }
   .card-badge.swap .from { display: none; }
-  .row-actions { margin-top: 14px; gap: 8px; }
-  .card.chip, .chip.locked { display: grid; grid-template-columns: none; grid-template-areas: none; min-height: 0; width: 38px; height: 38px; padding: 8px; }
-  .chips { gap: 5px; margin-top: 16px; }
-  .end-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .end-rows li { grid-template-columns: 22px minmax(0, 1fr) 64px; }
-  .er-bar { display: none; }
-  .screen-howto .panel { padding: 20px 16px; }
-  .howto { gap: 9px; font-size: 14px; }
-  .title-actions { display: grid; grid-template-columns: 1fr 1fr; width: min(100%, 340px); }
-  .pause.panel { padding: 18px 14px; }
-  .pause-cols { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .pause-band li { grid-template-columns: 20px minmax(0, 1fr) auto 52px; gap: 8px; padding: 5px 7px; font-size: 12.5px; }
-  .panel-actions .btn { padding: 12px 14px; }
-  .disco.panel { padding: 20px 14px; }
-  .tab { padding: 10px; }
-  .sleeves { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sleeve { grid-template-columns: 32px minmax(0, 1fr); column-gap: 8px; padding: 7px 8px; }
-  .disc { width: 32px; height: 32px; }
-  .rx { padding: 5px 3px; min-height: 44px; }
-  .rx-g > svg { width: 16px; height: 16px; }
-  .rx b { font-size: 9.5px; }
-  .rx-head { font-size: 8.5px; letter-spacing: 0.04em; }
-  .notes { grid-template-columns: minmax(0, 1fr); }
+  /* With a Fusion card's seven lines up, the buttons still clear the mixer (a pedal keeps room for its stomp bar). */
+  #screens.info .card:not(.chip) { padding-top: 10px; }   /* not the lobby's glyph chips, which match the locked ones */
+  #screens.info .card:not(.chip):not([data-style=pedal]) { padding-bottom: 10px; }
+}
+/* A short portrait phone (375x667, 360x640): the lobby's rows shrink to their glyph and a tape's remix cards tighten,
+   so the song and Gain rows with Back, and the (i) under a first Master Tape's cards, fit over the mixer. */
+@media (max-width: 760px) and (min-height: 521px) and (max-height: 700px) {
+  .screen-select .cards .card { min-height: 0; padding-block: 12px; }
+  .screen-select .cards { gap: 8px; }
+  .screen-select :is(.song, .gain) { margin-top: 10px; }
+  .screen-select .chips, .row-actions { margin-top: 10px; }
+  .tape-pick .card { padding-block: 10px; }
 }
 
 /* Landscape phones: compact cards, so a whole card screen fits without scrolling. */
@@ -639,21 +742,29 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .cards { gap: 10px; }
   .card { padding: 9px 12px 12px; gap: 5px; }
   .card-hero { width: 40px; height: 40px; margin-top: 4px; }
-  .card-hero.vinyl { width: 52px; height: 52px; }
-  .card-hero.vinyl > svg { width: 26px; height: 26px; }
+  .card-hero.vinyl { width: 44px; height: 44px; margin-top: 0; }
+  .card-hero.vinyl > svg { width: 22px; height: 22px; }
+  .tape-mark { margin-bottom: 2px; }
+  .tape-pick .card-info { padding-top: 6px; font-size: 12px; }   /* a first tape's three blurbs clear the mixer at 667x375 too */
   .card-title { font-size: 14.5px; }
   .steps i { height: 6px; }
   .row-actions { margin-top: 8px; }
   .ibtn { height: 40px; padding-top: 6px; padding-bottom: 12px; }
   .chips { margin-top: 10px; }
+  .dials { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; column-gap: 28px; margin-top: 10px; }
+  .dials > * { margin-top: 0; }
   .panel-actions.col { display: grid; grid-template-columns: 1fr 1fr; }
   .banner { top: calc(var(--safe-t) + 110px); }
+  /* The compact line sits right over a section banner here (no room below it before the speaker): a small muted label,
+     so a Double Drop over Chorus reads as two lines, not one title. */
+  .fightnote { font-size: 11px; letter-spacing: 0.22em; color: var(--muted); }
   .banner-title { font-size: 24px; }
   .end.panel { padding: 16px 20px; }
   .end-stats { margin-top: 12px; }
   .end-stats div { padding: 8px 10px; }
   .end-stats b { font-size: 17px; }
   .end-notes, .end-song, .end-genre { margin-top: 12px; }
+  .end-next { margin-top: 8px; }
   .end-song .songmap { margin: 28px 0 14px; }
   .end-rows { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
   .end .panel-actions { margin-top: 14px; }
@@ -666,11 +777,16 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .notes li { padding: 5px 8px; font-size: 12px; }
   .strip { height: 44px; }
 }
+/* The smallest landscape phones (640x360): a first tape's blurbs set tighter, so its (i) clears the mixer. */
+@media (max-height: 370px) {
+  .tape-mark { margin-bottom: 0; }
+  .tape-pick .card-info { font-size: 11.5px; line-height: 1.3; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .logo-row span { animation: none; }
   .dropbtn, .hp.low, .leds i.free, .pips i.new, .gems i.up, .hint, .songwrap .songmap b.open { animation: none; }
   .banner.show, .banner.gold.show { animation-duration: 2.2s; }
   .card, .btn, .ibtn, .strip { transition: none; }
-  .sleeve.playing .disc, .card-hero .vdisc, .strip.remix .strip-glyph::before, .strip.queued, .tapes.pop { animation: none; }
+  .sleeve.playing .disc, .card-hero .vdisc, .strip.remix .strip-glyph::before, .strip.queued, .tapes.pop, .mixer.beat .strip.tape-wait .strip-reel { animation: none; }
 }

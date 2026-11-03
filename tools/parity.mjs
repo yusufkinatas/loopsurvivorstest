@@ -11,7 +11,10 @@
 // L5+p (level 5 with the remix pedal at 3) and Rx (the remix) run 2.2 minutes, so compare Rx with L5+p.
 // A flag (!) marks a number outside its channel's band (BANDS below) or a remix no better than its level 5.
 // Flags: --parallel N (pages at once, default 2; keep it at 2 on a shared machine), --timeout s (per run,
-// default 120), --seed N (default 7). Exits 1 when a run errors, so it also works as a smoke test.
+// default 120), --seed N (default 7), --song N (a song of the setlist, default 0), --tex role:transform,... (that
+// transform in place of each of the role's full phrases, e.g. --tex lead:q_ode). L5+p and Rx runs never count a
+// Signature (sig=0; an L5+p run can win a tape and remix late), so Rx compares the remix itself with L5+p. Exits 1
+// when a run errors, so it also works as a smoke test.
 import { serve, launch } from './serve.mjs';
 
 const args = process.argv.slice(2);
@@ -20,6 +23,7 @@ const parallel = Math.max(1, Number(flag('--parallel', 2)) || 2);
 const timeout = Number(flag('--timeout', 120)) * 1000;
 const seed = Number(flag('--seed', 7));
 const remixToo = !args.includes('--no-remix');
+const song = flag('--song', null), tex = flag('--tex', null);
 
 // Total damage bands per channel at level 1 and level 5 (3-minute solo, seed 7), from the Synth, Live and
 // 8-Bit sounds of each channel measured on 2026-11-01: 0.9x the lowest to 1.1x the highest, to 0.5k.
@@ -57,15 +61,15 @@ if (!chosen.length) {
   process.exit(2);
 }
 
-const base = `speed=16&bot=1&god=1&solo=1&seed=${seed}`;
+const base = `speed=16&bot=1&god=1&solo=1&seed=${seed}${song !== null ? `&song=${song}` : ''}${tex ? `&tex=${tex}` : ''}`;
 const jobs = [];
 for (const d of chosen) {
   const q = `${base}&start=${d.id}`;
   jobs.push({ d, kind: 'l1', q: `${q}&minutes=3&give=${d.id}:1` });
   jobs.push({ d, kind: 'l5', q: `${q}&minutes=3&give=${d.id}:5` });
   if (remixToo && d.pedal) {
-    jobs.push({ d, kind: 'l5p', q: `${q}&minutes=2.2&give=${d.id}:5&pedals=${d.pedal}:3` });
-    jobs.push({ d, kind: 'rx', q: `${q}&minutes=2.2&give=${d.id}:5&pedals=${d.pedal}:3&remix=${d.id}` });
+    jobs.push({ d, kind: 'l5p', q: `${q}&minutes=2.2&give=${d.id}:5&pedals=${d.pedal}:3&sig=0` });
+    jobs.push({ d, kind: 'rx', q: `${q}&minutes=2.2&give=${d.id}:5&pedals=${d.pedal}:3&remix=${d.id}&sig=0` });
   }
 }
 

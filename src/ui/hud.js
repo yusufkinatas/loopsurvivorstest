@@ -7,8 +7,10 @@
 import { ROLES, ROLE_INFO, STYLES, PEDAL_SLOTS, MAX_INSTRUMENT_LEVEL, MAX_PEDAL_LEVEL, STEP_SEC, BALANCE } from '../config.js';
 import { rgba } from '../util.js';
 import { icon } from './icons.js';
-import { CHEMISTRY, chemistryTier } from '../game/loadout.js';
+import { CHEMISTRY, CROSS_TEXT } from '../game/loadout.js';
 import { SECTIONS } from '../music/song.js';
+import { tapeTarget, pedalCanJoin } from '../game/upgrades.js';
+import { PEDAL_BY_ID } from '../content/pedals.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 const pips = (n, max, cls = '') => Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}${cls && i === n ? ` ${cls}` : ''}"></i>`).join('');
@@ -119,9 +121,9 @@ export class Hud {
     [this.songHead, this.songOpen] = this.song.querySelectorAll('.songmap b');
     this.top.append(bars, this.song);
 
-    // The boss bar, and under it a thin clock line that drains with the bars left in the boss's section: a boss
-    // silenced before it runs out drops a Master Tape.
-    this.boss = el('div', 'bossbar', '<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div><div class="bossbar-clock"><i></i></div>');
+    // The boss bar, and under it a thin clock line that drains with the bars left in the boss's section and ends in a
+    // tape glyph: a boss silenced before it runs out drops a Master Tape.
+    this.boss = el('div', 'bossbar', `<span class="bossbar-name"></span><div class="bossbar-track"><div class="bossbar-fill"></div></div><div class="bossbar-clock"><i></i>${icon('tape')}</div>`);
     this.boss.hidden = true;
     this.bossClock = this.boss.querySelector('.bossbar-clock');
     this.banner = el('div', 'banner', '<div class="banner-title"></div>');
@@ -140,8 +142,8 @@ export class Hud {
       const s = el('div', 'strip empty');
       s.style.setProperty('--c', ROLE_INFO[role].color);
       s.setAttribute('role', 'img');
-      s.innerHTML = `<div class="strip-meter"><i></i></div><div class="strip-glyph"><span class="g-cur">${icon('plus')}</span><span class="g-ghost"></span></div><div class="strip-pips"></div>`;
-      this.strips[role] = { el: s, meter: s.querySelector('.strip-meter i'), glyph: s.querySelector('.g-cur'), ghost: s.querySelector('.g-ghost'), pips: s.querySelector('.strip-pips'), last: null };
+      s.innerHTML = `<div class="strip-meter"><i></i></div><div class="strip-glyph"><span class="g-cur">${icon('plus')}</span><span class="g-ghost"></span></div><div class="strip-pips"></div><span class="strip-reel">${icon('tape')}</span><span class="strip-sig"></span>`;
+      this.strips[role] = { el: s, meter: s.querySelector('.strip-meter i'), glyph: s.querySelector('.g-cur'), ghost: s.querySelector('.g-ghost'), pips: s.querySelector('.strip-pips'), sig: s.querySelector('.strip-sig'), last: null };
       this.mixer.append(s);
     }
     this.pedals = el('div', 'pedalboard');
@@ -152,7 +154,7 @@ export class Hud {
       this.pedalSlots.push(p);
       this.pedals.append(p);
     }
-    // Master Tapes waiting for a channel at level 5: one gold reel each, by the mixer.
+    // Master Tapes waiting for a channel at BALANCE.remix.minLevel: one gold reel each, by the mixer.
     this.tapes = el('div', 'tapes');
     this.tapes.setAttribute('role', 'img');
     this.tapes.hidden = true;
@@ -179,6 +181,7 @@ export class Hud {
   reset() {
     this._tiers = null;
     this._genre = null;
+    this._stampOwed = false;
     this._targetEl = null;
     this.target(null);
     this.hint(null);
@@ -200,6 +203,8 @@ export class Hud {
   }
 
   hideBanner() { this.banner.classList.remove('show'); }
+  // Play resumes: a stamp that fired under a card screen (a pick, then another screen in the same pause) plays now.
+  resumed() { if (this._stampOwed) kick(this.stamp, 'show'); this._stampOwed = false; }
 
   // A device glyph under the player that shows how to move ('keys', 'stick' or 'finger'), or null to hide it.
   hint(kind) {
@@ -282,7 +287,7 @@ export class Hud {
       s.el.classList.toggle('empty', !inst);
       s.el.classList.toggle('locked', !inst && !free);
       s.el.classList.toggle('remix', !!inst?.remix);
-      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}` : free ? 'free' : 'locked';
+      const key = inst ? `${inst.def.id}:${inst.level}:${inst.remix ? 1 : 0}:${inst.sig ? 1 : 0}:${inst.remix && pedalCanJoin(g, inst.def.remix.pedal) ? 1 : 0}` : free ? 'free' : 'locked';
       if (s.last === key) continue;
       s.last = key;
       if (inst) {
@@ -291,9 +296,16 @@ export class Hud {
         s.el.dataset.style = inst.def.style;
         s.glyph.innerHTML = icon(inst.def.id, role);
         s.pips.innerHTML = pips(inst.level, MAX_INSTRUMENT_LEVEL);
-        s.el.title = `${name} · ${styleName(inst.def.style)} · Lv ${inst.level}`;
-        s.el.setAttribute('aria-label', `${ROLE_INFO[role].name}: ${name}, ${styleName(inst.def.style)}, level ${inst.level}${inst.remix ? ', remixed' : ''}`);
+        // A remixed strip wears its partner pedal: dim until that pedal is on the board, then gold with its number. No
+        // tab once it can never join (a full board, or banished).
+        const pd = inst.remix && (inst.sig || pedalCanJoin(g, inst.def.remix.pedal)) ? PEDAL_BY_ID[inst.def.remix.pedal] : null, x = `×${BALANCE.remix.sig}`;
+        const sig = pd ? (inst.sig ? `${pd.name} ${x}` : `Add ${pd.name} for ${x}`) : '';
+        s.sig.className = `strip-sig${inst.sig ? ' on' : ''}`;
+        s.sig.innerHTML = pd ? icon(pd.id, 'pedal') + (inst.sig ? `<b>${x}</b>` : '') : '';
+        s.el.title = `${name} · ${styleName(inst.def.style)} · Lv ${inst.level}${sig ? ` · ${sig}` : ''}`;
+        s.el.setAttribute('aria-label', `${ROLE_INFO[role].name}: ${name}, ${styleName(inst.def.style)}, level ${inst.level}${inst.remix ? ', remixed' : ''}${sig ? `, ${sig}` : ''}`);
       } else {
+        s.sig.innerHTML = '';
         s.el.style.removeProperty('--s');
         delete s.el.dataset.style;
         s.glyph.innerHTML = icon(free ? 'plus' : 'lock');
@@ -312,19 +324,23 @@ export class Hud {
       slot.setAttribute('aria-label', slot.title);
     });
 
-    // Moments: a chemistry tier rising flashes that style's strips with a chime, a new genre stamps its name.
-    const counts = g.loadout.styleCounts();
-    const tiers = {};
-    for (const st of Object.keys(CHEMISTRY)) { try { tiers[st] = chemistryTier(st, counts[st] || 0); } catch (e) { tiers[st] = 0; } }
+    // Moments: a rule tier rising (a crossover's lift included) flashes that style's strips with a chime, a new genre
+    // stamps its name with one small line: the crossover's sentence, else the rule tier it turned on.
+    const R = g.stats.rules, tiers = R.tiers;
+    let rose = [];
     if (this._tiers && g.time > 0) {
-      const rose = Object.keys(tiers).filter((st) => tiers[st] > (this._tiers[st] || 0));
+      rose = Object.keys(tiers).filter((st) => tiers[st] > (this._tiers[st] || 0));
       for (const st of rose) for (const role of ROLES) if (g.loadout.channels[role]?.def.style === st) kick(this.strips[role].el, 'tierflash');
       if (rose.length) this.onChime(rose[0]);
     }
     this._tiers = tiers;
     if (this._genre !== null && g.genre !== this._genre && g.time > 0) {
+      const st = rose.sort((a, b) => tiers[b] - tiers[a])[0], line = el('small');
+      line.textContent = R.x === g.genre ? CROSS_TEXT[R.x] : st ? `${CHEMISTRY[st].name} · ${CHEMISTRY[st].tiers[tiers[st] - 1].text}` : '';
       this.stamp.textContent = g.genre;
+      if (line.textContent) this.stamp.append(line);
       kick(this.stamp, 'show');
+      this._stampOwed = !!document.body.dataset.screen;   // a card screen hides it: resumed() plays it again
     }
     this._genre = g.genre;
   }
@@ -358,11 +374,21 @@ export class Hud {
       this._tapesN = n;
       this.tapes.hidden = !n;
       this.tapes.innerHTML = icon('tape').repeat(n);
-      this.tapes.setAttribute('aria-label', `${n} Master Tape${n === 1 ? '' : 's'} waiting for a channel at level 5`);
       if (more) kick(this.tapes, 'pop');
     });
+    // The strips a banked tape waits for wear its reel, pulsing on the beat (from the frame it is banked, not on the
+    // next loadout change), and while a tape lies on the floor the strips it would remix get a gold rim. A tape whose
+    // remix cards are pending or open waits for nothing (tapeTarget is empty).
+    const toggle = (cls) => (s) => { const on = s ? s.split(',') : []; for (const r of ROLES) this.strips[r].el.classList.toggle(cls, on.includes(r)); };
+    const roles = (insts) => insts.map((i) => i.def.role).join(',');
+    const wait = banked > 0 ? roles(tapeTarget(g)) : '';
+    set('tapearia', `${banked} Master Tape${banked === 1 ? '' : 's'}${wait ? ` waiting for a channel at level ${BALANCE.remix.minLevel}` : ''}`, (v) => this.tapes.setAttribute('aria-label', v));
+    set('tapewait', wait, toggle('tape-wait'));
+    set('tapebeat', wait && cur ? cur.bar * 4 + (cur.sib >> 2) : -1, () => { if (wait) kick(this.mixer, 'beat'); });
+    const onFloor = g.tapes && g.tapes.dropped > g.tapes.collected + g.tapes.lost;
+    set('tapeready', onFloor ? roles(g.remixReady()) : '', toggle('tapeready'));
     const queued = [seq.remixAt?.inst, ...(g.remixQueue || [])].filter(Boolean).map((i) => i.def.role).join(',');
-    set('queued', queued, (s) => { const roles = s ? s.split(',') : []; for (const r of ROLES) this.strips[r].el.classList.toggle('queued', roles.includes(r)); });
+    set('queued', queued, toggle('queued'));
 
     if (this.bossEnemy) {
       const e = this.bossEnemy;
