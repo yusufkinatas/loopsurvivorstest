@@ -718,8 +718,8 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .card-badge > svg { flex-basis: 16px; }
   .card-badge.swap .from { display: none; }
   /* With a Fusion card's seven lines up, the buttons still clear the mixer (a pedal keeps room for its stomp bar). */
-  #screens.info .card { padding-top: 10px; }
-  #screens.info .card:not([data-style=pedal]) { padding-bottom: 10px; }
+  #screens.info .card:not(.chip) { padding-top: 10px; }   /* not the lobby's glyph chips, which match the locked ones */
+  #screens.info .card:not(.chip):not([data-style=pedal]) { padding-bottom: 10px; }
 }
 /* A short portrait phone (375x667, 360x640): the lobby's rows shrink to their glyph and a tape's remix cards tighten,
    so the song and Gain rows with Back, and the (i) under a first Master Tape's cards, fit over the mixer. */
