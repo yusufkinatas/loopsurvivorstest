@@ -144,11 +144,18 @@ export function unlockedStarts(meta) {
 // The liner-note goal to go for next: the first one not met yet, or null once all are.
 export const nextGoal = (meta) => GOALS.find((g) => !meta.goals[g.id]) || null;
 
+// The song the lobby starts on (an index into SONGS): the first one not played yet, else the one picked last.
+export function lobbySong(meta) {
+  const i = SONGS.findIndex((_, k) => !(meta.played & (1 << k)));
+  return i >= 0 ? i : meta.songSel;
+}
+
 // Fold one finished run into meta (mutates it). Returns what is new, for the end screen:
-// { goals: [goal...], record: { genre, fresh, gold, upgraded } | null, remixes: [ids], gain: n | null }.
+// { goals: [goal...], record: { genre, fresh, gold, upgraded } | null, remixes: [ids], gain: n | null,
+//   songs: true after the first run, when the setlist has more than the loop (the lobby's song stepper opens) }.
 // A summary field that is missing counts as not done.
 export function applyRun(meta, sum, { now }) {
-  const out = { goals: [], record: null, remixes: [], gain: null };
+  const out = { goals: [], record: null, remixes: [], gain: null, songs: meta.runs === 0 && SONGS.length > 1 };
   meta.runs++;
   meta.wins += sum.won ? 1 : 0;
   meta.kills += num(sum.kills);

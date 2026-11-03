@@ -476,6 +476,12 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .card.chip:is(:hover, :focus-visible, .focused, .listening, .auditioning) { border-color: var(--c); border-bottom-color: var(--s); transform: translateY(-2px); filter: drop-shadow(0 6px 10px color-mix(in srgb, var(--c) 35%, transparent)); }
 .chip.locked { position: relative; display: grid; place-items: center; width: 42px; height: 42px; padding: 10px; border-radius: 6px; border: 1px dashed var(--line); color: var(--c); opacity: 0.22; filter: grayscale(0.6); }
 .chip.locked i { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 1px; color: var(--text); background: var(--ink); border-radius: 3px; }
+/* The song stepper (after the first run): "◂ Ode ▸" over a one-line credit, wide enough for the longest name so
+   the arrows stay put. It sits over the Gain stepper (beside it on a landscape phone: .dials). */
+.song { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 18px; }
+.song-name { display: grid; justify-items: center; gap: 3px; width: 200px; text-align: center; }
+.song-name b { font-family: var(--f-display); font-size: 16px; font-weight: 700; line-height: 1.2; color: var(--text); }
+.song-name small { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
 /* The Gain stepper: "Gain 2 ◂ ▸ ×1.2". Its name and modifiers are in the info layer. */
 .gain { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
 .gain-name b { color: var(--text); font-size: 15px; }
@@ -685,6 +691,8 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .row-actions { margin-top: 8px; }
   .ibtn { height: 40px; padding-top: 6px; padding-bottom: 12px; }
   .chips { margin-top: 10px; }
+  .dials { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; column-gap: 28px; margin-top: 10px; }
+  .dials > * { margin-top: 0; }
   .panel-actions.col { display: grid; grid-template-columns: 1fr 1fr; }
   .banner { top: calc(var(--safe-t) + 110px); }
   /* The compact line sits right over a section banner here (no room below it before the speaker): a small muted label,
