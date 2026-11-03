@@ -36,7 +36,10 @@ server below. Sound on, headphones help.
 - **The song breathes.** Every section has its own texture: thin verses, full choruses, a drumless Bridge
   breakdown, a solo for your strongest part, a half-time Drop and a Finale that rises and falls. A quiet
   phrase is dangerous (the band plays thin and the mix goes dark), and the band slamming back in hits
-  everything around you.
+  everything around you. The last phrase of each chorus, The Drop's third and every Finale rise put your Beat
+  and Groove channels on a classic groove in their own sounds (House, Funky Drummer, When the Levee Breaks, a
+  march under Ravel's Bolero, 40 in all), picked by your band's top style, or by its crossover or Fusion once
+  one forms.
 - **The Noise never thins.** A floor of bodies walks in from just past the screen's edge and refills on every
   beat, so you cannot clear the room. Each section brings tougher, bigger bodies, rings close in before the
   song's big downbeats and walls sweep through the quiet phrases (always with a gap to slip through). Almost
@@ -79,9 +82,11 @@ The build *is* the arrangement, so the game enforces the rules a producer would:
 2. **Every note is in key and on the grid.** Patterns ask for "chord tone 2" or "scale step 4", and the
    sequencer resolves them against the current chord of the run's key on a 16th-note grid.
 3. **The arrangement thins and fills the band.** Each 8-bar phrase gives every channel a texture
-   (full, out, sparse, half-time, double-time, call, answer, held, an octave down, mirrored, or a lower
-   level's part). The textures only move notes on the grid, so they stay in key, and an attack only fires
-   on a note you hear.
+   (full, out, sparse, half-time, double-time, call, answer, held, an octave down, mirrored, a lower
+   level's part, a classic groove, or a song's accompaniment figure). The textures only move notes on the
+   grid, so they stay in key, and an attack only fires on a note you hear. A groove moves the part's own notes
+   onto its hits (a busy part's extra notes land with the hit they share) and a figure sounds its chord tones on
+   them in the chord's first octave, so both hit as hard as the part they replace.
 4. **The desk mixes for you.** Channels are panned apart, melodic channels duck under the kick, the bus
    compresses and limits, and the level and brightness follow who is playing.
 
@@ -129,6 +134,7 @@ src/config.js                 tempo, channels, styles, Gain, and BALANCE (every 
 src/music/theory.js           keys, diatonic chords, chord-tone and scale-step lookup, voice leading
 src/music/song.js             the song: sections, progressions, the 8-bar texture chart, bosses
 src/music/sequencer.js        lookahead scheduler, texture transforms, solos, impacts, remix moments
+src/music/grooves.js          the 40 classic grooves, their lists per style and crossover, accompaniment figures
 src/music/replay.js           the radio edit: plays a run's track sheet back
 src/audio/engine.js           the mixing desk: channel strips, pedals, returns, phrase level and tone, master bus
 src/audio/voices.js           synth voices (subtractive, FM, Karplus-Strong pluck, noise, kick, drive)
