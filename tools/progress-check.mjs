@@ -224,14 +224,17 @@ assert.ok(ids(news).includes('concept'));
 // The new styles' remixes go in the crate under their instrument ids.
 assert.deepEqual(applyRun(m, rx('doublekick', 'harp'), { now }).remixes, ['doublekick', 'harp']);
 
-// An old save (three styles, no Heavy or Orchestra anywhere) loads unchanged, keeps its starts, and a
-// save from a later version with goals, sounds or remixes this one does not know drops just those.
+// An old save (three styles, no Heavy or Orchestra anywhere) loads unchanged, keeps its starts, counts what its
+// records' sheets and remix crate show it took as seen, and a save from a later version with goals, sounds or
+// remixes this one does not know drops just those.
 const old = {
   v: 1, runs: 12, wins: 3, kills: 50000, secs: 4000, goals: { drone: 1, synth4: 2, fusion: 3 }, gainMax: 1, gainSel: 1,
   records: { Synthwave: { s: 90000, k: 'A minor', kp: 9, w: 1, g: 0, sh: sheet, d: '2026-10-01' } }, remixes: { flute: 5 },
 };
 const loaded = normalizeMeta(JSON.parse(JSON.stringify(old)));
-assert.deepEqual(loaded, { ...old, songSel: 0, played: 1, seen: {}, records: { Synthwave: { ...old.records.Synthwave, sg: 'loop' } } });
+assert.deepEqual(loaded, { ...old, songSel: 0, played: 1, seen: { kick808: 1, flute: 1 }, records: { Synthwave: { ...old.records.Synthwave, sg: 'loop' } } });
+const veteran = normalizeMeta({ ...old, records: { Riff: { s: 1, sh: [{ index: 0, band: [['taiko', 3, 1], 'x', ['nope', 1, 0], ['constructor']], pedals: [['delay', 2], ['kazoo', 1], 7, null] }] } } });
+assert.deepEqual(veteran.seen, { taiko: 1, delay: 1, flute: 1 });
 assert.deepEqual(unlockedStarts(loaded), [...DEFAULT_STARTS, 'taiko', 'supersaw', 'musicbox']);
 const later = normalizeMeta({ ...old, goals: { ...old.goals, heavy4: 4, kazoo9: 5 }, remixes: { flute: 5, doublekick: 6, kazoo: 7 } });
 assert.deepEqual(Object.keys(later.goals), ['drone', 'synth4', 'fusion', 'heavy4']);

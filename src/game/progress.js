@@ -115,14 +115,23 @@ export function normalizeMeta(raw) {
   }
   const gainMax = int(m.gainMax, GAIN.length);
   const runs = Math.floor(num(m.runs));
+  const remixes = stamps(m.remixes, (id) => !!BY_ID[id]?.remix);
+  const seen = Object.fromEntries(Object.entries(obj(m.seen)).filter(([id, v]) => v === 1 && (Object.hasOwn(BY_ID, id) || Object.hasOwn(PEDAL_BY_ID, id))));
+  // What the records' sheets and the remix crate show was taken is seen too, so a career from before the seen
+  // marks does not deal the sounds it has played as never taken.
+  for (const r of Object.values(records)) for (const e of r.sh) {
+    for (const [id] of e.band.filter(Array.isArray)) if (Object.hasOwn(BY_ID, id)) seen[id] = 1;
+    for (const [id] of (Array.isArray(e.pedals) ? e.pedals : []).filter(Array.isArray)) if (Object.hasOwn(PEDAL_BY_ID, id)) seen[id] = 1;
+  }
+  for (const id of Object.keys(remixes)) seen[id] = 1;
   return {
     ...newMeta(), runs, wins: Math.floor(num(m.wins)), kills: num(m.kills), secs: num(m.secs),
     goals: stamps(m.goals, (id) => GOALS.some((g) => g.id === id)), records,
-    remixes: stamps(m.remixes, (id) => !!BY_ID[id]?.remix), gainMax, gainSel: int(m.gainSel, gainMax),
+    remixes, gainMax, gainSel: int(m.gainSel, gainMax),
     songSel: int(m.songSel, SONGS.length - 1),
     // Only the bits of songs this version knows; every run before the setlist played the loop.
     played: (Number.isInteger(m.played) && m.played > 0 ? m.played & PLAYED : 0) | (runs > 0 ? 1 : 0),
-    seen: Object.fromEntries(Object.entries(obj(m.seen)).filter(([id, v]) => v === 1 && (Object.hasOwn(BY_ID, id) || Object.hasOwn(PEDAL_BY_ID, id)))),
+    seen,
   };
 }
 
