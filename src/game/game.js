@@ -5,7 +5,7 @@ import { ROLES, ROLE_INFO, STYLES, STEP_SEC, BAR_SEC, ECHO_STEPS, PLAYER_BASE, D
 import { rng, seedRng, dist2, rand, TAU, swapRemove, clamp } from '../util.js';
 import { KEYS } from '../music/theory.js';
 import { Song, SECTIONS, FINALE_BAR, SONGS, sectionsOf } from '../music/song.js';
-import { Effects } from './effects.js';
+import { Effects, TEXT_MERGE } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
 import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat } from './enemies.js';
@@ -20,6 +20,9 @@ import { PEDAL_BY_ID } from '../content/pedals.js';
 const ECHO_ROLES = new Set(['perc', 'chords', 'lead', 'arp']);
 // A shield blocks at most this many hits, however many charges a sound gives it.
 const SHIELD_MAX = 3;
+// Death pops kept (the renderer draws the young ones), and pickup words, which show with Damage numbers off too.
+const DEATH_POPS = 90;
+const WORD = { word: true };
 
 // A card taken: the sims' ledger counts picks (by kind) per section and what the Breather card healed.
 function applyOffer(g, o) {
@@ -109,6 +112,7 @@ export class Game {
     this.shots = [];
     this.gems = [];
     this.later = [];
+    this.deathPops = [];     // kills you can see: { x, y, r, shape, phase, color, t } (renderer _deathPops)
     // The play rules' live state (CHEMISTRY in loadout.js): the clean-beat combo, planted (stood within
     // RULES.plant of where the last beat found you), phrase (0..1 through the 8-bar phrase), the last beat's
     // spot and time, and broke (moved off that spot since). Tracked whatever the band, applied by its tiers.
@@ -639,10 +643,11 @@ export class Game {
     }
     if (o.slow) { e.slow = Math.max(e.slow, Math.min(0.8, o.slow) * (e.boss ? 0.4 : 1)); e.slowT = 1.2; }
     // Numbers only for hits worth reading: big crits always, and on a calm screen also other crits, killing
-    // blows and big chunks. Otherwise they flood the screen.
+    // blows and big chunks. Otherwise they flood the screen. A hit on an enemy whose number is still young adds
+    // into it (fx.text merges by key).
     const big = crit && (e.boss || e.elite || dmg >= e.maxHp * 0.25);
-    if (this.settings.damageNumbers && (big || (this.fx.texts.length < 8 && (crit || e.hp <= 0 || dmg >= e.maxHp * 0.2)))) {
-      this.fx.text(e.x, e.y - e.r - 4, String(Math.round(dmg)), crit ? '#ffe066' : '#ffffff', crit ? 14 : 10);
+    if (this.settings.damageNumbers && (big || e.num?.age < TEXT_MERGE || (this.fx.texts.length < 8 && (crit || e.hp <= 0 || dmg >= e.maxHp * 0.2)))) {
+      this.fx.text(e.x, e.y - e.r - 4, String(Math.round(dmg)), crit ? '#ffe066' : '#ffffff', crit ? 14 : 10, { key: e, n: dmg, crit });
     }
     if (e.hp <= 0) this.kill(e, src);
   }
@@ -703,6 +708,9 @@ export class Game {
       const col = e.hitColor || e.color;
       this.fx.particles(e.x, e.y, col, e.boss ? 60 : e.elite ? 20 : 8, e.boss ? 380 : e.elite ? 170 : 190, e.boss ? 1 : e.elite ? 0.4 : 0.42, e.boss ? 4 : e.elite ? 2.4 : 2.8);
       if (!e.boss) this.fx.flash(e.x, e.y, e.r * (e.elite ? 2.4 : 1.8), col, 0.16, 0);
+      // ...and its own silhouette flares in the channel's color (white for a Drop, an impact or a remix ring), so
+      // kills read in a late crowd. A capped push, also in sims (the late shots draw them).
+      if (!e.boss && this.deathPops.push({ x: e.x, y: e.y, r: e.r, shape: e.shape, phase: e.phase, color: src ? col : '#ffffff', t: this.time }) > DEATH_POPS) this.deathPops.shift();
     }
     if (e.xp > 0) {
       if (e.boss) { for (let i = 0; i < 12; i++) dropGem(this, e.x + rand(-50, 50), e.y + rand(-50, 50), Math.ceil(e.xp / 12)); }
@@ -788,13 +796,13 @@ export class Game {
       this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player.maxHp * BALANCE.hearts.heal);
       L.heal.drop += this.player.hp - hp;
       L.heartsTaken++;
-      this.fx.text(this.player.x, this.player.y - 26, 'Breather!', '#ff8fa3', 14);
+      this.fx.text(this.player.x, this.player.y - 26, 'Breather!', '#ff8fa3', 14, WORD);
     } else if (gm.kind === 'magnet') {
       magnetAll(this);
     } else if (gm.kind === 'vinyl') {
       if (!this.opts.solo) this.pendingLevels++;
       this._led().levels++;
-      this.fx.text(this.player.x, this.player.y - 26, 'Vinyl!', '#ffd166', 14);
+      this.fx.text(this.player.x, this.player.y - 26, 'Vinyl!', '#ffd166', 14, WORD);
     } else if (gm.kind === 'tape') {
       this._collectTape();
     }
@@ -1256,6 +1264,7 @@ export class Game {
     this.seq.pendingStop = null;
     this.seq.remixAt = null;   // no remix lands on the band playing on after the run
     this.dropState = null;
+    this.deathPops.length = 0;   // the clock stops here, so a young pop would hang: the shatter takes over
     if (this.audio?.ready) this.audio.setMuffle(true);
     for (const inst of this.loadout.instruments()) this.fx.particles(p.x, p.y, this.color(inst), 16, 340, 1.1, 3.5);
     this.fx.particles(p.x, p.y, '#f4efff', 20, 260, 0.9, 3);

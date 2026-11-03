@@ -503,6 +503,9 @@ body[data-input=pad] .card-key::after { content: "A"; }
 .end-rows { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
 .end-rows li { display: grid; grid-template-columns: 24px minmax(0, 150px) minmax(0, 1fr) 76px; align-items: center; gap: 10px; font-size: 13.5px; }
 .end-rows li.retired { opacity: 0.55; }
+/* The curtain call's last bar, the biggest: one flare in its channel color (screens.js _curtain). */
+.end-rows li.top { border-radius: 4px; animation: ertop 0.9s ease-out; }
+@keyframes ertop { from { background: color-mix(in srgb, var(--c) 22%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent), 0 0 18px 4px color-mix(in srgb, var(--c) 40%, transparent); } }
 .er-icon { width: 22px; height: 22px; color: var(--c); }
 .er-name { display: grid; line-height: 1.25; min-width: 0; }
 .er-name small { font-family: var(--f-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

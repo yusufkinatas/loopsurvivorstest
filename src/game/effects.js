@@ -9,6 +9,8 @@ import { TAU, rand, dist2, segDist2, clamp, swapRemove } from '../util.js';
 
 const MAX_PARTICLES = 900;
 const MAX_TEXTS = 30;
+export const TEXT_MERGE = 0.3;   // s: hits on one enemy this soon after its number appeared add into it
+const NO_OPTS = {};
 const MAX_BULLETS = 700;
 const NO_TARGETS = [];
 // Caps for the persistent and drawn archetypes, so any band stays inside the effects budget.
@@ -21,6 +23,8 @@ const MAX_FOLLOWERS = 12;      // followers in one trail
 const MAX_MINES = 120;
 const TRAIL_STEP = 6;          // px between the breadcrumbs a trail of followers walks on
 
+// A crit number's slight tilt, either way (radians).
+const tilt = () => (Math.random() < 0.5 ? -1 : 1) * (0.07 + Math.random() * 0.05);
 // Smallest signed difference between two angles.
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; };
 
@@ -455,10 +459,24 @@ export class Effects {
     }
   }
 
-  text(x, y, str, color = '#fff', size = 12) {
-    if (this.g.opts.sim || !this.g.settings.damageNumbers) return;
-    if (this.texts.length >= MAX_TEXTS) this.texts.shift();
-    this.texts.push({ x: x + Math.random() * 12 - 6, y, str, color, size, life: 0.6, age: 0 });
+  // A floating number (Damage numbers setting) or, with o.word, a word that always shows (Breather!). o.key: the
+  // enemy a number belongs to; while young (TEXT_MERGE) the next hit's o.n adds into it, and it grows and pops
+  // again. o.crit: pops in bigger and tilted (renderer _texts). popAt: the age its last pop started.
+  text(x, y, str, color = '#fff', size = 12, o = NO_OPTS) {
+    if (this.g.opts.sim || !(o.word || this.g.settings.damageNumbers)) return;
+    const m = o.key?.num;
+    if (m && !m.gone && m.age < TEXT_MERGE) {
+      m.n += o.n;
+      m.str = String(Math.round(m.n));
+      m.popAt = m.age;
+      m.size = Math.min(m.size + 1, m.base + 4);
+      if (o.crit && !m.crit) Object.assign(m, { crit: true, color, base: size, size: Math.max(m.size, size), tilt: tilt() });
+      return;
+    }
+    if (this.texts.length >= MAX_TEXTS) this.texts.shift().gone = true;
+    const t = { x: x + Math.random() * 12 - 6, y, str, color, size, base: size, life: 0.6, age: 0, popAt: 0, crit: !!o.crit, tilt: o.crit ? tilt() : 0, n: o.n, gone: false };
+    this.texts.push(t);
+    if (o.key) o.key.num = t;
   }
 
   // ---------------------------------------------------------------- update

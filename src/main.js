@@ -12,7 +12,7 @@ import { AudioEngine } from './audio/engine.js';
 import { Sequencer } from './music/sequencer.js';
 import { Song, SECTIONS, SONGS, sectionsOf } from './music/song.js';
 import { playSheet } from './music/replay.js';
-import { KEYS, makeChord } from './music/theory.js';
+import { KEYS, makeChord, chordTone } from './music/theory.js';
 import { Game } from './game/game.js';
 import { makeInst } from './game/loadout.js';
 import { Renderer } from './render/renderer.js';
@@ -131,6 +131,12 @@ const screens = new Screens(screensRoot, {
   },
   onDiscography: (back) => screens.discography(loadMeta(), back),
   onShowEnd: () => screens.end(...lastEnd),
+  // The curtain call's chimes, one per damage bar: chord tone idx of the chord the band is on at the first note,
+  // held for the run so a chord change midway cannot break the climb.
+  onCurtain: () => {
+    const c = seq.position?.chord || game.song.chord(game.song.home || 0, game.section?.lift || 0);
+    return (idx) => { if (settings.chimes && audio.ready) audio.levelUpChime([chordTone(c, idx, 64)]); };
+  },
   onPlayTrack: (sheet, keyPc, songId, onSection, onEnd) => playTrack(sheet, keyPc, songId, onSection, onEnd),
   onStopTrack: () => stopTrack(),
   onGain: (d) => stepGain(d),
@@ -321,6 +327,9 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ta
 
 function onKey(k) {
   if (k === 'm') { audio.setMuted(!audio.muted); return true; }
+  // Any other key first finishes the curtain call. One that could press a button (B is Back) is spent on that, so
+  // a key mashed to skip never presses Play again; the rest (F5, F12) keep their browser default.
+  if (screens.current === 'end' && screens.skipCurtain() && (k === 'Enter' || k === ' ' || k.startsWith('pad-'))) return true;
   // Space and E are the Drop keys: on menus they must never press a focused button by accident. Space still
   // toggles a focused checkbox (Settings).
   const box = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'checkbox';
