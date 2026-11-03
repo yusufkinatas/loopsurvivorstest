@@ -6,6 +6,7 @@
 import { ROLES, STEP_SEC, BEAT_SEC, BAR_SEC, ECHO_STEPS } from '../config.js';
 import { mtof, noteAtOrAbove } from '../music/theory.js';
 import * as V from './voices.js';
+import { leitNotes } from '../game/bosscues.js';
 
 const CHANNEL_LEVEL = { beat: 0.95, perc: 0.42, bass: 0.72, chords: 0.36, lead: 0.6, arp: 0.32 };
 const CHANNEL_PAN = { beat: 0, perc: 0.28, bass: 0, chords: -0.12, lead: 0.06, arp: -0.3 };
@@ -432,11 +433,15 @@ export class AudioEngine {
   }
 
   // ---- Boss cues: each boss sounds on the beats it attacks on (src/game/bosscues.js). Pitched cues use
-  // the chord root or fifth; the rest are unpitched.
+  // the chord root or fifth; the rest are unpitched. A leitmotif cue plays one beat of the boss's motif.
 
   bossCue(name, t, chord) {
     if (!this.ctx) return;
     const ctx = this.ctx, out = this.bossBus;
+    if (name.startsWith('leit:')) {
+      for (const n of leitNotes(name, chord)) V.tone(ctx, out, t + n.at * STEP_SEC, { freq: mtof(n.midi), wave: 'triangle', dur: n.d * STEP_SEC, a: 0.004, d: 0.15, s: 0.6, r: 0.08, gain: 0.07 });
+      return;
+    }
     const at = (pc, low) => mtof(noteAtOrAbove(pc, low));
     switch (name) {
       case 'swell':   // The Drone winds up for a beat on the root; its charge on the downbeat cuts it off

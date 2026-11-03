@@ -9,7 +9,7 @@ import { Effects } from './effects.js';
 import { SpatialHash } from './grid.js';
 import { Director } from './director.js';
 import { updateEnemies, enemiesOnBeat, spawnEnemy, knockOffBeat } from './enemies.js';
-import { bossCue } from './bosscues.js';
+import { bossCue, leitCue } from './bosscues.js';
 import { dropGem, dropItem, updatePickups, magnetAll } from './pickups.js';
 import { Loadout, computeStats, makeInst, genreName, isFusion, RULES, CHEMISTRY } from './loadout.js';
 import { buildOffers, applyOffer as applyCard, banKey, deadScreen, remixReady } from './upgrades.js';
@@ -71,14 +71,18 @@ export class Game {
     this.seq.getFeatured = () => this.featured();
     this.seq.onRemix = (inst, bar) => this._remixFlipped(inst, bar);
     this.seq.onRemixLost = (inst) => this._remixLost(inst);
-    // The sequencer asks a beat ahead which boss cues to play on it (sound only, while playing).
+    // The sequencer asks a beat ahead which boss cues to play on it (sound only, while playing), and the
+    // section's leitmotif while its boss is up.
     const cues = [];
     this.seq.getBossCues = (bar, beat) => {
       cues.length = 0;
-      if (this.state === 'playing') for (const e of this.enemies) {
+      if (this.state !== 'playing') return cues;
+      for (const e of this.enemies) {
         const c = e.boss && !e.dead ? bossCue(e, bar, beat, this.mods.wnPhase) : null;
         if (c && !cues.includes(c)) cues.push(c);
       }
+      const lc = this.boss && !this.boss.dead ? leitCue(this.song.position(bar), beat) : null;
+      if (lc) cues.push(lc);
       return cues;
     };
     this.sheet = [];   // the track sheet: one snapshot per finished section (src/music/replay.js)

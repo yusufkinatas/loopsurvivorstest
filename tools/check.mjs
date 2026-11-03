@@ -49,7 +49,7 @@ if (args.includes('--audit')) {
   const { auditSong, auditQuotes } = await import('./audiocheck.js');
   const r = auditSong({ tunes: (tunes || []).filter((t) => t !== SONGS[0]) });
   const bad = r.outOfKey + r.offGrid + r.aboveCeiling + r.foreignKind + r.leaks;
-  console.log(`audit: ${r.runs} runs (${r.remixRuns} remixed), ${r.notes} notes, ${r.tfNotes} transform notes (${r.transforms} transforms on every part), ${r.chimes} chime pitches`);
+  console.log(`audit: ${r.runs} runs (${r.remixRuns} remixed), ${r.notes} notes, ${r.tfNotes} transform notes (${r.transforms} transforms on every part), ${r.chimes} chime pitches, ${r.motifs} motif pitches`);
   console.log(`  ${r.fillNotes} fill notes, ${r.rollNotes} roll notes, ${r.restBars} rest bars, ${r.breakBars} break bars, ${r.soloBars} solo bars, ${r.stopBars} stop bars`);
   console.log(`out of key ${r.outOfKey}, off grid ${r.offGrid}, above ceiling ${r.aboveCeiling}, sound not in the part ${r.foreignKind}, notes where silent ${r.leaks}${bad ? '  !! FAIL' : ''}`);
   const q = auditQuotes();
