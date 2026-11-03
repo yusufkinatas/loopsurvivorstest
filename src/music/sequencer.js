@@ -73,11 +73,10 @@ export const TRANSFORMS = {
 };
 
 // Grooves and figures (src/music/grooves.js) move the part's own notes onto their hits, bar by bar, so you hear the
-// groove or the figure in your band's sounds. A sound's notes, loudest first, take its row's strongest hits (a hit
-// ranks by its velocity in the row, then by where it falls: step 0, beat 3, the other beats, the 8ths; of near-equal
-// hits, the one farthest from those taken, so a sparse part spreads over the bar). A busy drum part's extra notes share
-// the groove's hits (a busy line's take the free steps). Every note's damage still lands, so a groove or a figure hits
-// as hard as the part.
+// groove or the figure in your band's sounds. A sound's notes take its row's strongest hits (a hit ranks by its
+// velocity in the row, then by where it falls: step 0, beat 3, the other beats, the 8ths; of near-equal hits, the one
+// farthest from those taken, so a sparse part spreads over the bar), its loudest notes on the strongest of them. A busy
+// part's extra notes fire with a hit they share (a busy line's take the free steps), so every attack of the part fires.
 const rank = (sib, v) => v + (sib ? (sib === 8 ? 1.25 : sib % 4 ? (sib % 2 ? 0 : 0.5) : 1) : 2);
 // t of the slots [{ sib, r }] off the steps taken (and taking them), strongest first.
 function pick(slots, t, taken) {
@@ -95,12 +94,13 @@ function pick(slots, t, taken) {
 }
 // One bar of pools [{ ns: one sound's notes in bar order, slots: its hits, spill: the hits it takes once those are full,
 // set(note, slot): the note played }] into out by step of the bar. On a part that plays two notes at once, a sound's
-// notes, loudest first, take its strongest hits and those beyond every hit join one as a heavier note (w), a soft note
-// (under 0.9) only a soft one (a shaker's one seed never becomes all of them). On a part that never does (one drummer,
-// a kettle, a line under a figure) a step holds one note, the notes keep their order over the hits (a kettle's soft
-// hits still gather before its boom) and those beyond every hit each fire on theirs. A note under a louder one of its
-// sound fires without a voice (mute), and the extra notes stay off step 0, where every hit is the bar's first (a boss's,
-// a boom).
+// notes, loudest first, take its strongest hits and those beyond every hit fire with one of them. On a part that never
+// does (one drummer, a kettle, a line under a figure) a step holds one note, the notes keep their order of sounds,
+// lengths and pitches over the hits, and those beyond every hit fire with theirs; of one sound and length the loudest
+// velocities go to the strongest hits (a hit's first note before any it shares), so the groove's accents are heard. A
+// note under a louder one of its sound fires without a voice (mute), and the extra notes stay off step 0, where every
+// hit is the bar's first (a boss's, a boom).
+const louder = (a, b) => b.v - a.v || b.r - a.r || a.sib - b.sib;   // the row's accents first, then the stronger place
 function fitBar(pools, stack, out) {
   const all = new Set(), plays = [];
   const fits = pools.filter((p) => p.ns.length).map((p) => ({ p, ns: !stack ? p.ns : p.ns.slice().sort((a, b) => (b.v ?? 1) - (a.v ?? 1)), taken: stack ? new Set() : all, got: [] }));
@@ -109,19 +109,24 @@ function fitBar(pools, stack, out) {
     const got = f.got.length ? f.got : pick([...f.p.slots, ...(f.p.spill || NONE)], 1, new Set()), n = f.ns.length;
     if (stack) {
       const pile = got.length > 1 ? got.filter((sl) => sl.sib) : got;
+      got.sort(louder);
       f.ns.forEach((x, i) => plays.push([i < got.length ? got[i] : pile[(i - got.length) % pile.length], x, f.p.set]));
       continue;
     }
     got.sort((a, b) => a.sib - b.sib);
-    const one = got.length > 1 && !got[0].sib ? 1 : 0;
-    f.ns.forEach((x, i) => plays.push([got[i < one ? 0 : one + Math.floor(((i - one) * (got.length - one)) / (n - one))], x, f.p.set]));
+    const one = got.length > 1 && !got[0].sib ? 1 : 0, ns = f.ns.slice(), key = (x) => `${x.k} ${x.d ?? 1}`;
+    const slot = ns.map((x, i) => got[i < one ? 0 : one + Math.floor(((i - one) * (got.length - one)) / (n - one))]);
+    for (const k of new Set(ns.map(key))) {
+      const ix = ns.flatMap((x, i) => (key(x) === k ? [i] : [])), c = new Map(), nth = {};
+      for (const i of ix) c.set(slot[i], (nth[i] = c.get(slot[i]) ?? 0) + 1);
+      const vs = ix.map((i) => f.ns[i].v).sort((a, b) => (b ?? 1) - (a ?? 1));
+      ix.sort((a, b) => nth[a] - nth[b] || louder(slot[a], slot[b])).forEach((i, j) => {
+        if (vs[j] !== ns[i].v) ns[i] = { ...ns[i], v: vs[j] };
+      });
+    }
+    ns.forEach((x, i) => plays.push([slot[i], x, f.p.set]));
   }
-  const loud = (y) => (y.v ?? 1) >= 0.9;
-  for (const [sl, n, set] of plays) {
-    const x = set ? set(n, sl) : n, on = (out[sl.sib] ||= []), i = stack ? on.findIndex((y) => y.k === x.k && loud(y) === loud(x)) : -1;
-    if (i < 0) on.push(x);
-    else on[i] = { ...on[i], w: (on[i].w ?? 1) + (x.v ?? 1) / (on[i].v ?? 1) };
-  }
+  for (const [sl, n, set] of plays) (out[sl.sib] ||= []).push(set ? set(n, sl) : n);
   for (const on of out) if (on) on.forEach((x, i) => {
     if (on.some((y, j) => j !== i && y.k === x.k && ((y.v ?? 1) > (x.v ?? 1) || ((y.v ?? 1) === (x.v ?? 1) && j < i)))) on[i] = { ...x, mute: true };
   });
@@ -163,7 +168,7 @@ const slotsIn = (r, b) => {
   const out = [];
   for (let sib = 0; sib < STEPS_PER_BAR; sib++) {
     const v = r[(b * STEPS_PER_BAR + sib) % r.length];
-    if (v) out.push({ sib, r: rank(sib, v) });
+    if (v) out.push({ sib, v, r: rank(sib, v) });
   }
   return out;
 };
@@ -187,16 +192,16 @@ for (const [id, G] of Object.entries(GROOVES)) {
   };
 }
 // A figure plays its chord tones on a part of single pitches (any other part plays as written): the part's notes take
-// its hits in their own order, and those in the chord's first octave (chord tones 0 to 2, where an Alberti or an
-// oom-pah lives) sound the figure's tone there, while higher notes keep their own, so a sound that aims by pitch (a
-// harp string, a star's ring) aims where the part did. It plays at full, half or quarter speed, whichever has its
-// sparsest bar nearest the part's notes a bar (an Alberti on quarters is still an Alberti), so most of it sounds.
+// its hits in their own order, each sounding the figure's tone in its own octave (a note at chord tone 3 or higher
+// sounds it an octave up), so the figure is heard in the register the part played. It plays at full, half or quarter
+// speed, whichever has its sparsest bar nearest the part's notes a bar (an Alberti on quarters is still an Alberti),
+// so most of it sounds.
 for (const [id, F] of Object.entries(FIGURES)) {
   const few = (z) => Math.min(...Array.from({ length: z }, (_, b) => F.filter((n) => Math.floor((n.s * z) / STEPS_PER_BAR) === b).length));
   const speeds = [1, 2, 4].map((z) => [z, few(z)]);
   const set = (n, sl) => {
-    const x = (n.ct ?? 0) >= 3 ? n : sl;
-    return { v: n.v, ...(n.d && { d: n.d }), ...(n.k && { k: n.k }), ct: x.ct, ...(x.o && { o: x.o }) };
+    const o = (sl.o || 0) + ((n.ct ?? 0) >= 3 ? 1 : 0);
+    return { v: n.v, ...(n.d && { d: n.d }), ...(n.k && { k: n.k }), ct: sl.ct, ...(o && { o }) };
   };
   TRANSFORMS['f_' + id] = (by, P, bar, sib) => {
     const p = kindsOf(by);
@@ -205,11 +210,11 @@ for (const [id, F] of Object.entries(FIGURES)) {
       const per = (by.reduce((n, x) => n + (x?.length || 0), 0) * STEPS_PER_BAR) / P, z = speeds.reduce((a, c) => (Math.abs(Math.log(c[1] / per)) < Math.abs(Math.log(a[1] / per)) ? c : a))[0];
       const slots = F.filter((n) => Math.floor((n.s * z) / STEPS_PER_BAR) === b % z).map((n) => {
         const sib = (n.s * z) % STEPS_PER_BAR;
-        return { sib, r: rank(sib, n.v), ct: n.ct, o: n.o };
+        return { sib, v: n.v, r: rank(sib, n.v), ct: n.ct, o: n.o };
       });
       // A busy part's extra notes take the free steps, holding the figure's last pitch (a line plays one note at a time).
       const spill = [];
-      for (let sib = 0; sib < STEPS_PER_BAR; sib++) if (!slots.some((sl) => sl.sib === sib)) spill.push({ ...(slots.findLast((sl) => sl.sib < sib) || slots[0]), sib, r: rank(sib, 0) });
+      for (let sib = 0; sib < STEPS_PER_BAR; sib++) if (!slots.some((sl) => sl.sib === sib)) spill.push({ ...(slots.findLast((sl) => sl.sib < sib) || slots[0]), sib, v: 0, r: rank(sib, 0) });
       return [{ ns, slots, spill, set }];
     });
     return t[(bar * STEPS_PER_BAR + sib) % t.length];
@@ -334,7 +339,7 @@ export class Sequencer {
     this._impactBar = -1;      // the bar whose downbeat had an impact (the desk opens up for that bar)
     this._vamped = false;      // a held downbeat set the desk to the vamp: the first step the song moves again resets it
     this._w = 1;
-    this.heard = { quote: 0, groove: 0 };   // live notes played from a quote and from a groove (sim coverage)
+    this.heard = { quote: 0, groove: 0 };   // live notes played from a quote and from a groove off the part's loop (sim coverage)
     this._gBar = -1;           // the bar the band's groove list was read for (see _groove)
   }
 
@@ -695,8 +700,9 @@ export class Sequencer {
     // A texture with no transform would silence the channel without a word: say so (a sim counts it as an error).
     const fn = TRANSFORMS[tf];
     if (!fn) { this._report(`texture ${tf}`, new Error(`no transform ${tf}`)); return null; }
-    const out = fn(part._byStep, stepsOf(def, part), bar, sib) ?? null;
-    if (live && out && tf.startsWith('g_')) this.heard.groove += out.length;
+    const P = stepsOf(def, part), out = fn(part._byStep, P, bar, sib) ?? null;
+    // A groove note counts as heard where the part's own loop has no note of its sound (a sparse part's own rhythm does not).
+    if (live && out && tf.startsWith('g_')) for (const n of out) if (!part._byStep[at(bar, sib, P)]?.some((x) => x.k === n.k)) this.heard.groove++;
     return out;
   }
 
@@ -722,7 +728,7 @@ export class Sequencer {
     const w = this._w;
     const phrase = arr ? (arr.pb * STEPS_PER_BAR + sib) / (8 * STEPS_PER_BAR) : 0;
     for (const n of notes) {
-      const note = this._resolve(inst, n, chord, t, n.w ? w * n.w : w, phrase);   // n.w: a groove's shared hit
+      const note = this._resolve(inst, n, chord, t, w, phrase);
       if (A && !n.mute) {   // a groove's or a figure's stacked note fires under the one already sounding
         try { def.sound(A.api(), t, note, A.out(def.role), inst); }
         catch (e) { this._report(def.id + '.sound', e); }

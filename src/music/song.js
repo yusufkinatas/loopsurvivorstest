@@ -122,7 +122,7 @@ export const CHART = {
     ph('full', 0.92, 'chords:hold*2 arp:double*0.9'),
   ],
   // Chorus II is bigger: the sparkle doubles up, then the tune flips over the band's next groove (its Groove
-  // channel as hard as the doubled hats it used to play).
+  // channel weighted by the velocity of the doubled hats it used to play, which is not their damage on every sound).
   chorus2: [
     ph('full', 1.0, '', { impact: true }),
     ph('full', 1.0),

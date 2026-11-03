@@ -581,6 +581,47 @@ if (args.includes('--rules')) {
         }
       }
     });
+    check('a groove\'s accents are the part\'s loudest notes (no bar puts a loud note of a sound on an o or g hit and a soft one on an X); a figure sounds its chord tone on each of its hits, an octave up where the part played chord tone 3 or higher; a list\'s grooves differ, and Orchestra\'s play its Beat and Groove sounds differently at L2-L5', () => {
+      const VEL = { X: 1, x: 0.8, o: 0.6, g: 0.4 }, row = (s) => [...s.replace(/[\s|]/g, '')].map((c) => VEL[c] || 0);
+      const sounding = (by, P, tf, bar) => Array.from({ length: 16 }, (_, sib) => (TRANSFORMS[tf](by, P, bar, sib) || []).filter((n) => !n.mute));
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum))) {
+        const beat = by.some((ns) => ns?.some((x) => x.k === 'kick'));
+        for (const [id, G] of Object.entries(GROOVES)) {
+          const rows = (beat ? G.beat : G.perc).map(row), rv = (i) => Math.max(...rows.map((r) => (r.length ? r[i % r.length] : 0)));
+          for (let bar = 0; bar < 4; bar++) {
+            const loudWeak = new Set(), softX = new Set();
+            sounding(by, P, 'g_' + id, bar).forEach((ns, sib) => ns.forEach((n) => {
+              if ((n.v ?? 1) >= 0.9 && rv(bar * 16 + sib) <= 0.6) loudWeak.add(n.k);
+              if ((n.v ?? 1) < 0.7 && rv(bar * 16 + sib) === 1) softX.add(n.k);
+            }));
+            for (const k of loudWeak) assert.ok(!softX.has(k), `${d.id} L${inst.level} g_${id} bar ${bar}: a loud ${k} on a weak hit, a soft one on an X`);
+          }
+        }
+      }
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter((x) => x.role === 'bass' || x.role === 'arp'))) {
+        if (by.some((ns) => ns?.some((n) => n.ct === undefined && n.sc === undefined))) continue;   // not a line of single pitches
+        const per = (by.flat().filter(Boolean).length * 16) / P;
+        for (const [id, F] of Object.entries(FIGURES)) {
+          const few = (z) => Math.min(...Array.from({ length: z }, (_, b) => F.filter((n) => Math.floor((n.s * z) / 16) === b).length));
+          const z = [1, 2, 4].reduce((a, c) => (Math.abs(Math.log(few(c) / per)) < Math.abs(Math.log(few(a) / per)) ? c : a));
+          for (let bar = 0; bar < 4; bar++) sounding(by, P, 'f_' + id, bar).forEach((ns, sib) => {
+            const f = F.find((n) => n.s === (bar % z) * (16 / z) + sib / z);
+            if (sib % z || !f) return;
+            for (const n of ns) assert.equal(n.ct, f.ct, `${d.id} L${inst.level} f_${id} bar ${bar} step ${sib}: not the figure's chord tone`);
+          });
+        }
+        const T = sounding(by, P, 'f_alberti', 0).flat(), own = by.flat().filter(Boolean);
+        assert.equal(T.filter((n) => n.o).length, own.filter((n) => (n.ct ?? 0) >= 3).length, `${d.id} L${inst.level}: the Alberti up an octave where the part played high`);
+      }
+      for (const l of [...Object.values(STYLE_GROOVE), ...Object.values(CROSS_GROOVE)]) for (const ch of ['beat', 'perc']) {
+        assert.equal(new Set(l.map((id) => JSON.stringify(GROOVES[id][ch]))).size, l.length, `${l.join(', ')}: two play the same ${ch} rows`);
+      }
+      const pat = (by, P, tf) => Array.from({ length: 64 }, (_, i) => (TRANSFORMS[tf](by, P, i >> 4, i & 15) || []).map((n) => `${n.k}${n.v}${n.mute ? 'm' : ''}`).sort().join('+')).join(' ');
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter((x) => isDrum(x) && x.style === 'orchestra')).filter((p) => p.inst.level >= 2)) {
+        const ps = STYLE_GROOVE.orchestra.map((id) => pat(by, P, 'g_' + id));
+        assert.equal(new Set(ps).size, ps.length, `${d.id} L${inst.level}: two Orchestra grooves play the same notes`);
+      }
+    });
     check('the groove phrases (chorus I, chorus II, The Drop, every Finale rise) play the band\'s grooves in turn: a crossover\'s or Fusion\'s list over its top style\'s, the Beat\'s style on a tie; chorus II\'s Groove channel as hard as the doubled part it replaces; a remix keeps its part', () => {
       const at = [];
       let b0 = 0;

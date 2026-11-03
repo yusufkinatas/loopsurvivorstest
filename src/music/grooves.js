@@ -19,8 +19,8 @@
 
 export const GROOVES = {
   // ---------------------------------------------------------------- Synth
-  // House, four on the floor with off-beat hats (PO).
-  house: { beat: ['X... X... X... X...', '.... X... .... X...'], perc: ['..X. ..X. ..X. ..X.', 'o... .... .... ....'] },
+  // House, four on the floor with off-beat hats (PO) over 16th ticks (added, so a busy part's notes keep their pace).
+  house: { beat: ['X... X... X... X...', '.... X... .... X...'], perc: ['.gXg .gXg .gXg .gXg', 'o... .... .... ....'] },
   // Synthwave: kick on 1 and 3 under a big backbeat, driving 16th hats (PO).
   synthwave: { beat: ['X... .... X... ....', '.... X... .... X...'], perc: ['Xgog xgog Xgog x.og', '.... .... .... .x..'] },
   // Dembow, the reggaeton beat: four on the floor, the snare on the tresillo's off-beats (PO).
@@ -67,14 +67,17 @@ export const GROOVES = {
     beat: ['X... o... X... o...', '.... x... .... x...'],
     perc: ['X... o... X.o. o.o. | X... o... .... ....', '..gg ..gg .... .... | ..gg ..gg ogog ogXg'],
   },
-  // Paradiddle cadence, RLRR LRLL with the accent on each group (Wikipedia: drum rudiments, PAS #16; + backbeat).
-  paradiddle: { beat: ['X... .... X... ....', '.... x... .... x...'], perc: ['Xggg xggg Xggg xggg', ''] },
-  // Boom-chick march: the bass drum on the beats, snare after-beats, a buzz roll into beat 4 (idiom).
-  march: { beat: ['X... o... X... o...', '.... x... .... x...'], perc: ['g.X. g.x. g.X. ..X.', '.... .... .... o...'] },
+  // Paradiddle cadence, RLRR LRLL with the accent on each group, the bass drum on 1, 3 and each LL double (Wikipedia:
+  // drum rudiments, PAS #16; + backbeat).
+  paradiddle: { beat: ['X... ..x. X... ..x.', '.... x... .... x...'], perc: ['Xggg xggg Xggg xggg', ''] },
+  // Boom-chick march: the kettle's tonic on 1 and 3 and its dominant on the "and" of 2 and on 4 (one kettle here), the
+  // snare's after-beats with a buzz roll into beat 4 (idiom; + backbeat).
+  march: { beat: ['X... ..o. x... x...', '.... x... .... x...'], perc: ['g.X. g.x. g.X. ..X.', '.... .... .... o...'] },
 
   // ---------------------------------------------------------------- crossovers
-  // Industrial. Techno: four on the floor with a pickup kick into the bar (PO).
-  techno: { beat: ['X... X... X... X.o.', '.... X... .... X...'], perc: ['..X. ..X. ..X. ..X.', '.... .... .g.. ....'] },
+  // Industrial. Techno: four on the floor with a pickup kick into the bar (PO), off-beat hats over 16th ticks (added,
+  // as in house).
+  techno: { beat: ['X... X... X... X.o.', '.... X... .... X...'], perc: ['.gXg .gXg .gXg .gXg', '.... .... .g.. ....'] },
   // Industrial. Dubstep: half time, the snare on 3 (PO).
   dubstep: { beat: ['X... .... ..x. ....', '.... .... X... ....'], perc: ['.og. ..o. ...g ..o.', '.... X... .... .x..'] },
   // Indietronica. UK garage 2-step: no kick on 3, rim and tom ghosts around the claps (PO; + backbeat).
@@ -99,8 +102,9 @@ export const GROOVES = {
   standardbreak: { beat: ['X... .... ..x. ....', '.... X... .... X...'], perc: ['X.o. x.o. Xgo. x...', '.... .... .... ..x.'] },
   // Chip metal. D-beat (Discharge), the hat version: snare on every "and" (Wikipedia: D-beat, third tab).
   dbeat3: { beat: ['X... .x.. x..x .x..', '..X. ..X. ..X. ..X.'], perc: ['..x. X.x. X.x. X.x.', 'X... .... .... ....'] },
-  // Chip metal. The traditional blast, kick and snare as one 16th roll (slow at 120 BPM) (Wikipedia: blast beat).
-  blasttrad: { beat: ['X.x. x.x. X.x. x.x.', '.o.o .o.o .o.o .o.o'], perc: ['..x. X.x. X.x. X.x.', 'X... .... .... ....'] },
+  // Chip metal. The traditional blast, kick and snare as one 16th roll (slow at 120 BPM), the cymbal with every kick
+  // (Wikipedia: blast beat).
+  blasttrad: { beat: ['X.x. x.x. X.x. x.x.', '.o.o .o.o .o.o .o.o'], perc: ['X.x. x.x. X.x. x.x.', ''] },
   // Symphonic metal. The gallop, "1 . & a" on every beat (Wikipedia: jiuchi, the same rhythm as the horse-beat ji).
   gallop: { beat: ['X.og x.og X.og x.og', '.... X... .... X...'], perc: ['X... .... X... ....', '.... x... .... x...'] },
   // Symphonic metal. The hammer blast: kick and snare together on every 8th (Wikipedia: blast beat).
@@ -154,8 +158,9 @@ export const CROSS_GROOVE = {
 // takes the strongest first). The part's notes keep their sounds, velocities and lengths.
 const C = (s, ct, v = 1, o = 0) => (o ? { s, ct, o, v } : { s, ct, v });
 export const FIGURES = {
-  // Sparkle. The Alberti bass (Domenico Alberti, d. 1740): root, fifth, third, fifth on every 16th.
-  alberti: Array.from({ length: 16 }, (_, s) => C(s, [0, 2, 1, 2][s % 4], s % 4 === 0 ? 1 : s % 2 === 0 ? 0.8 : 0.6)),
+  // Sparkle. The Alberti bass (Domenico Alberti, d. 1740): root, fifth, third, fifth on every 16th. The fifth after the
+  // third is the weakest, so a part with fewer notes drops it first and every group keeps its root, fifth and third.
+  alberti: Array.from({ length: 16 }, (_, s) => C(s, [0, 2, 1, 2][s % 4], [1, 0.6, 0.8, 0.3][s % 4])),
   // Bass. Oom-pah: root and the fifth above on alternate beats, the left hand of Grieg's In the Hall of the
   // Mountain King (d. 1907), with a pickup into the bar.
   oompah: [C(0, 0, 1), C(4, 2, 0.85), C(8, 0, 0.95), C(12, 2, 0.85), C(14, 1, 0.55), C(15, 2, 0.6)],
