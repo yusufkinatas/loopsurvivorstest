@@ -8,7 +8,8 @@
 //                                              # song quote and hook in every key (see auditQuotes)
 //   node tools/check.mjs --arrange             # the arrangement phrase by phrase in Node: who plays, notes a bar,
 //                                              # damage against the full band, textures (see arrangeReport)
-//   node tools/check.mjs --replay ["speed=12&bot=1&minutes=9"]   # play a sim run's track sheet as a radio edit
+//   node tools/check.mjs --replay ["speed=12&bot=1&minutes=9"]   # play a sim run's track sheet as a radio edit, a run
+//                                              # in each song unless the query names one (&song=N)
 //   node tools/check.mjs --rules               # the game's rules as asserts in Node, no browser (crossovers, tiers,
 //                                              # key degrees and every later rule; one named block per area)
 // A band bar by bar (with --mix): --start N [--bars M] [--key pc] prints RMS, peak, clipping and
@@ -769,21 +770,27 @@ page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
 
 if (args.includes('--replay')) {
   const query = args.find((a) => a.includes('=') && !a.startsWith('--')) || 'speed=12&bot=1&minutes=9';
-  await page.goto(`${url}/index.html?sim=1&${query}`);
-  await page.waitForFunction(() => window.__LS && window.__LS.done, null, { polling: 500 });
-  const sum = await page.evaluate(() => { const g = window.__LS.game; return g.summary(g.state === 'victory'); });
+  // No song= in the query: one run in each song, as a replay bug can show in one song only.
+  const queries = /(^|&)song=/.test(query) ? [query] : SONGS.map((_, i) => `${query}&song=${i}`);
+  const { checkReplay } = await import('./audiocheck.js');
+  let failed = 0;
+  for (const q of queries) {
+    logs.length = 0;
+    await page.goto(`${url}/index.html?sim=1&${q}`);
+    await page.waitForFunction(() => window.__LS && window.__LS.done, null, { polling: 500 });
+    const sum = await page.evaluate(() => { const g = window.__LS.game; return g.summary(g.state === 'victory'); });
+    const r = checkReplay(sum.sheet, sum.keyPc, sum.songId);
+    console.log(`run: ${sum.won ? 'won' : `ended in ${sum.section}`}, song ${sum.songId}, key ${sum.key}, ${sum.sheet.length} sheet entries`);
+    for (const k of ['full', 'stoppedEarly']) console.log(`${k.padEnd(12)} ${JSON.stringify(r[k])}`);
+    const f = r.full;
+    const bad = r.errors.length || logs.length || f.outOfKey || f.offGrid || f.wrongBand || f.outroLeaks || f.outroUnlifted || f.ended !== 1 || !f.clean || !r.stoppedEarly.clean
+      || f.sections !== sum.sheet.length;
+    if (r.errors.length || logs.length) console.log('ERRORS:\n' + [...r.errors, ...logs].slice(0, 20).join('\n'));
+    if (bad) { console.log('!! FAIL'); failed++; }
+  }
   await browser.close();
   server.close();
-  const { checkReplay } = await import('./audiocheck.js');
-  const r = checkReplay(sum.sheet, sum.keyPc, sum.songId);
-  console.log(`run: ${sum.won ? 'won' : `ended in ${sum.section}`}, song ${sum.songId}, key ${sum.key}, ${sum.sheet.length} sheet entries`);
-  for (const k of ['full', 'stoppedEarly']) console.log(`${k.padEnd(12)} ${JSON.stringify(r[k])}`);
-  const f = r.full;
-  const bad = r.errors.length || logs.length || f.outOfKey || f.offGrid || f.wrongBand || f.outroLeaks || f.outroUnlifted || f.ended !== 1 || !f.clean || !r.stoppedEarly.clean
-    || f.sections !== sum.sheet.length;
-  if (r.errors.length || logs.length) console.log('ERRORS:\n' + [...r.errors, ...logs].slice(0, 20).join('\n'));
-  if (bad) console.log('!! FAIL');
-  process.exit(bad ? 1 : 0);
+  process.exit(failed ? 1 : 0);
 }
 
 await page.goto(`${url}/tools/blank.html`);

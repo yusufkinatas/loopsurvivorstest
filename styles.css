@@ -474,9 +474,11 @@ body[data-input=pad] .card-key::after { content: "A"; }
   #screens.info .card-info { font-size: 12px; line-height: 1.32; }
   #screens.info .card-info span + span { margin-top: 1px; }
 }
-@media (max-height: 520px) {
+@media (max-height: 520px) and (orientation: landscape) {
   #screens.info .cards { grid-template-columns: repeat(var(--n, 3), minmax(0, 300px)); }   /* wider, so fewer lines */
   #screens.info .card-info { padding-top: 6px; font-size: 11.5px; line-height: 1.3; }
+  /* The words name the card and its part, so its glyph and lane go and a Fusion card's buttons clear the mixer. */
+  #screens.info .screen-levelup :is(.card-hero, .steps) { display: none; }
 }
 /* A card never taken in any run shows its words without the info layer: a sound its blurb (what it is and what it
    does; a swap skips its first line, which is about the old sound and is on the badge), a pedal or remix its first
@@ -693,10 +695,13 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .rx-head { font-size: 8.5px; letter-spacing: 0.04em; }
   .notes { grid-template-columns: minmax(0, 1fr); }
 }
+@media (max-width: 340px) {
+  .disco .now-playing { min-height: 48px; }   /* the longest line takes three here */
+}
 
 /* Portrait phones: cards become rows (glyph left; name, pips, lane and gems right) so three fit without scrolling.
    A small landscape phone (667x375) keeps the three columns, as rows would not fit its height. */
-@media (max-width: 760px) and (min-height: 521px) {
+@media (max-width: 760px) and (orientation: portrait), (max-width: 760px) and (min-height: 521px) {
   .screen-levelup .cards-wrap, .cards-wrap { margin-top: 0; padding-bottom: 0; }
   .cards, .tape-pick .cards { grid-template-columns: minmax(0, 1fr); max-width: 440px; gap: 10px; }
   .card {
@@ -771,6 +776,11 @@ button.sleeve:hover, button.sleeve:focus-visible, body[data-input=pad] #screens 
   .notes { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 8px; }
   .notes li { padding: 5px 8px; font-size: 12px; }
   .strip { height: 44px; }
+}
+/* The smallest landscape phones (640x360): a first tape's blurbs set tighter, so its (i) clears the mixer. */
+@media (max-height: 370px) {
+  .tape-mark { margin-bottom: 0; }
+  .tape-pick .card-info { font-size: 11.5px; line-height: 1.3; }
 }
 
 @media (prefers-reduced-motion: reduce) {
