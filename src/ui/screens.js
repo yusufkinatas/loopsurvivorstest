@@ -270,7 +270,7 @@ export class Screens {
       ['info', 'Press I for the details on any card.'],
       ['gems', 'Two sounds of a style turn on its rule, drawn on the floor.'],
       ['drop', 'Collect notes to fill the Drop, then set it off.'],
-      ['drop', 'Land the Drop on a chorus downbeat for a Double Drop.'],
+      ['drop', 'Land the Drop as the band slams back in (its ring doubles) for a Double Drop.'],
       ['tape', `Silence a boss in time: its Master Tape remixes a sound at level ${BALANCE.remix.minLevel} or more.`],
       ['boss', 'Survive the song. Silence White Noise to win.'],
     ].map(([g, t]) => `<li><span class="ht-icon">${g === 'gems' ? '<span class="gems"><i></i><i class="big"></i></span>' : icon(g)}</span><span>${t}</span></li>`).join('');
