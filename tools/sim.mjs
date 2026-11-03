@@ -7,7 +7,8 @@
 //   node tools/sim.mjs "speed=12&bot=1&minutes=10" --summary --runs 16 --parallel 4
 //
 // Flags: --timeout <s> (wall clock per run, default 240), --screenshot <path>, --summary (short output),
-// --runs N (seeds 1..N unless the query sets one), --parallel N (pages at once; results stay in seed order).
+// --runs N (seeds 1..N unless the query sets one; --from K shifts them to K+1..K+N, for held-out seeds),
+// --parallel N (pages at once; results stay in seed order).
 // start=rotate starts run i on the i-th default first sound in turn (808 Kick, Upright Bass, Square Lead), so a batch
 // measures the deal rather than one start.
 // Exits with 1 when a run crashed, threw, timed out or produced no metrics; the other runs still print.
@@ -43,6 +44,7 @@ const timeout = Number(flag('--timeout', 240)) * 1000;
 const shot = flag('--screenshot', null);
 const summary = args.includes('--summary');
 const runs = Number(flag('--runs', 1));
+const from = Number(flag('--from', 0));
 const parallel = Math.max(1, Number(flag('--parallel', 1)) || 1);
 
 async function run(browser, url, r) {
@@ -52,7 +54,7 @@ async function run(browser, url, r) {
   page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}\n${e.stack || ''}`));
   const crashed = new Promise((resolve) => page.once('crash', resolve));   // a crashed page never reports done
   let q = (query.includes('sim=') ? query : `sim=1&${query}`).replace(/(^|&)start=rotate(?=&|$)/, `$1start=${DEFAULT_STARTS[r % DEFAULT_STARTS.length]}`);
-  if (runs > 1 && !/seed=/.test(q)) q += `&seed=${r + 1}`;
+  if ((runs > 1 || from) && !/seed=/.test(q)) q += `&seed=${from + r + 1}`;
   const t0 = Date.now();
   await page.goto(`${url}/index.html?${q}`);
   try {
