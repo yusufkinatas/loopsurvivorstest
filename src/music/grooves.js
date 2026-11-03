@@ -39,32 +39,36 @@ export const GROOVES = {
   taikomatsuri: { beat: ['X... o.o. x... X...', '.... x... .... x...'], perc: ['X.o. x.o. X.o. ..o.', '.... .... .... x...'] },
   // Impeach the President (The Honey Drippers, 1973): the kick drags into beat 3 (PO).
   impeach: { beat: ['X... ...x x... ..x.', '.... X... .... X...'], perc: ['X.o. x.ox X... x.o.', '.... .... ..x. ....'] },
-  // Steppers, the reggae walk: a kick on every beat, the rim on 3 (PO).
-  steppers: { beat: ['X... X... X... X...', '.... .... X... ....'], perc: ['X.o. x.o. ..o. x.o.', '.... .... x... ....'] },
+  // Steppers, the reggae walk: a kick on every beat, the rim on 3 (PO), 8th hats over 16th ticks (added, as in house)
+  // and a second sound on 2 and 4 (+ backbeat: on 3 it struck with the loudest shake and the Shaker hit 13% softer).
+  steppers: { beat: ['X... X... X... X...', '.... .... X... ....'], perc: ['xgog xgog xgog xgog', '.... x... .... x...'] },
 
   // ---------------------------------------------------------------- 8-Bit
-  // Boss gallop: kick triplets on 1 and 3, noise ticks skipping the snare (NES idiom).
-  chipgallop: { beat: ['X.xx .... X.xx ....', '.... X... .... X...'], perc: ['.gog .gog Xgog .gog', 'x... .... .... ....'] },
+  // Boss gallop: kick gallops on 1 and 3, the first the louder (so three kicks a bar still gallop), noise ticks
+  // skipping the snare (NES idiom).
+  chipgallop: { beat: ['X.xx .... x.oo ....', '.... X... .... X...'], perc: ['.gog .gog Xgog .gog', 'x... .... .... ....'] },
   // Mono-noise rock: one noise voice, so the ticks drop out where the snare hits (NES idiom).
   chipfour: { beat: ['X... .... x.o. ....', '.... X... .... X...'], perc: ['..o. ..o. X.o. ..o.', 'x... .... .... ....'] },
   // Fake echo: every snare repeats a 16th later, softer (consoles had no reverb) (NES idiom; + backbeat).
   chipecho: { beat: ['X... ..o. x... ....', '.... Xg.. .... Xg..'], perc: ['X.o. ..o. x.o. ..o.', '.... x... .... x...'] },
 
   // ---------------------------------------------------------------- Heavy
-  // When the Levee Breaks (Led Zeppelin, 1971, John Bonham): the lopsided stomp (PO).
-  levee: { beat: ['Xx.. ...x ..xx ....', '.... X... .... X...'], perc: ['..o. x.o. X.o. x.o.', 'x... .... .... ....'] },
+  // When the Levee Breaks (Led Zeppelin, 1971, John Bonham): the lopsided stomp under 8th hats, no crash (PO).
+  levee: { beat: ['Xx.. ...x ..xx ....', '.... X... .... X...'], perc: ['x.o. x.o. X.o. x.o.', ''] },
   // Rock backbeat with a crash on 1 (PO).
   rock1: { beat: ['X... ...x X.x. ....', '.... X... .... X...'], perc: ['..o. X.o. x.o. X.o.', 'X... .... .... ....'] },
-  // Skank, the punk polka: kick on the beat, snare on every "and" (Wikipedia: blast beat).
-  skank: { beat: ['X... X... X... X...', '..x. ..x. ..x. ..x.'], perc: ['..x. X.x. X.x. X.x.', 'X... .... .... ....'] },
+  // Skank, the punk polka: kick on the beat, snare on every "and", the cymbal with both, its bell (the second sound)
+  // with the snare (Wikipedia: blast beat).
+  skank: { beat: ['X... X... X... X...', '..x. ..x. ..x. ..x.'], perc: ['x.x. x.x. x.x. x.x.', '..X. ..x. ..X. ..x.'] },
   // Machine-gun double kick under a backbeat (idiom).
   machinegun: { beat: ['Xoxo xoxo Xoxo xoxo', '.... X... .... X...'], perc: ['X... .... X... ....', '.... X... .... X...'] },
 
   // ---------------------------------------------------------------- Orchestra
   // A march on the kettle under Ravel's Bolero snare (1928, public domain), its two bars of 3/4 stretched to 4/4;
-  // each 16th-triplet ruff is two soft 16ths on the snare's second sound (Wikipedia: Bolero, its score; + backbeat).
+  // each 16th-triplet ruff is two soft 16ths on the snare's second sound, and the Beat's second sound strikes each
+  // ruff and the run that ends bar 2 (Wikipedia: Bolero, its score).
   bolero: {
-    beat: ['X... o... X... o...', '.... x... .... x...'],
+    beat: ['X... o... X... o... | X... o... X... o...', '..o. ..o. .... .... | ..o. ..o. x.x. x.X.'],
     perc: ['X... o... X.o. o.o. | X... o... .... ....', '..gg ..gg .... .... | ..gg ..gg ogog ogXg'],
   },
   // Paradiddle cadence, RLRR LRLL with the accent on each group, the bass drum on 1, 3 and each LL double (Wikipedia:

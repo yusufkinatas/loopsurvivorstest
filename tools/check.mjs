@@ -599,7 +599,7 @@ if (args.includes('--rules')) {
         }
       }
     });
-    check('a groove\'s accents are the part\'s loudest notes (no bar puts a loud note of a sound on an o or g hit and a soft one on an X); a figure sounds its chord tone on each of its hits, an octave up where the part played chord tone 3 or higher; a list\'s grooves differ, and Orchestra\'s play its Beat and Groove sounds differently at L2-L5', () => {
+    check('a groove\'s accents are the part\'s loudest notes (no bar puts a loud note of a sound on an o or g hit and a soft one on an X); a figure sounds its chord tone on each of its hits, an octave up where the part played chord tone 3 or higher; a list\'s grooves differ, and a style\'s play its own Beat and Groove sounds differently at L2-L5 (but where the sources give a sparse part the same hits)', () => {
       const VEL = { X: 1, x: 0.8, o: 0.6, g: 0.4 }, row = (s) => [...s.replace(/[\s|]/g, '')].map((c) => VEL[c] || 0);
       const sounding = (by, P, tf, bar) => Array.from({ length: 16 }, (_, sib) => (TRANSFORMS[tf](by, P, bar, sib) || []).filter((n) => !n.mute));
       for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum))) {
@@ -634,10 +634,14 @@ if (args.includes('--rules')) {
       for (const l of [...Object.values(STYLE_GROOVE), ...Object.values(CROSS_GROOVE)]) for (const ch of ['beat', 'perc']) {
         assert.equal(new Set(l.map((id) => JSON.stringify(GROOVES[id][ch]))).size, l.length, `${l.join(', ')}: two play the same ${ch} rows`);
       }
+      // A style's grooves play its own sounds differently at L2-L5, but where the sources give a sparse part the same
+      // hits: the Shaker's 8 notes take the 8ths of all four Live grooves, the 808's 4 kicks House's and Dembow's four on
+      // the floor, the Noise Hats' 6 ticks the 8ths both 8-Bit grooves skip the snare on.
       const pat = (by, P, tf) => Array.from({ length: 64 }, (_, i) => (TRANSFORMS[tf](by, P, i >> 4, i & 15) || []).map((n) => `${n.k}${n.v}${n.mute ? 'm' : ''}`).sort().join('+')).join(' ');
-      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter((x) => isDrum(x) && x.style === 'orchestra')).filter((p) => p.inst.level >= 2)) {
-        const ps = STYLE_GROOVE.orchestra.map((id) => pat(by, P, 'g_' + id));
-        assert.equal(new Set(ps).size, ps.length, `${d.id} L${inst.level}: two Orchestra grooves play the same notes`);
+      const sourceSame = ['shaker L2', 'kick808 L2', 'chiphat L2'];
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum)).filter((p) => p.inst.level >= 2 && !sourceSame.includes(`${p.d.id} L${p.inst.level}`))) {
+        const ps = STYLE_GROOVE[d.style].map((id) => pat(by, P, 'g_' + id));
+        assert.equal(new Set(ps).size, ps.length, `${d.id} L${inst.level}: two ${d.style} grooves play the same notes`);
       }
     });
     check('the groove phrases (chorus I, chorus II, The Drop, every Finale rise) play the band\'s grooves in turn: a crossover\'s or Fusion\'s list over its top style\'s, the Beat\'s style on a tie; chorus II\'s Groove channel as hard as the doubled part it replaces; a remix keeps its part', () => {
