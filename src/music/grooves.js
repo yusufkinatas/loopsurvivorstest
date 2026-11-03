@@ -41,6 +41,7 @@ export const GROOVES = {
   impeach: { beat: ['X... ...x x... ..x.', '.... X... .... X...'], perc: ['X.o. x.ox X... x.o.', '.... .... ..x. ....'] },
   // Steppers, the reggae walk: a kick on every beat, the rim on 3 (PO), 8th hats over 16th ticks (added, as in house)
   // and a second sound on 2 and 4 (+ backbeat: on 3 it struck with the loudest shake and the Shaker hit 13% softer).
+  // A second sound that plays once a bar leaves 2 or 4 silent: the main sound keeps off S hits (as in samba).
   steppers: { beat: ['X... X... X... X...', '.... .... X... ....'], perc: ['xgog xgog xgog xgog', '.... x... .... x...'] },
 
   // ---------------------------------------------------------------- 8-Bit
@@ -57,8 +58,9 @@ export const GROOVES = {
   levee: { beat: ['Xx.. ...x ..xx ....', '.... X... .... X...'], perc: ['x.o. x.o. X.o. x.o.', ''] },
   // Rock backbeat with a crash on 1 (PO).
   rock1: { beat: ['X... ...x X.x. ....', '.... X... .... X...'], perc: ['..o. X.o. x.o. X.o.', 'X... .... .... ....'] },
-  // Skank, the punk polka: kick on the beat, snare on every "and", the cymbal with both, its bell (the second sound)
-  // with the snare (Wikipedia: blast beat).
+  // Skank, the punk polka: kick on the beat, snare on every "and", the cymbal with both (Wikipedia: blast beat); its
+  // bell (the second sound) with the snare, loud on the "and" of 1 and 3 (added: with even accents a one-sound part
+  // plays Levee's and Rock's 8ths).
   skank: { beat: ['X... X... X... X...', '..x. ..x. ..x. ..x.'], perc: ['x.x. x.x. x.x. x.x.', '..X. ..x. ..X. ..x.'] },
   // Machine-gun double kick under a backbeat (idiom).
   machinegun: { beat: ['Xoxo xoxo Xoxo xoxo', '.... X... .... X...'], perc: ['X... .... X... ....', '.... X... .... X...'] },

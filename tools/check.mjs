@@ -638,10 +638,13 @@ if (args.includes('--rules')) {
       // hits: the Shaker's 8 notes take the 8ths of all four Live grooves, the 808's 4 kicks House's and Dembow's four on
       // the floor, the Noise Hats' 6 ticks the 8ths both 8-Bit grooves skip the snare on.
       const pat = (by, P, tf) => Array.from({ length: 64 }, (_, i) => (TRANSFORMS[tf](by, P, i >> 4, i & 15) || []).map((n) => `${n.k}${n.v}${n.mute ? 'm' : ''}`).sort().join('+')).join(' ');
-      const sourceSame = ['shaker L2', 'kick808 L2', 'chiphat L2'];
-      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum)).filter((p) => p.inst.level >= 2 && !sourceSame.includes(`${p.d.id} L${p.inst.level}`))) {
-        const ps = STYLE_GROOVE[d.style].map((id) => pat(by, P, 'g_' + id));
-        assert.equal(new Set(ps).size, ps.length, `${d.id} L${inst.level}: two ${d.style} grooves play the same notes`);
+      const sourceSame = { 'shaker L2': STYLE_GROOVE.organic, 'kick808 L2': ['house', 'reggaeton'], 'chiphat L2': ['chipgallop', 'chipfour'] };
+      for (const { d, inst, by, P } of parts(INSTRUMENTS.filter(isDrum)).filter((p) => p.inst.level >= 2)) {
+        const l = STYLE_GROOVE[d.style], same = sourceSame[`${d.id} L${inst.level}`] || [], ps = l.map((id) => pat(by, P, 'g_' + id));
+        l.forEach((a, i) => l.slice(i + 1).forEach((b, j) => {
+          const ex = same.includes(a) && same.includes(b);
+          assert.equal(ps[i] === ps[i + 1 + j], ex, `${d.id} L${inst.level}: ${a} and ${b} ${ex ? 'differ (drop the exemption)' : 'play the same notes'}`);
+        }));
       }
     });
     check('the groove phrases (chorus I, chorus II, The Drop, every Finale rise) play the band\'s grooves in turn: a crossover\'s or Fusion\'s list over its top style\'s, the Beat\'s style on a tie; chorus II\'s Groove channel as hard as the doubled part it replaces; a remix keeps its part', () => {
