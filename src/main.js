@@ -77,6 +77,7 @@ let lastStart = null;
 let lastEnd = null;        // the end screen's arguments, for Back from the Discography
 let lobbyGain = 0;         // the Gain the next run plays at (meta.gainSel)
 let lobbyTune = 0;         // the song the next run plays (an index into SONGS)
+let songPicked = false;    // a song stepped to since the last run, kept over a trip to the title
 
 const hooks = {
   onLevelUp: (offers) => { hud.hideBanner(); screens.levelUp(game, offers); },
@@ -164,6 +165,7 @@ function startOptions() {
 function showTitle() {
   mode = 'title';
   seq.stop();
+  audio.cutChimes();   // a lobby hook stops with the lobby music
   game.state = 'idle';
   hudRoot.hidden = true;
   if (audio.ready) { audio.setMuffle(false); audio.setPreviewRole(null); }
@@ -201,7 +203,7 @@ async function enterLobby() {
   hudRoot.hidden = true;
   lobbyKey = opts.key ?? Math.floor(Math.random() * KEYS.length);
   const meta = loadMeta();
-  lobbyTune = lobbySong(meta);
+  if (!songPicked || !meta.runs) lobbyTune = lobbySong(meta);
   playLobbySong(null);
   seq.getInstruments = () => [];
   if (audio.ready) { audio.applyPedals({}); audio.setActiveCount(1); audio.setMuffle(false); audio.setPreviewRole(null); }
@@ -212,9 +214,11 @@ async function enterLobby() {
   screens.select(featured, INSTRUMENTS.filter((d) => open.includes(d.id) && !featured.includes(d)), meta.gainMax ? meta : null, meta.runs && SONGS.length > 1 ? lobbyTune : null);
 }
 
-// The lobby plays the picked song from its first bar with an empty band, under the sound being auditioned.
+// The lobby plays the picked song from its first bar with an empty band, under the sound being auditioned. A hook
+// still ringing from the last lobby song stops.
 function playLobbySong(preview) {
   const tune = SONGS[lobbyTune];
+  audio.cutChimes();
   seq.reset(new Song(KEYS[lobbyKey].pc, sectionsOf(tune), tune));
   seq.preview = preview;
   seq.start(clock.now() + 0.08);
@@ -228,9 +232,9 @@ function stepSong(d) {
   const sel = clamp(lobbyTune + d, 0, SONGS.length - 1);
   if (!meta.runs || sel === lobbyTune) return;
   lobbyTune = meta.songSel = sel;
+  songPicked = true;
   saveMeta(meta);
   playLobbySong(seq.preview);
-  audio.cutChimes();
   seq.ping('hook');
   screens.setSong(sel);
 }
@@ -255,6 +259,7 @@ function startRun(id) {
   screens.hide();
   hudRoot.hidden = false;
   audio.cutChimes();   // a lobby hook still ringing stops with the lobby
+  songPicked = false;
   game.newRun({ start: id, keyIndex: lobbyKey, seed: opts.seed, gain: lobbyGain, song: lobbyTune });
   hud.reset();
   hud.refreshLoadout(game);
