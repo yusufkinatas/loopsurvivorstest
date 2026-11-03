@@ -776,12 +776,12 @@ export class Game {
   // What a hit does to the play rules: In the pocket's calm restarts and the Combo streak resets.
   _hitRules() {
     this.lastHurtAt = this.time;
-    this.rules.combo = this.stats.rules.x === 'Chip metal' ? this.rules.combo >> 1 : 0;
+    this.rules.combo = this.stats.rules.x === 'Chip metal' ? Math.floor(this.rules.combo * BALANCE.crossover.chipmetal) : 0;
   }
 
   collect(gm) {
     if (gm.kind === 'xp') {
-      const v = gm.value * this.stats.xpGain;
+      const v = gm.value * this.stats.xpGain * (this.section.id === 'finale' ? BALANCE.xp.finale : 1);
       this.xp += v;
       this.dropCharge = Math.min(this.dropMax, this.dropCharge + gm.value);
       while (this.xp >= this.xpNeed) {

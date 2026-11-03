@@ -190,8 +190,9 @@ faded) and, with `--runs`, an AGGREGATE line: wins, where runs died, lowest heal
 levels, picks, Drops, hearts, boss fight lengths, tapes and remixes. That is how balance is checked: one
 batch of eight seeds takes about two minutes. Balance is checked against two autopilots: the ordinary bot
 (it reacts in 0.3 s) and `botskill=1`, a sharp player (half the reaction time, more shots watched). At this
-commit the skilled bot wins 3 to 4 of 8 at Gain 0 with deaths in the Bridge, The Drop and the Finale and its
-lowest health before the Finale mostly under 10%, and the ordinary bot loses most runs.
+commit, on rotated starts at Gain 0, the skilled bot wins 17 of 32 (deaths mostly from the Build-Up to the
+Finale, lowest health before the Finale a median 30%, 11 runs untouched through two or more late sections) and
+the ordinary bot wins 9 of 24, with 20 of 24 reaching the Bridge.
 
 Sim options (query string): `speed`, `bot`, `autopick=smart|random|first`, `god` (the ledger still
 records what would have hit), `solo` (no level-ups), `seed`, `start=<id>`, `give=id:level,...`,

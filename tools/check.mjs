@@ -285,10 +285,10 @@ if (args.includes('--rules')) {
       assert.equal(ruleGame(['kick808', 'hats909', 'tribass', 'chipchords'], { combo: RULES.comboCap - 1 }).farR(), RULES.far);
       assert.equal(ruleGame(['taiko', 'shaker', 'cellos', 'strings'], { planted: true, phrase: 0.1 }).swellAt(), 1);
       assert.equal(ruleGame(['taiko', 'shaker', 'cellos', 'strings'], { phrase: 0.1 }).swellAt(), 0.1);
-      // Chip metal: a hit halves the combo (12 -> 6); any other band resets it.
+      // Chip metal: a hit leaves crossover.chipmetal of the combo (12 -> 6 at 0.5); any other band resets it.
       const cm = ruleGame(['doublekick', 'ride', 'tribass', 'chipchords'], { combo: 12 });
       cm._hitRules();
-      assert.equal(cm.rules.combo, 6);
+      assert.equal(cm.rules.combo, Math.floor(12 * X.chipmetal));
       const chip = ruleGame(['chipdrums', 'chiphat', 'tribass', 'chipchords'], { combo: 12 });
       chip._hitRules();
       assert.equal(chip.rules.combo, 0);

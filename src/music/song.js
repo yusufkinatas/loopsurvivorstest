@@ -125,11 +125,12 @@ const KOROBEINIKI = {
     finale: around([0, 6, 5, V], 2, KORO_CHORDS) },
   quote: { chorus1: { at: 1, part: 'koro' }, chorus2: { at: 1, part: 'koro' }, bridge: { at: 'solo', part: 'koro' }, finale: { at: 'solo', part: 'koro' } },
   fig: { verse1: { bass: 'oompah' }, verse2: { bass: 'oompah' }, chorus1: { bass: 'oompah' }, chorus2: { bass: 'oompah' } },
-  // The verses swarm: Buzz in place of Static. Verse II keeps its loud Statics (a loud Buzz there cost the skilled
-  // bot 2 to 4 of 8 wins).
+  // The verses swarm: more Buzz in place of Static (the round 1 retune softened it: under the harder late sections
+  // the full swarm left the ordinary bot 2 wins of 16 against the loop's 7). Verse II keeps its loud Statics (a loud
+  // Buzz there cost the skilled bot 2 to 4 of 8 wins).
   waves: {
-    verse1: { static: 0.5, buzz: 0.44, 'static:loud': 0.02, 'buzz:loud': 0.02, stomp: 0.02 },
-    verse2: { static: 0.14, 'static:loud': 0.21, buzz: 0.32, glitch: 0.12, hum: 0.1, 'hum:loud': 0.05, stomp: 0.04, snare: 0.02 },
+    verse1: { static: 0.6, buzz: 0.38, stomp: 0.02 },
+    verse2: { static: 0.2, 'static:loud': 0.2, buzz: 0.26, glitch: 0.14, hum: 0.12, 'hum:loud': 0.04, stomp: 0.02, snare: 0.02 },
   },
 };
 export const SONGS = [LOOP, ODE, KOROBEINIKI];

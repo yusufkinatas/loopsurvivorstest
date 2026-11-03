@@ -75,10 +75,12 @@ export const BALANCE = {
   // The player: health before pedals and chemistry, and a master dial on all damage taken (before armor).
   // area: a master dial on every attack area of the band (game.area): small areas early, earned back with Reverb
   // and the Live rule. It reaches area footprints only, not projectile range or auto-aim.
-  player: { maxHp: 120, dmgIn: 0.72, area: 0.8 },
+  player: { maxHp: 120, dmgIn: 1.1, area: 0.8 },
   // The Noise's health: hp x (1 + lin*m + quad*m^2) x sec[section] for song minute m (bosses have their own line
-  // under boss). sec: one section's toughness on top of the curve.
-  enemy: { hp: 1, lin: 0.3, quad: 0.1, sec: { chorus2: 1.25, bridge: 1.12, build: 1.08, drop: 1.12, finale: 1.2 } },
+  // under boss). sec: one section's toughness on top of the curve. The intro to Verse II keep the plain curve, so the
+  // first full Drop meter still lands in the bars before Chorus II (its Double Drop); from Chorus II on the Noise is
+  // much tougher, which is where a weak band runs out.
+  enemy: { hp: 1, lin: 0.3, quad: 0.1, sec: { chorus2: 1.6, bridge: 1.9, build: 1.9, drop: 2.2, finale: 2.7 } },
   // The horde (director.js): a floor of bodies near the view that refills every beat, so the screen never clears,
   // and a stream on top that piles up when the band cannot keep up.
   horde: {
@@ -158,8 +160,9 @@ export const BALANCE = {
     breatherDist: 300,      // px from the player, in a random direction
   },
   // Level-up cost: round(min(cap, base + lin*L + quad*L^2) * Gain xp), flat from level 16 on so the late sections
-  // still deal cards. Vinyls only come from featured elites.
-  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 160 },
+  // still deal cards. Vinyls only come from featured elites. finale: notes picked up in the Finale count x finale
+  // toward levels (not the Drop), so the open-ended last section still deals cards while White Noise is up.
+  xp: { base: 5, lin: 0.5, quad: 0.6, cap: 160, finale: 3 },
   // Notes left on the floor fade after `life` (8 bars) and blink through their last `blink` seconds.
   notes: { life: 18, blink: 2 },
   // A quiet phrase (the band plays thin): the floor x floor, the stream x stream, `upgrade` of the plain bodies come
@@ -238,13 +241,13 @@ export const BALANCE = {
     swap: 0.32, swapGain: 3, swapLoss: 0.25, swapSide: 0.4, fader: 0.45 },
   // Crossovers (loadout.js crossoverOf): two styles at 2+ sounds bend their two rules, three form Fusion. pairTier and
   // fusionTier: rule tiers a pair or Fusion adds (cap 3). grunge: the Mosh pit's reach while planted, symphonic: its
-  // growth with the phrase, film: Long throw's shrink with the phrase, lofi: combo a clean planted beat adds.
-  crossover: { pairTier: 0, fusionTier: 1, grunge: 2, symphonic: 1, film: 0.4, lofi: 2 },
+  // growth with the phrase, film: Long throw's shrink with the phrase, lofi: combo a clean planted beat adds,
+  // chipmetal: the share of the combo a hit leaves.
+  crossover: { pairTier: 0, fusionTier: 1, grunge: 2, symphonic: 1.5, film: 1, lofi: 6, chipmetal: 0.5 },
   // Moments: a kill run when one channel silences at least max(multiKill, multiShare x the section's floor) bodies in
-  // a beat, once a bar (8 skilled rotated runs after Lanes 1-4, median per section: 0-2 through Verse II, 2.5-5.5 from
-  // Chorus II on, at most 27 in one section of one run); the camera leans in while a boss you can still silence is
-  // under bossLean of its health.
-  feel: { multiKill: 12, multiShare: 0.15, bossLean: 0.05 },
+  // a beat, once a bar (32 skilled rotated runs after the round 1 retune, median per section: 0 through Verse II, 2-5
+  // from Chorus II on); the camera leans in while a boss you can still silence is under bossLean of its health.
+  feel: { multiKill: 19, multiShare: 0.12, bossLean: 0.05 },
 };
 
 // The Drop's numbers (kept as their own export for the code that already reads DROP).

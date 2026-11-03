@@ -212,7 +212,7 @@ export function crossoverOf(counts) {
 }
 // Crossover name -> the one sentence that says how it bends its two rules (Game.nearR, farR, swellAt, _hitRules,
 // _rulesOnBeat hold the math). Numbers come from BALANCE.crossover.
-const WORDS = ['no', 'one', 'two', 'three', 'four'];
+const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six'];
 export const CROSS_TEXT = {
   Industrial: 'Mosh pit reaches out to Long throw.',
   Grunge: `Planted, the Mosh pit ${X.grunge === 2 ? 'doubles' : `grows ×${X.grunge}`}.`,
@@ -220,7 +220,7 @@ export const CROSS_TEXT = {
   Indietronica: 'Planted, Long throw starts close in.',
   'Film score': 'Long throw closes in with the swell.',
   'Electro chip': 'Full combo: every hit counts as far.',
-  'Chip metal': 'A hit only halves your combo.',
+  'Chip metal': X.chipmetal === 0.5 ? 'A hit only halves your combo.' : `A hit leaves ${Math.round(X.chipmetal * 100)}% of your combo.`,
   'Lo-fi chip': `Planted beats add ${WORDS[X.lofi] ?? X.lofi} to your combo.`,
   'Chamber pop': 'Planted, the swell holds at its peak.',
   'Boss theme': 'The fill fills your combo.',
