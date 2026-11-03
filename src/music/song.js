@@ -77,7 +77,8 @@ export const ENERGY_BANDS = { quiet: [0.33, 0.65], solo: [0.5, 0.8], mid: [0.55,
 const FULL_TEX = { tf: 'full', w: 1 };
 const OUT_TEX = { tf: 'out', w: 0 };
 
-// ph(cls, e, 'role:tf*w ...', { impact, solo })
+// ph(cls, e, 'role:tf*w ...', { impact, solo, groove, as }); as: role -> the texture a groove there hits as hard as
+// (its velocity against the full part's), times w.
 function ph(cls, e, spec = '', more = {}) {
   const tex = {};
   for (const r of ROLES) tex[r] = FULL_TEX;
@@ -86,6 +87,7 @@ function ph(cls, e, spec = '', more = {}) {
     const [tf, w] = t.split('*');
     tex[role] = tf === 'out' ? OUT_TEX : { tf, w: w !== undefined ? Number(w) : WEIGHT[tf] ?? 1 };
   }
+  for (const r in more.as) tex[r] = { ...tex[r], as: more.as[r] };
   return { cls, e, tex, solo: cls === 'solo', impact: more.impact || false, groove: more.groove ?? 0, spec };
 }
 
@@ -125,7 +127,7 @@ export const CHART = {
     ph('full', 1.0, '', { impact: true }),
     ph('full', 1.0),
     ph('full', 0.96, 'arp:double'),
-    ph('full', 0.93, 'beat:groove perc:groove*1.25 lead:inv arp:double', { groove: 1 }),
+    ph('full', 0.93, 'beat:groove perc:groove*0.9 lead:inv arp:double', { groove: 1, as: { perc: 'double' } }),
   ],
   // The Bridge: a real breakdown (no drums, the groove only ticking, the bass in half time under held
   // chords), then one channel takes a solo over the bass and the pads, then everything but the drums
@@ -158,7 +160,7 @@ export const CHART = {
     ph('full', 0.94, '', { impact: 'first' }),
     ph('quiet', 0.45, 'beat:out perc:lv1*1.6 bass:half*2 chords:hold*2.2 lead:call*1.6 arp:out'),
     ph('solo', 0.63, 'beat:out perc:lv2*1.4 bass:half*1.8 chords:hold*2 lead:out arp:out'),
-    ph('full', 0.96, 'beat:groove perc:groove*1.25 lead:inv arp:double', { impact: true, groove: 3 }),
+    ph('full', 0.96, 'beat:groove perc:groove*0.9 lead:inv arp:double', { impact: true, groove: 3, as: { perc: 'double' } }),
   ],
 };
 

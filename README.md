@@ -71,8 +71,9 @@ The build *is* the arrangement, so the game enforces the rules a producer would:
 3. **The arrangement thins and fills the band.** Each 8-bar phrase gives every channel a texture
    (full, out, sparse, half-time, double-time, call, answer, held, an octave down, mirrored, a lower
    level's part, a classic groove, or a song's accompaniment figure). The textures only move notes on the
-   grid, so they stay in key, and an attack only fires on a note you hear. A groove re-times the part's own
-   notes and a figure plays chord tones on them, so both hit exactly as hard as the part they replace.
+   grid, so they stay in key, and an attack only fires on a note you hear. A groove moves the part's own notes
+   onto its hits (a busy part's extra notes land with the hit they share) and a figure sounds its chord tones on
+   them in the chord's first octave, so both hit as hard as the part they replace.
 4. **The desk mixes for you.** Channels are panned apart, melodic channels duck under the kick, the bus
    compresses and limits, and the level and brightness follow who is playing.
 

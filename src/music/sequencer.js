@@ -72,57 +72,89 @@ export const TRANSFORMS = {
   }),
 };
 
-// Grooves and figures (src/music/grooves.js) re-time the part's own notes. In every bar the part's notes, loudest
-// first, take the transform's slots, strongest first (a slot ranks by its velocity in the row, then by where it
-// falls: step 0, beat 3, the other beats, the 8ths), and a bar with more notes than slots plays the rest, softest
-// last, on the strongest steps left free (a figure holds its pitch there). So every note of the part plays, with
-// its sound and its velocity (an attack keyed on a kind, an accent or the downbeat fires as often), and only the
-// timing changes (and a figure's pitch): a groove or a figure hits exactly as hard as the part.
+// Grooves and figures (src/music/grooves.js) move the part's own notes onto their hits, bar by bar, so you hear the
+// groove or the figure in your band's sounds. A sound's notes, loudest first, take its row's strongest hits (a hit
+// ranks by its velocity in the row, then by where it falls: step 0, beat 3, the other beats, the 8ths; of near-equal
+// hits, the one farthest from those taken, so a sparse part spreads over the bar). A busy drum part's extra notes share
+// the groove's hits (a busy line's take the free steps). Every note's damage still lands, so a groove or a figure hits
+// as hard as the part.
 const rank = (sib, v) => v + (sib ? (sib === 8 ? 1.25 : sib % 4 ? (sib % 2 ? 0 : 0.5) : 1) : 2);
-// Notes ns into slots [{ sib, r, x }] (x: what the slot sets on its note), into out by step of the bar; hold: a
-// free step takes the slot before it (a figure's pitch).
-function fit(ns, slots, out, hold) {
-  if (!ns.length) return;
-  if (ns.length > slots.length) {
-    const by = slots.slice().sort((a, b) => a.sib - b.sib), free = [];
-    for (let sib = 0; sib < STEPS_PER_BAR; sib++) {
-      if (by.some((sl) => sl.sib === sib)) continue;
-      free.push({ sib, r: rank(sib, 0) - 10, x: hold && (by.findLast((sl) => sl.sib < sib) || by[0]).x });
-    }
-    slots = [...slots, ...free];
+// t of the slots [{ sib, r }] off the steps taken (and taking them), strongest first.
+function pick(slots, t, taken) {
+  const left = slots.filter((sl) => !taken.has(sl.sib)), out = [];
+  const gap = (sl) => (taken.size ? Math.min(...[...taken].map((s) => Math.abs(s - sl.sib))) : -sl.sib);
+  while (out.length < t && left.length) {
+    const top = Math.max(...left.map((sl) => sl.r));
+    let best = null;
+    for (const sl of left) if (sl.r > top - 0.2 && (!best || gap(sl) > gap(best) || (gap(sl) === gap(best) && sl.sib > best.sib))) best = sl;
+    left.splice(left.indexOf(best), 1);
+    taken.add(best.sib);
+    out.push(best);
   }
-  ns = ns.slice().sort((a, b) => (b.v ?? 1) - (a.v ?? 1));
-  slots.slice().sort((a, b) => b.r - a.r || a.sib - b.sib).slice(0, ns.length)
-    .forEach((sl, i) => (out[sl.sib] ||= []).push({ ...ns[i], ...sl.x }));
+  return out;
 }
-// A part's notes re-timed bar by bar: pools(the notes of bar b, b) -> [[notes, slots, hold], ...]. Cached on the
-// part, for as many bars as it takes the part and every 1, 2 and 4-bar row or figure to come round together.
+// One bar of pools [{ ns: one sound's notes in bar order, slots: its hits, spill: the hits it takes once those are full,
+// set(note, slot): the note played }] into out by step of the bar. On a part that plays two notes at once, a sound's
+// notes, loudest first, take its strongest hits and those beyond every hit join one as a heavier note (w), a soft note
+// (under 0.9) only a soft one (a shaker's one seed never becomes all of them). On a part that never does (one drummer,
+// a kettle, a line under a figure) a step holds one note, the notes keep their order over the hits (a kettle's soft
+// hits still gather before its boom) and those beyond every hit each fire on theirs. A note under a louder one of its
+// sound fires without a voice (mute), and the extra notes stay off step 0, where every hit is the bar's first (a boss's,
+// a boom).
+function fitBar(pools, stack, out) {
+  const all = new Set(), plays = [];
+  const fits = pools.filter((p) => p.ns.length).map((p) => ({ p, ns: !stack ? p.ns : p.ns.slice().sort((a, b) => (b.v ?? 1) - (a.v ?? 1)), taken: stack ? new Set() : all, got: [] }));
+  for (const key of ['slots', 'spill']) for (const f of fits) f.got.push(...pick(f.p[key] || NONE, f.ns.length - f.got.length, f.taken));
+  for (const f of fits) {
+    const got = f.got.length ? f.got : pick([...f.p.slots, ...(f.p.spill || NONE)], 1, new Set()), n = f.ns.length;
+    if (stack) {
+      const pile = got.length > 1 ? got.filter((sl) => sl.sib) : got;
+      f.ns.forEach((x, i) => plays.push([i < got.length ? got[i] : pile[(i - got.length) % pile.length], x, f.p.set]));
+      continue;
+    }
+    got.sort((a, b) => a.sib - b.sib);
+    const one = got.length > 1 && !got[0].sib ? 1 : 0;
+    f.ns.forEach((x, i) => plays.push([got[i < one ? 0 : one + Math.floor(((i - one) * (got.length - one)) / (n - one))], x, f.p.set]));
+  }
+  const loud = (y) => (y.v ?? 1) >= 0.9;
+  for (const [sl, n, set] of plays) {
+    const x = set ? set(n, sl) : n, on = (out[sl.sib] ||= []), i = stack ? on.findIndex((y) => y.k === x.k && loud(y) === loud(x)) : -1;
+    if (i < 0) on.push(x);
+    else on[i] = { ...on[i], w: (on[i].w ?? 1) + (x.v ?? 1) / (on[i].v ?? 1) };
+  }
+  for (const on of out) if (on) on.forEach((x, i) => {
+    if (on.some((y, j) => j !== i && y.k === x.k && ((y.v ?? 1) > (x.v ?? 1) || ((y.v ?? 1) === (x.v ?? 1) && j < i)))) on[i] = { ...x, mute: true };
+  });
+}
+// A part's notes re-timed bar by bar: pools(the notes of bar b, b) -> the pools of fitBar. Cached on the part, for as
+// many bars as it takes the part and every 1, 2 and 4-bar row or figure to come round together.
 function retime(by, P, tf, pools) {
   const c = (by._re ||= {});
   if (!c[tf]) {
     let L = 4;
     while (L % (P / STEPS_PER_BAR)) L += 4;
-    const t = (c[tf] = []);
+    const t = (c[tf] = []), { stack } = kindsOf(by);
     for (let b = 0; b < L; b++) {
       const ns = [], out = [];
       for (let sib = 0; sib < STEPS_PER_BAR; sib++) ns.push(...(by[at(b, sib, P)] || NONE));
-      for (const [pool, slots, hold] of pools(ns, b)) fit(pool, slots, out, hold);
+      fitBar(pools(ns, b), stack, out);
       for (let sib = 0; sib < STEPS_PER_BAR; sib++) t.push(out[sib]?.map((n) => ({ ...n, s: at(b, sib, P) })) || null);
     }
   }
   return c[tf];
 }
 // A part's main sound K (a Beat part's kick, else its most played); drum: no note has a pitch; line: every note is
-// one pitch (no chord); beat: it has a kick.
+// one pitch (no chord); beat: it has a kick; stack: it plays two notes on a step somewhere.
 const kindsOf = (by) => by._kinds ||= (() => {
   const n = {};
-  let drum = true, line = true;
+  let drum = true, line = true, stack = false;
   for (const ns of by) for (const x of ns || NONE) {
     if (pitched(x)) drum = false;
     if (!pitched(x) || x.chord) line = false;
+    if (ns.length > 1) stack = true;
     n[x.k] = (n[x.k] || 0) + 1;
   }
-  return { drum, line, beat: !!n.kick, K: n.kick ? 'kick' : Object.keys(n).sort((a, b) => n[b] - n[a])[0] };
+  return { drum, line, stack, beat: !!n.kick, K: n.kick ? 'kick' : Object.keys(n).sort((a, b) => n[b] - n[a])[0] };
 })();
 // A grid row ('X... o...', '|' between bars) as a velocity (0 a rest) per step, and its slots in bar b.
 const VEL = { X: 1, x: 0.8, o: 0.6, g: 0.4 };
@@ -136,36 +168,49 @@ const slotsIn = (r, b) => {
   return out;
 };
 // A groove re-times a drum part (Beat rows on a part with a kick, else Groove rows): its main sound takes the K row,
-// any other sound the S row, then the K row's other hits (so a second sound the row has no room for keeps its
-// job); a pitched part plays as written.
+// its other sounds the S row, and once that is full the K row's other hits (so a second sound keeps its job, the
+// Ride's bell planting as many cymbals); a Groove bar of one sound plays both rows (Bolero's ruffs on a lone snare).
+// A pitched part plays as written.
 for (const [id, G] of Object.entries(GROOVES)) {
-  const rows = { beat: G.beat.map(row), perc: G.perc.map(row) };
+  const [pk, ps] = G.perc.map(row);
+  const rows = { beat: G.beat.map(row), perc: [pk, ps], one: [pk.map((v, i) => Math.max(v, ps[i] || 0)), []] };
   TRANSFORMS['g_' + id] = (by, P, bar, sib) => {
     const p = kindsOf(by);
     if (!p.drum) return by[at(bar, sib, P)] || null;
     const t = retime(by, P, 'g_' + id, (ns, b) => {
-      const [K, S] = (p.beat ? rows.beat : rows.perc).map((r) => slotsIn(r, b));
-      const spill = K.filter((k) => !S.some((s) => s.sib === k.sib));
-      return [[ns.filter((n) => n.k === p.K), K], [ns.filter((n) => n.k !== p.K), [...S.map((s) => ({ ...s, r: s.r + 10 })), ...spill]]];
+      const rest = ns.filter((n) => n.k !== p.K);
+      const [K, S] = rows[p.beat ? 'beat' : rest.length ? 'perc' : 'one'].map((r) => slotsIn(r, b)), kOnly = K.filter((k) => !S.some((s) => s.sib === k.sib));
+      const sep = !p.stack && rest.length && kOnly.length;
+      return [{ ns: ns.filter((n) => n.k === p.K), slots: sep ? kOnly : K, spill: (sep || !p.beat) && S }, { ns: rest, slots: S, spill: kOnly }];
     });
     return t[(bar * STEPS_PER_BAR + sib) % t.length];
   };
 }
-// A figure plays its chord tones on the part's notes (their kinds, velocities and lengths; its own velocities only
-// rank its notes), on a part of single pitches; any other part plays as written. On a part with a quarter or half
-// as many notes it plays at quarter or half speed (an Alberti on quarters is still an Alberti); a sparser part
-// leaves out its weakest notes.
+// A figure plays its chord tones on a part of single pitches (any other part plays as written): the part's notes take
+// its hits in their own order, and those in the chord's first octave (chord tones 0 to 2, where an Alberti or an
+// oom-pah lives) sound the figure's tone there, while higher notes keep their own, so a sound that aims by pitch (a
+// harp string, a star's ring) aims where the part did. It plays at full, half or quarter speed, whichever has its
+// sparsest bar nearest the part's notes a bar (an Alberti on quarters is still an Alberti), so most of it sounds.
 for (const [id, F] of Object.entries(FIGURES)) {
+  const few = (z) => Math.min(...Array.from({ length: z }, (_, b) => F.filter((n) => Math.floor((n.s * z) / STEPS_PER_BAR) === b).length));
+  const speeds = [1, 2, 4].map((z) => [z, few(z)]);
+  const set = (n, sl) => {
+    const x = (n.ct ?? 0) >= 3 ? n : sl;
+    return { v: n.v, ...(n.d && { d: n.d }), ...(n.k && { k: n.k }), ct: x.ct, ...(x.o && { o: x.o }) };
+  };
   TRANSFORMS['f_' + id] = (by, P, bar, sib) => {
     const p = kindsOf(by);
     if (!p.line) return by[at(bar, sib, P)] || null;
     const t = retime(by, P, 'f_' + id, (ns, b) => {
-      const per = (by.reduce((n, x) => n + (x?.length || 0), 0) * STEPS_PER_BAR) / P, z = [4, 2].find((z) => F.length / z >= per) || 1;
+      const per = (by.reduce((n, x) => n + (x?.length || 0), 0) * STEPS_PER_BAR) / P, z = speeds.reduce((a, c) => (Math.abs(Math.log(c[1] / per)) < Math.abs(Math.log(a[1] / per)) ? c : a))[0];
       const slots = F.filter((n) => Math.floor((n.s * z) / STEPS_PER_BAR) === b % z).map((n) => {
         const sib = (n.s * z) % STEPS_PER_BAR;
-        return { sib, r: rank(sib, n.v), x: { ct: n.ct, ...(n.o && { o: n.o }) } };
+        return { sib, r: rank(sib, n.v), ct: n.ct, o: n.o };
       });
-      return [[ns.map((n) => ({ v: n.v, ...(n.d && { d: n.d }), ...(n.k && { k: n.k }) })), slots, true]];
+      // A busy part's extra notes take the free steps, holding the figure's last pitch (a line plays one note at a time).
+      const spill = [];
+      for (let sib = 0; sib < STEPS_PER_BAR; sib++) if (!slots.some((sl) => sl.sib === sib)) spill.push({ ...(slots.findLast((sl) => sl.sib < sib) || slots[0]), sib, r: rank(sib, 0) });
+      return [{ ns, slots, spill, set }];
     });
     return t[(bar * STEPS_PER_BAR + sib) % t.length];
   };
@@ -210,6 +255,11 @@ function velocity(by, P, tf, bars) {
   for (let bar = 0; bar < bars; bar++) for (let sib = 0; sib < STEPS_PER_BAR; sib++) for (const n of TRANSFORMS[tf](by, P, bar, sib) || NONE) v += n.v ?? 1;
   return v;
 }
+// How hard a part plays texture tf against its full part (velocity over a phrase). Cached on the part.
+function vsFull(part, P, tf) {
+  const c = (part._vs ||= {});
+  return (c[tf] ??= velocity(part._byStep, P, tf, 8) / velocity(part._byStep, P, 'full', 8));
+}
 // A solo is the part doubled up when it is sparse (8 notes a bar or fewer), else the full part. Its
 // weight brings the channel to `gain` times its full part's damage. Cached on the part.
 function soloShape(part, P) {
@@ -222,17 +272,6 @@ function soloShape(part, P) {
     part._solo = { tf, ratio: full > 0 ? velocity(by, P, tf, bars) / full : 1 };
   }
   return part._solo;
-}
-
-// The weight that makes a part under transform tf hit like its full part over a phrase (8 bars): the full part's
-// velocity over the transform's, clamped to 0.5-4. Cached on the part.
-export function reW(part, P, tf) {
-  const c = (part._reW ||= {});
-  if (c[tf] === undefined) {
-    const v = velocity(part._byStep, P, tf, 8);
-    c[tf] = v > 0 ? clamp(velocity(part._byStep, P, 'full', 8) / v, 0.5, 4) : 1;
-  }
-  return c[tf];
 }
 
 function pickFeatured(band) {
@@ -642,7 +681,10 @@ export class Sequencer {
     if (def.role === 'beat' && (arr.roll || (arr.fill && sib >= 12))) return this._beatNotes(part, sib, arr, live);
     this._w = tex.w;
     let tf = tex.tf;
-    if (tf === 'groove') tf = this._groove(arr, bar);
+    if (tf === 'groove') {
+      tf = this._groove(arr, bar);
+      if (tex.as) this._w *= vsFull(part, stepsOf(def, part), tex.as);
+    }
     if (inst.remix && (tf.startsWith('g_') || tf.startsWith('f_'))) { tf = 'full'; this._w = 1; }   // a remix keeps its own part, at its own weight
     const n = LV[tf];
     if (n) {
@@ -680,8 +722,8 @@ export class Sequencer {
     const w = this._w;
     const phrase = arr ? (arr.pb * STEPS_PER_BAR + sib) / (8 * STEPS_PER_BAR) : 0;
     for (const n of notes) {
-      const note = this._resolve(inst, n, chord, t, w, phrase);
-      if (A) {
+      const note = this._resolve(inst, n, chord, t, n.w ? w * n.w : w, phrase);   // n.w: a groove's shared hit
+      if (A && !n.mute) {   // a groove's or a figure's stacked note fires under the one already sounding
         try { def.sound(A.api(), t, note, A.out(def.role), inst); }
         catch (e) { this._report(def.id + '.sound', e); }
       }

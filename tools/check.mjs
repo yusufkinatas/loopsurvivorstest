@@ -148,7 +148,7 @@ if (args.includes('--rules')) {
   // Lane 6: grooves and figures
   {
     const { GROOVES, STYLE_GROOVE, CROSS_GROOVE, FIGURES } = await import('../src/music/grooves.js');
-    const { Sequencer, TRANSFORMS, partOf, stepsOf, reW } = await import('../src/music/sequencer.js');
+    const { Sequencer, TRANSFORMS, partOf, stepsOf } = await import('../src/music/sequencer.js');
     const { Song, SONGS, SECTIONS, CHART } = await import('../src/music/song.js');
     const { radioEdit } = await import('../src/music/replay.js');
     const { INSTRUMENTS } = await import('../src/content/instruments/index.js');
@@ -188,20 +188,37 @@ if (args.includes('--rules')) {
       for (const l of lists) { assert.ok(l.length >= 2 && l.length <= 4, l.join()); for (const id of l) assert.ok(GROOVES[id], id); }
       assert.deepEqual([...new Set(lists.flat())].sort(), ids.slice().sort(), 'every groove is in a list');
     });
-    check('as played on every level of every sound: a groove or a figure plays every note of each bar (its sound, velocity and length, so reW is 1), and a Beat groove and a figure hit step 0', () => {
+    check('as played on every level of every sound: a groove or a figure keeps each bar\'s damage per sound and length, and every note (sound, velocity, length) where the part never plays two at once; a Beat groove and a figure hit step 0; a groove plays only on its rows, sounds every hit of a row its sound has the notes for, and never leaves a half bar empty that the part and the rows fill', () => {
+      const r6 = (x) => Math.round(x * 1e6) / 1e6;
+      const dmg = (steps) => { const j = {}; for (const n of steps.flat()) { const k = `${n.k} ${n.d ?? 1}`; j[k] = r6((j[k] || 0) + (n.v ?? 1) * (n.w ?? 1)); } return j; };
+      const notes = (steps) => steps.flat().map((n) => `${n.k} ${n.v} ${n.d ?? 1}`).sort();
+      const on = (steps, lo) => steps.slice(lo, lo + 8).some((ns) => ns.length);
       for (const { d, inst, by, P } of parts(INSTRUMENTS.filter((x) => isDrum(x) || x.role === 'bass' || x.role === 'arp'))) {
-        for (const tf of Object.keys(isDrum(d) ? GROOVES : FIGURES).map((id) => (isDrum(d) ? 'g_' : 'f_') + id)) {
+        const stacks = by.some((ns) => ns?.length > 1), count = {};
+        for (const n of by.flat()) if (n) count[n.k] = (count[n.k] || 0) + 1;
+        const K = d.role === 'beat' ? 'kick' : Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+        for (const id of Object.keys(isDrum(d) ? GROOVES : FIGURES)) {
+          const tf = (isDrum(d) ? 'g_' : 'f_') + id, rows = isDrum(d) && GROOVES[id][d.role].map((r) => r.replace(/[\s|]/g, ''));
           for (let bar = 0; bar < 4; bar++) {
-            const notes = (t) => Array.from({ length: 16 }, (_, sib) => (TRANSFORMS[t](by, P, bar, sib) || []).map((n) => `${n.k} ${n.v} ${n.d ?? 1}`)).flat().sort();
-            const at = `${d.id} L${inst.level} ${tf} bar ${bar}`;
-            assert.deepEqual(notes(tf), notes('full'), at);
-            if (d.role !== 'perc') assert.ok(TRANSFORMS[tf](by, P, bar, 0)?.length, `${at}: no step-0 note`);
+            const at = `${d.id} L${inst.level} ${tf} bar ${bar}`, play = (t) => Array.from({ length: 16 }, (_, sib) => TRANSFORMS[t](by, P, bar, sib) || []);
+            const T = play(tf), F = play('full');
+            assert.deepEqual(dmg(T), dmg(F), at);
+            if (!stacks) assert.deepEqual(notes(T), notes(F), `${at}: every note`);
+            if (d.role !== 'perc') assert.ok(T[0].length, `${at}: no step-0 note`);
+            if (!rows) continue;
+            const hit = (r, sib) => !!r && r[(bar * 16 + sib) % r.length] !== '.', steps = [...Array(16).keys()];
+            const ks = F.flat().filter((n) => n.k === K).length, ss = F.flat().length - ks, one = d.role === 'perc' && !ss;
+            const kHit = (sib) => hit(rows[0], sib) || (one && hit(rows[1], sib)), sHit = (sib) => !one && hit(rows[1], sib);
+            T.forEach((ns, sib) => assert.ok(!ns.length || kHit(sib) || hit(rows[1], sib), `${at}: a note off the rows on step ${sib}`));
+            if (ks >= steps.filter(kHit).length) steps.filter((sib) => kHit(sib) && !sHit(sib)).forEach((sib) => assert.ok(T[sib].some((n) => n.k === K), `${at}: ${K} leaves step ${sib} silent`));
+            if (ss && ss >= steps.filter(sHit).length) steps.filter(sHit).forEach((sib) => assert.ok(T[sib].some((n) => n.k !== K), `${at}: step ${sib} of the second row silent`));
+            const G = steps.map((sib) => kHit(sib) || (ss > 0 && sHit(sib)));
+            for (const lo of [0, 8]) assert.ok(on(T, lo) || !on(F, lo) || !G.slice(lo, lo + 8).some(Boolean), `${at}: steps ${lo}-${lo + 7} left empty`);
           }
-          assert.ok(Math.abs(reW(partOf(inst), P, tf) - 1) < 1e-9, `${d.id} L${inst.level} ${tf}: reW ${reW(partOf(inst), P, tf)}`);
         }
       }
     });
-    check('the groove phrases (chorus I, chorus II, The Drop, every Finale rise) play the band\'s grooves in turn: a crossover\'s or Fusion\'s list over its top style\'s, the Beat\'s style on a tie; a remix keeps its part', () => {
+    check('the groove phrases (chorus I, chorus II, The Drop, every Finale rise) play the band\'s grooves in turn: a crossover\'s or Fusion\'s list over its top style\'s, the Beat\'s style on a tie; chorus II\'s Groove channel as hard as the doubled part it replaces; a remix keeps its part', () => {
       const at = [];
       let b0 = 0;
       for (const sec of SECTIONS) { CHART[sec.id].forEach((ph, i) => ph.tex.beat.tf === 'groove' && at.push(b0 + i * 8)); b0 += sec.bars; }
@@ -214,6 +231,10 @@ if (args.includes('--rules')) {
         seq.heard.groove = 0;
         for (let sib = 0; sib < 16; sib++) seq._notes(role('perc'), seq.song.position(at[0]).arr, at[0], sib, 6, true);
         assert.ok(seq.heard.groove > 0, `${st}: no groove heard`);
+        const perc = partOf(role('perc')), P = stepsOf(role('perc').def, perc);
+        const vel = (tf) => { let v = 0; for (let b = 0; b < 8; b++) for (let sib = 0; sib < 16; sib++) for (const n of TRANSFORMS[tf](perc._byStep, P, b, sib) || []) v += n.v ?? 1; return v; };
+        seq._notes(role('perc'), seq.song.position(at[1]).arr, at[1], 0, 6, false);
+        assert.ok(Math.abs(seq._w - (0.9 * vel('double')) / vel('full')) < 1e-9, `${st}: chorus II's Groove channel hits as hard as its doubled part, not ${seq._w}`);
         role('beat').remix = true;
         plays(seq, role('beat'), at[1] + 2, 'full');
         role('perc').remix = true;

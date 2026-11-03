@@ -1,13 +1,13 @@
 // Classic grooves and accompaniment figures (data only; src/music/sequencer.js plays them as textures).
 //
 // A groove is two rows per channel on the 16-step grid: K the channel's main sound, S its second. The sequencer
-// re-times the part's own notes onto them bar by bar (Beat: K its kick, S its fill sound; Groove: K its most played
-// sound, S the other), its loudest notes on the strongest hits and a busy part's softest between them, so a groove
-// plays in your band's sounds at the part's own velocities. Rows: X 1, x 0.8, o 0.6, g 0.4 (how strong a hit is:
-// where the loud notes go and which hits a sparse part keeps), '.' rest, '|' starts the next bar (spaces are for
-// reading). Every Beat bar hits step 0 on K (the bar's first hit goes at a boss). A second sound that runs out of S
-// hits takes K's strongest others, since it has its own job (the Ride's bell plants its cymbals). Every note of the
-// part plays, so a groove hits exactly as hard as the part: the rows set the feel, not the damage.
+// moves the part's own notes onto their hits bar by bar (Beat: K its kick, S its other sounds; Groove: K its most
+// played sound, S the others), its loudest notes on the strongest hits, so a groove plays in your band's sounds at the
+// part's own velocities and only on its own hits. Rows: X 1, x 0.8, o 0.6, g 0.4 (how strong a hit is: where the loud
+// notes go and which hits a sparse part takes first), '.' rest, '|' starts the next bar (spaces are for reading).
+// Every Beat bar hits step 0 on K (the bar's first hit goes at a boss). A second sound that runs out of S hits takes
+// K's others, since it has its own job (the Ride's bell plants its cymbals). A busy part's extra notes land with the
+// hit they share, so every note's damage lands: the rows set the feel, not the damage.
 //
 // Sources: PO Pocket Operations (P. Wenzel), the grids from darosh/pocket-patterns; ED Elephant Drums' Amen tab;
 // TOU G. Toussaint, The Euclidean Algorithm Generates Traditional Musical Rhythms (2005); Wikipedia's articles
@@ -150,8 +150,8 @@ export const CROSS_GROOVE = {
 };
 
 // Accompaniment figures a song gives a section's channel (tune.fig, see src/music/song.js): one bar of chord tones
-// (ct: 0 root, 1 third, 2 fifth, 3 octave; o: 1 an octave up), v how strong (the part's loudest notes play the
-// strongest; the notes keep the part's own lengths).
+// (ct: 0 root, 1 third, 2 fifth, 3 octave; o: 1 an octave up) and v, how strong a step is (a part with fewer notes
+// takes the strongest first). The part's notes keep their sounds, velocities and lengths.
 const C = (s, ct, v = 1, o = 0) => (o ? { s, ct, o, v } : { s, ct, v });
 export const FIGURES = {
   // Sparkle. The Alberti bass (Domenico Alberti, d. 1740): root, fifth, third, fifth on every 16th.
