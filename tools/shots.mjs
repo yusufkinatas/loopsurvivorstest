@@ -5,11 +5,12 @@
 //   node tools/shots.mjs [outdir] [--mobile] --late
 // --late takes only the late-game captures instead: one god-mode sim (seed 1, the autopilot, the full song) stopped at
 // a busy Chorus II with The Clipper (late-1-chorus2, 4.6 min), The Drop with The Glitch King (late-2-drop, 6.8 min)
-// and the Finale with White Noise (late-3-finale, 8.3 min). The same seed draws the same fight, so two builds compare
-// frame for frame (the visual-clarity check: enemies, enemy shots and your attacks, each found at a glance).
+// and the Finale with White Noise (late-3-finale, 7.7 min: 14 s in, as seed 1 wins by 8.3). The same seed draws the
+// same fight, so two builds compare frame for frame (the visual-clarity check: enemies, enemy shots and your attacks,
+// each found at a glance).
 // --band "<query>" plays a fixed band instead of the autopilot's picks (solo=1: no level-ups), e.g.
 // --band "start=taiko&give=taiko:5,shaker:5&remix=taiko,shaker", --tag names the shots (d-late-<tag>-1-chorus2.png)
-// and --stops picks the minutes (default 4.6,6.8,8.3).
+// and --stops picks the minutes (default 4.6,6.8,7.7).
 import { serve, launch } from './serve.mjs';
 import { mkdir } from 'node:fs/promises';
 
@@ -32,8 +33,8 @@ if (args.includes('--late')) {
   const page = await ctx.newPage();
   page.on('console', (m) => { if (m.type() === 'error') logs.push(m.text()); });
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
-  const names = { 4.6: '1-chorus2', 6.8: '2-drop', 8.3: '3-finale' };
-  const stops = flag('--stops', '4.6,6.8,8.3').split(',').map(Number).map((m) => [names[m] || `m${m}`, m]);
+  const names = { 4.6: '1-chorus2', 6.8: '2-drop', 7.7: '3-finale' };
+  const stops = flag('--stops', '4.6,6.8,7.7').split(',').map(Number).map((m) => [names[m] || `m${m}`, m]);
   const band = flag('--band', null), tag = flag('--tag', null);
   const t0 = Date.now();
   await page.goto(`${url}/index.html?sim=1&speed=12&bot=1&god=1&seed=1&minutes=${stops[0][1]}${band ? `&solo=1&${band}` : ''}`);

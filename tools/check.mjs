@@ -775,8 +775,8 @@ if (args.includes('--replay')) {
   await browser.close();
   server.close();
   const { checkReplay } = await import('./audiocheck.js');
-  const r = checkReplay(sum.sheet, sum.keyPc);
-  console.log(`run: ${sum.won ? 'won' : `ended in ${sum.section}`}, key ${sum.key}, ${sum.sheet.length} sheet entries`);
+  const r = checkReplay(sum.sheet, sum.keyPc, sum.songId);
+  console.log(`run: ${sum.won ? 'won' : `ended in ${sum.section}`}, song ${sum.songId}, key ${sum.key}, ${sum.sheet.length} sheet entries`);
   for (const k of ['full', 'stoppedEarly']) console.log(`${k.padEnd(12)} ${JSON.stringify(r[k])}`);
   const f = r.full;
   const bad = r.errors.length || logs.length || f.outOfKey || f.offGrid || f.wrongBand || f.outroLeaks || f.outroUnlifted || f.ended !== 1 || !f.clean || !r.stoppedEarly.clean
